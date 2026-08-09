@@ -70,14 +70,21 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     }
 
     //
-    // MODULE: Combine every sample's Kraken2 report into one table
+    // MODULE: Combine every sample's Kraken2 report into one table.
+    // Sorting by sample id both makes the column order reproducible and lets the
+    // sample names be handed to the tool in the same order as the files, so the
+    // combined table is labelled with sample ids rather than file names.
     //
     KRAKENTOOLS_COMBINEKREPORTS(
         ch_report_classified
-            .map { _meta, report -> report }
-            .collect()
-            .filter { reports -> reports }
-            .map { reports -> [[id: 'kraken2_combined'], reports] }
+            .toSortedList { entry_a, entry_b -> entry_a[0].id <=> entry_b[0].id }
+            .filter { entries -> entries }
+            .map { entries ->
+                [
+                    [id: 'kraken2_combined', names: entries.collect { entry -> entry[0].id }.join(' ')],
+                    entries.collect { entry -> entry[1] },
+                ]
+            }
     )
 
     def ch_bracken = channel.empty()
@@ -92,10 +99,14 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
 
         BRACKEN_COMBINEBRACKENOUTPUTS(
             BRACKEN_BRACKEN.out.reports
-                .map { _meta, report -> report }
-                .collect()
-                .filter { reports -> reports }
-                .map { reports -> [[id: 'bracken_combined'], reports] }
+                .toSortedList { entry_a, entry_b -> entry_a[0].id <=> entry_b[0].id }
+                .filter { entries -> entries }
+                .map { entries ->
+                    [
+                        [id: 'bracken_combined', names: entries.collect { entry -> entry[0].id }.join(',')],
+                        entries.collect { entry -> entry[1] },
+                    ]
+                }
         )
         ch_bracken_combined = BRACKEN_COMBINEBRACKENOUTPUTS.out.txt
     }

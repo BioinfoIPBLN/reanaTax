@@ -39,8 +39,9 @@
                 },
                 "fastq_pattern": {
                     "type": "string",
-                    "default": "**/*.{fastq,fq}{,.gz}",
+                    "default": "**.{fastq,fq}{,.gz}",
                     "description": "Glob used to find FASTQ files under `--input_dir`.",
+                    "help_text": "Note the leading `**.` rather than `**/*.`: in Nextflow globs, `**/` requires at least one directory level, so `**/*.fastq.gz` would silently skip files sitting directly in `--input_dir`.",
                     "fa_icon": "fas fa-asterisk"
                 },
                 "single_end": {

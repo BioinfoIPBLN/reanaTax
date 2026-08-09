@@ -57,7 +57,7 @@ Each accession is first resolved to its list of runs, and every run is then down
 --input_dir /data/my_reads
 ```
 
-Files are found with `--fastq_pattern` (default `**/*.{fastq,fq}{,.gz}`, so subdirectories are searched) and mates are paired from the file names. A trailing `_1`/`_2`, `_R1`/`_R2` or `_R1_001`/`_R2_001` (with `.` or `_` as the separator) marks a mate; anything else is treated as single-end. Sample names are whatever precedes that suffix.
+Files are found with `--fastq_pattern` (default `**.{fastq,fq}{,.gz}`, which matches both the folder itself and any subdirectory) and mates are paired from the file names. A trailing `_1`/`_2`, `_R1`/`_R2` or `_R1_001`/`_R2_001` (with `.` or `_` as the separator) marks a mate; anything else is treated as single-end. Sample names are whatever precedes that suffix.
 
 If your sample names legitimately end in `_1`, or the folder is single-end only, add `--single_end` to switch mate detection off entirely.
 
