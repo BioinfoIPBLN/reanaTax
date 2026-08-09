@@ -8,5 +8,15 @@ multiqc/multiqc_data/multiqc_software_versions.txt
 multiqc/multiqc_data/llms-full.txt
 multiqc/multiqc_plots/{svg,pdf,png}/*.{svg,pdf,png}
 multiqc/multiqc_report.html
-fastqc/*_fastqc.{html,zip}
+fastqc/**/*_fastqc.{html,zip}
 pipeline_info/*.{html,json,txt,yml}
+# fastp embeds a timestamp and the command line in both report formats
+fastp/*.fastp.{html,json,log}
+# The HISAT2 index and the decompressed genome are large and not byte-stable
+reference/**
+# BAM/BAI carry the @PG line, and the summary log carries the sample name only
+hisat2/*.bam
+hisat2/*.bai
+hisat2/samtools_stats/*
+# Krona HTML embeds the KronaTools install path
+krona/*.html

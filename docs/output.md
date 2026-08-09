@@ -2,32 +2,153 @@
 
 ## Introduction
 
-This document describes the output produced by the pipeline. Most of the plots are taken from the MultiQC report, which summarises results at the end of the pipeline.
-
-The directories listed below will be created in the results directory after the pipeline has finished. All paths are relative to the top-level results directory.
-
-<!-- TODO nf-core: Write this documentation describing your workflow's output -->
+This document describes the output produced by the pipeline. All paths are relative to `--outdir`.
 
 ## Pipeline overview
 
-The pipeline is built using [Nextflow](https://www.nextflow.io/) and processes data using the following steps:
+- [Download](#download) — raw reads and archive metadata fetched from ENA/SRA
+- [Reference](#reference) — host genome and HISAT2 index
+- [FastQC](#fastqc) — read quality before and after trimming
+- [fastp](#fastp) — adapter and quality trimming
+- [HISAT2](#hisat2) — host alignment, host BAMs and non-host FASTQs
+- [Kraken2](#kraken2) — taxonomic classification
+- [Bracken](#bracken) — abundance re-estimation
+- [Krona](#krona) — interactive taxonomy charts
+- [MultiQC](#multiqc) — aggregate report
+- [Pipeline information](#pipeline-information) — run metadata, versions and reports
 
-- [FastQC](#fastqc) - Raw read QC
-- [MultiQC](#multiqc) - Aggregate report describing results and QC from the whole pipeline
-- [Pipeline information](#pipeline-information) - Report metrics generated during the workflow execution
+### Download
+
+Only produced when `--input_accessions` is used.
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `download/metadata/`
+  - `<accession>-run-info.tsv`: every field ENA/SRA holds for each run under the queried accession.
+  - `<accession>.runsheet.csv`: the slim, normalised run table the pipeline actually reads — one row per run with its experiment, sample and study accession, library layout and title.
+- `download/fastq/`
+  - `<run>-run-info.tsv`: per-run download record, including which archive served the file.
+
+</details>
+
+Disable with `--save_download_metadata false`. The FASTQ files themselves are not published by default — they are intermediates, and the run tables plus the accessions are enough to reproduce them exactly.
+
+### Reference
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `reference/genome/`
+  - `*_genomic.fna.gz`: the genome as downloaded from NCBI (only when `--host_accession`/`--host_taxid` was used).
+  - `*.fna` / `*.fasta`: the decompressed genome that was indexed.
+- `reference/hisat2/`
+  - `*.ht2`: the HISAT2 index.
+
+</details>
+
+Published by default so later runs can skip the build with `--hisat2_index <outdir>/reference/hisat2`. Disable with `--save_reference false`.
 
 ### FastQC
 
 <details markdown="1">
 <summary>Output files</summary>
 
-- `fastqc/`
-  - `*_fastqc.html`: FastQC report containing quality metrics.
-  - `*_fastqc.zip`: Zip archive containing the FastQC report, tab-delimited data file and plot images.
+- `fastqc/raw/`
+  - `<sample>_raw*_fastqc.html`: report for the reads as they arrived.
+- `fastqc/trimmed/`
+  - `<sample>_trimmed*_fastqc.html`: report for the reads after fastp.
 
 </details>
 
-[FastQC](http://www.bioinformatics.babraham.ac.uk/projects/fastqc/) gives general quality metrics about your sequenced reads. It provides information about the quality score distribution across your reads, per base sequence content (%A/T/G/C), adapter contamination and overrepresented sequences. For further reading and documentation see the [FastQC help pages](http://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/).
+[FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) gives per-base quality, adapter content, duplication and GC. The raw/trimmed pair is what tells you whether trimming did what you expected. The `.zip` archives are not published — their contents are in the MultiQC report.
+
+### fastp
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `fastp/`
+  - `<sample>.fastp.html`, `<sample>.fastp.json`: trimming report.
+  - `<sample>.fastp.log`: tool log.
+- `fastp/trimmed/` (with `--save_trimmed`)
+  - `<sample>*.fastp.fastq.gz`: the trimmed reads.
+- `fastp/failed/` (with `--save_trimmed_fail`)
+  - `<sample>*.fail.fastq.gz`: reads fastp discarded.
+
+</details>
+
+[fastp](https://github.com/OpenGene/fastp) does adapter detection and quality trimming in one pass. The JSON feeds MultiQC.
+
+### HISAT2
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `hisat2/`
+  - `<sample>.host.sorted.bam`, `.bai`: reads that aligned to the host, sorted and indexed.
+- `hisat2/log/`
+  - `<sample>.host.hisat2.summary.log`: alignment summary, including the overall alignment rate.
+- `hisat2/samtools_stats/`
+  - `*.stats`, `*.flagstat`, `*.idxstats`: alignment statistics.
+- `unaligned/`
+  - `<sample>.host.unmapped_1.fastq.gz`, `<sample>.host.unmapped_2.fastq.gz` (paired-end)
+  - `<sample>.host.unmapped.fastq.gz` (single-end)
+
+</details>
+
+The **unaligned FASTQs are the pipeline's main intermediate product** — they are the non-host fraction that Kraken2 classifies, and they are also the right input for any downstream assembly or targeted analysis you want to run yourself.
+
+For paired-end data these are HISAT2's `--un-conc-gz` output: pairs that did not align *concordantly*. A pair where only one mate hit the host is therefore kept, which is the conservative choice for depletion.
+
+The overall alignment rate in the summary log is the number to look at first — it is the host fraction of the library.
+
+Turn either output off with `--save_host_bam false` / `--save_unaligned false`.
+
+### Kraken2
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `kraken2/`
+  - `<sample>.kraken2.report.txt`: per-sample classification report.
+  - `kraken2_combined_report.txt`: all samples in one table.
+- `kraken2/reads/` (with `--kraken2_save_reads`)
+  - `<sample>.classified*.fastq.gz`, `<sample>.unclassified*.fastq.gz`
+- `kraken2/read_assignments/` (with `--kraken2_save_readclassifications`)
+  - `<sample>.kraken2.classifiedreads.txt`: one line per read. These files are large.
+
+</details>
+
+[Kraken2](https://ccb.jhu.edu/software/kraken2/) assigns each read to a taxon by exact k-mer matching. The report columns are: percentage of reads in the clade, reads in the clade, reads assigned directly to the taxon, rank code, NCBI taxonomy ID, and name.
+
+Read the percentages as *read* abundance, not organism abundance — that is what Bracken corrects.
+
+### Bracken
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `bracken/`
+  - `<sample>.bracken_<level>.tsv`: re-estimated abundances for that sample.
+  - `<sample>.bracken_<level>.kraken2.report_bracken.txt`: the same estimate in Kraken2 report format.
+  - `bracken_combined_<level>.txt`: all samples in one table — this is the file to take into R or Python.
+
+</details>
+
+[Bracken](https://github.com/jenniferlu717/Bracken) redistributes reads that Kraken2 could only place at a higher rank down to the requested level (`--bracken_level`, default species). **Use the Bracken table, not the raw Kraken2 report, for abundance comparisons between samples.**
+
+### Krona
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `krona/`
+  - `<sample>.krona.html`: self-contained interactive chart.
+
+</details>
+
+[Krona](https://github.com/marbl/Krona) renders the composition as a zoomable hierarchy. Built from the Bracken-corrected report when Bracken ran, otherwise from the Kraken2 report. Open the HTML directly in a browser — no server needed.
 
 ### MultiQC
 
@@ -35,15 +156,13 @@ The pipeline is built using [Nextflow](https://www.nextflow.io/) and processes d
 <summary>Output files</summary>
 
 - `multiqc/`
-  - `multiqc_report.html`: a standalone HTML file that can be viewed in your web browser.
-  - `multiqc_data/`: directory containing parsed statistics from the different tools used in the pipeline.
-  - `multiqc_plots/`: directory containing static images from the report in various formats.
+  - `multiqc_report.html`: the aggregate report.
+  - `multiqc_data/`: parsed numbers behind every plot.
+  - `multiqc_plots/`: static images of the plots.
 
 </details>
 
-[MultiQC](http://multiqc.info) is a visualization tool that generates a single HTML report summarising all samples in your project. Most of the pipeline QC results are visualised in the report and further statistics are available in the report data directory.
-
-Results generated by MultiQC collate pipeline QC from supported tools e.g. FastQC. The pipeline has special steps which also allow the software versions to be reported in the MultiQC output for future traceability. For more information about how to use MultiQC reports, see <http://multiqc.info>.
+[MultiQC](http://multiqc.info) collects FastQC (raw and trimmed, shown as separate sections), fastp, HISAT2, samtools and Kraken2 into a single page. The General Statistics table carries the host alignment rate per sample, which is usually the fastest way to spot a sample that behaved differently from the rest.
 
 ### Pipeline information
 
@@ -51,11 +170,10 @@ Results generated by MultiQC collate pipeline QC from supported tools e.g. FastQ
 <summary>Output files</summary>
 
 - `pipeline_info/`
-  - Reports generated by Nextflow: `execution_report.html`, `execution_timeline.html`, `execution_trace.txt` and `pipeline_dag.dot`/`pipeline_dag.svg`.
-  - Reports generated by the pipeline: `pipeline_report.html`, `pipeline_report.txt` and `software_versions.yml`. The `pipeline_report*` files will only be present if the `--email` / `--email_on_fail` parameter's are used when running the pipeline.
-  - Reformatted samplesheet files used as input to the pipeline: `samplesheet.valid.csv`.
-  - Parameters used by the pipeline run: `params.json`.
+  - `execution_report_*.html`, `execution_timeline_*.html`, `execution_trace_*.txt`, `pipeline_dag_*.html`: Nextflow run reports.
+  - `reanatax_software_mqc_versions.yml`: version of every tool that ran.
+  - `params_*.json`: the parameters the run used.
 
 </details>
 
-[Nextflow](https://docs.seqera.io/platform-cloud/reports/overview) provides excellent functionality for generating various reports relevant to the running and execution of the pipeline. This will allow you to troubleshoot errors with the running of the pipeline, and also provide you with other information such as launch commands, run times and resource usage.
+The trace file records CPU, memory and walltime actually used per task — the basis for tuning resource requests on your own data.

@@ -1,0 +1,10 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/modules/environment-schema.json
+# Kept byte-for-byte in sync with modules/nf-core/fastqdl/environment.yml so
+# that the run list resolved here always matches what FASTQDL will download.
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::fastq-dl=3.0.1
+  - conda-forge::legacy-cgi=2.6.2

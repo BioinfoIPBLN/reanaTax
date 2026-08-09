@@ -1,6 +1,5 @@
 # BioinfoIPBLN/reanatax
 
-
 [![GitHub Actions CI Status](https://github.com/BioinfoIPBLN/reanatax/actions/workflows/nf-test.yml/badge.svg)](https://github.com/BioinfoIPBLN/reanatax/actions/workflows/nf-test.yml)
 [![GitHub Actions Linting Status](https://github.com/BioinfoIPBLN/reanatax/actions/workflows/linting.yml/badge.svg)](https://github.com/BioinfoIPBLN/reanatax/actions/workflows/linting.yml)[![Cite with Zenodo](http://img.shields.io/badge/DOI-10.5281/zenodo.XXXXXXX-1073c8?labelColor=000000)](https://doi.org/10.5281/zenodo.XXXXXXX)
 [![nf-test](https://img.shields.io/badge/unit_tests-nf--test-337ab7.svg)](https://www.nf-test.com)
@@ -14,49 +13,68 @@
 
 ## Introduction
 
-**BioinfoIPBLN/reanatax** is a bioinformatics pipeline that ...
+**BioinfoIPBLN/reanatax** takes raw sequencing data - either fetched straight from the public archives or already on disk - strips out the host, and taxonomically profiles what is left. It is built for the reanalysis scenario: you have a BioProject accession from a paper and want to know which non-host organisms are in that data.
 
-<!-- TODO nf-core:
-   Complete this sentence with a 2-3 sentence summary of what types of data the pipeline ingests, a brief overview of the
-   major pipeline sections and the types of output it produces. You're giving an overview to someone new
-   to nf-core here, in 15-20 seconds. For an example, see https://github.com/nf-core/rnaseq/blob/master/README.md#introduction
--->
+Given a BioProject/SRA/ENA accession, a folder of FASTQ files, or a samplesheet, the pipeline downloads and QCs the reads, trims them, aligns them against a host genome that it can fetch from NCBI for you, keeps **both** halves of that split (the host BAM and the non-host FASTQ), and classifies the non-host fraction with Kraken2 and Bracken. Everything lands in a single MultiQC report plus per-sample and combined abundance tables.
 
-<!-- TODO nf-core: Include a figure that guides the user through the major workflow steps. Many nf-core
-     workflows use the "tube map" design for that. See https://nf-co.re/docs/community/brand/workflow-schematics#examples for examples.   -->
-<!-- TODO nf-core: Fill in short bullet-pointed list of the default steps in the pipeline -->1. Read QC ([`FastQC`](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/))2. Present QC for raw reads ([`MultiQC`](http://multiqc.info/))
+1. Fetch reads from ENA/SRA ([`fastq-dl`](https://github.com/rpetit3/fastq-dl)) - each accession is first resolved to its runs so they download in parallel
+2. Read QC ([`FastQC`](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/))
+3. Adapter and quality trimming ([`fastp`](https://github.com/OpenGene/fastp)), followed by a second `FastQC`
+4. Host genome retrieval ([`ncbi-genome-download`](https://github.com/kblin/ncbi-genome-download)) and indexing ([`HISAT2`](https://daehwankimlab.github.io/hisat2/))
+5. Host depletion (`HISAT2 --very-sensitive`), saving the aligned reads as sorted, indexed BAM ([`SAMtools`](http://www.htslib.org/)) and the unaligned reads as FASTQ
+6. Taxonomic classification of the non-host fraction ([`Kraken2`](https://ccb.jhu.edu/software/kraken2/))
+7. Abundance re-estimation ([`Bracken`](https://github.com/jenniferlu717/Bracken)) and interactive charts ([`Krona`](https://github.com/marbl/Krona))
+8. Aggregate report ([`MultiQC`](http://multiqc.info/))
 
 ## Usage
 
 > [!NOTE]
 > If you are new to Nextflow and nf-core, please refer to [this page](https://nf-co.re/docs/get_started/environment_setup/overview) on how to set-up Nextflow. Make sure to [test your setup](https://nf-co.re/docs/get_started/run-your-first-pipeline) with `-profile test` before running the workflow on actual data.
 
-<!-- TODO nf-core: Describe the minimum required steps to execute the pipeline, e.g. how to prepare samplesheets.
-     Explain what rows and columns represent. For instance (please edit as appropriate):
+Pick exactly one of the three input routes.
 
-First, prepare a samplesheet with your input data that looks as follows:
-
-`samplesheet.csv`:
-
-```csv
-sample,fastq_1,fastq_2
-CONTROL_REP1,AEG588A1_S1_L002_R1_001.fastq.gz,AEG588A1_S1_L002_R2_001.fastq.gz
-```
-
-Each row represents a fastq file (single-end) or a pair of fastq files (paired end).
-
--->
-
-Now, you can run the pipeline using:
-
-<!-- TODO nf-core: update the following command to include all required parameters for a minimal example -->
+**From public accessions** - a BioProject, study, sample, experiment or run:
 
 ```bash
 nextflow run BioinfoIPBLN/reanatax \
-   -profile <docker/singularity/.../institute> \
-   --input samplesheet.csv \
-   --outdir <OUTDIR>
+   -profile local,singularity \
+   --input_accessions PRJNA682076 \
+   --host_accession GCF_000001405.40 --ncbi_group vertebrate_mammalian \
+   --kraken2_db /data/kraken2/Standard \
+   --outdir ./results
 ```
+
+**From a folder of FASTQ files** - mates are paired from their file names:
+
+```bash
+nextflow run BioinfoIPBLN/reanatax \
+   -profile local,singularity \
+   --input_dir /data/my_reads \
+   --fasta /data/genomes/host.fa.gz \
+   --kraken2_db /data/kraken2/Standard \
+   --outdir ./results
+```
+
+**From a samplesheet** - use this when you need explicit control over sample names or have several runs per sample:
+
+```csv title="samplesheet.csv"
+sample,fastq_1,fastq_2
+CONTROL_REP1,AEG588A1_S1_L002_R1_001.fastq.gz,AEG588A1_S1_L002_R2_001.fastq.gz
+TREATMENT_REP1,AEG588A4_S4_L003_R1_001.fastq.gz,
+```
+
+```bash
+nextflow run BioinfoIPBLN/reanatax \
+   -profile slurm,singularity --slurm_queue <partition> \
+   --input samplesheet.csv \
+   --hisat2_index /data/genomes/host_hisat2 \
+   --kraken2_db /data/kraken2/Standard \
+   --outdir ./results
+```
+
+Add `-profile local` to run on the current machine (CPU and RAM ceilings are detected automatically) or `-profile slurm` to submit every task to the scheduler.
+
+See [docs/usage.md](docs/usage.md) for the full parameter reference - in particular how to size the Kraken2 memory request, and why `--hisat2_max_alignments 1` is usually worth adding.
 
 > [!WARNING]
 > Please provide pipeline parameters via the CLI or Nextflow `-params-file` option. Custom config files including those provided by the `-c` Nextflow option can be used to provide any configuration _**except for parameters**_; see [docs](https://nf-co.re/docs/running/run-pipelines#using-parameter-files).
@@ -65,9 +83,7 @@ nextflow run BioinfoIPBLN/reanatax \
 
 BioinfoIPBLN/reanatax was originally written by Jose L. Ruiz.
 
-We thank the following people for their extensive assistance in the development of this pipeline:
-
-<!-- TODO nf-core: If applicable, make list of people who have also contributed -->
+It reuses design and code from [reanalyzerGSE](https://github.com/BioinfoIPBLN/reanalyzerGSE) and from the [nf-core/modules](https://github.com/nf-core/modules) collection.
 
 ## Contributions and Support
 
@@ -75,10 +91,7 @@ If you would like to contribute to this pipeline, please see the [contributing g
 
 ## Citations
 
-<!-- TODO nf-core: Add citation for pipeline after first release. Uncomment lines below and update Zenodo doi and badge at the top of this file. -->
 <!-- If you use BioinfoIPBLN/reanatax for your analysis, please cite it using the following doi: [10.5281/zenodo.XXXXXX](https://doi.org/10.5281/zenodo.XXXXXX) -->
-
-<!-- TODO nf-core: Add bibliography of tools and data used in your pipeline -->
 
 An extensive list of references for the tools used by the pipeline can be found in the [`CITATIONS.md`](CITATIONS.md) file.
 

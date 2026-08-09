@@ -10,7 +10,7 @@
             "type": "object",
             "fa_icon": "fas fa-terminal",
             "description": "Define where the pipeline should find input data and save output data.",
-            "required": ["input", "outdir"],
+            "required": ["outdir"],
             "properties": {
                 "input": {
                     "type": "string",
@@ -19,9 +19,35 @@
                     "schema": "assets/schema_input.json",
                     "mimetype": "text/csv",
                     "pattern": "^\\S+\\.csv$",
-                    "description": "Path to comma-separated file containing information about the samples in the experiment.",
-                    "help_text": "You will need to create a design file with information about the samples in your experiment before running the pipeline. Use this parameter to specify its location. It has to be a comma-separated file with 3 columns, and a header row.",
+                    "description": "Path to a comma-separated samplesheet describing the input FASTQ files.",
+                    "help_text": "Three columns with a header row: `sample`, `fastq_1` and `fastq_2` (leave `fastq_2` empty for single-end data). Rows that share a `sample` value are treated as multiple runs of that sample and are concatenated. Mutually exclusive with `--input_dir` and `--input_accessions`.",
                     "fa_icon": "fas fa-file-csv"
+                },
+                "input_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "exists": true,
+                    "description": "Path to a folder of already-downloaded FASTQ files.",
+                    "help_text": "Files are discovered with `--fastq_pattern` and mates are paired from their file names (`_1`/`_2`, `_R1`/`_R2`, `_R1_001`/`_R2_001`, with `.` or `_` as separator). Use `--single_end` to disable mate detection. Mutually exclusive with `--input` and `--input_accessions`.",
+                    "fa_icon": "fas fa-folder-open"
+                },
+                "input_accessions": {
+                    "type": "string",
+                    "description": "One or more ENA/SRA accessions to download with fastq-dl, comma-separated or as a file with one per line.",
+                    "help_text": "BioProject (PRJEB/PRJNA/PRJDB), Study (ERP/DRP/SRP), BioSample (SAMD/SAME/SAMN), Sample (ERS/DRS/SRS), Experiment (ERX/DRX/SRX) and Run (ERR/DRR/SRR) accessions are supported. Each accession is first resolved to its list of runs so that every run downloads as its own parallel task. GEO accessions (GSE/GSM) are not supported by fastq-dl - use the linked SRA study instead. Mutually exclusive with `--input` and `--input_dir`.",
+                    "fa_icon": "fas fa-cloud-download-alt"
+                },
+                "fastq_pattern": {
+                    "type": "string",
+                    "default": "**/*.{fastq,fq}{,.gz}",
+                    "description": "Glob used to find FASTQ files under `--input_dir`.",
+                    "fa_icon": "fas fa-asterisk"
+                },
+                "single_end": {
+                    "type": "boolean",
+                    "description": "Treat every file found under `--input_dir` as a separate single-end sample.",
+                    "help_text": "Escape hatch for folders where mate detection would misfire, e.g. sample names that legitimately end in `_1`.",
+                    "fa_icon": "fas fa-align-left"
                 },
                 "outdir": {
                     "type": "string",
@@ -40,6 +66,381 @@
                     "type": "string",
                     "description": "MultiQC report title. Printed as page header, used for filename if not otherwise specified.",
                     "fa_icon": "fas fa-file-signature"
+                }
+            }
+        },
+        "download_options": {
+            "title": "Download options",
+            "type": "object",
+            "fa_icon": "fas fa-cloud-download-alt",
+            "description": "Control how raw reads are fetched when `--input_accessions` is used.",
+            "properties": {
+                "fastqdl_provider": {
+                    "type": "string",
+                    "default": "ena",
+                    "enum": ["ena", "sra"],
+                    "description": "Archive to try first. fastq-dl falls back to the other one automatically.",
+                    "help_text": "ENA is the default because its FASTQs are served directly, whereas SRA downloads have to be converted and recompressed.",
+                    "fa_icon": "fas fa-archive"
+                },
+                "group_runs_by": {
+                    "type": "string",
+                    "default": "experiment",
+                    "enum": ["run", "experiment", "sample"],
+                    "description": "How runs are grouped into samples before analysis.",
+                    "help_text": "`experiment` (the default) concatenates the technical replicates of one library into a single sample, which is what most submissions intend. `run` keeps every run separate. `sample` merges everything sequenced from the same BioSample.",
+                    "fa_icon": "fas fa-object-group"
+                },
+                "max_download_forks": {
+                    "type": "integer",
+                    "default": 4,
+                    "minimum": 1,
+                    "description": "Maximum number of downloads running at the same time.",
+                    "help_text": "Raising this speeds up large BioProjects but archives throttle (and eventually refuse) aggressive clients, so increase it gradually.",
+                    "fa_icon": "fas fa-tachometer-alt"
+                },
+                "download_local": {
+                    "type": "boolean",
+                    "description": "Run the download tasks on the local executor even under `-profile slurm`.",
+                    "help_text": "Useful on clusters whose compute nodes have no outbound internet access.",
+                    "fa_icon": "fas fa-network-wired"
+                },
+                "save_download_metadata": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Publish the archive metadata tables that describe each downloaded run.",
+                    "fa_icon": "fas fa-table"
+                }
+            }
+        },
+        "reference_genome_options": {
+            "title": "Host reference options",
+            "type": "object",
+            "fa_icon": "fas fa-dna",
+            "description": "The host genome that reads are aligned against before classification.",
+            "help_text": "Give exactly one of `--hisat2_index`, `--fasta`, `--host_accession` or `--host_taxid`. They are listed here in order of decreasing precedence: a prebuilt index short-circuits everything else, and a local FASTA is used in preference to downloading one.",
+            "properties": {
+                "fasta": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "mimetype": "text/plain",
+                    "pattern": "^\\S+\\.(fn?a|fasta)(\\.gz)?$",
+                    "description": "Path to the host genome FASTA file (optionally gzipped).",
+                    "fa_icon": "far fa-file-code"
+                },
+                "gtf": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "mimetype": "text/plain",
+                    "pattern": "^\\S+\\.gtf(\\.gz)?$",
+                    "description": "Optional host annotation GTF, used to build a splice-aware HISAT2 index.",
+                    "help_text": "Only worth providing for RNA-seq input, where splice-aware alignment captures more host reads. Building the index then needs roughly `--hisat2_build_memory` of RAM.",
+                    "fa_icon": "fas fa-code-branch"
+                },
+                "hisat2_index": {
+                    "type": "string",
+                    "format": "path",
+                    "exists": true,
+                    "description": "Path to a prebuilt HISAT2 index directory, or a `.tar.gz` of one.",
+                    "fa_icon": "fas fa-bezier-curve"
+                },
+                "host_accession": {
+                    "type": "string",
+                    "pattern": "^GC[AF]_[0-9]+\\.[0-9]+$",
+                    "description": "NCBI assembly accession of the host genome to download, e.g. `GCF_000001405.40`.",
+                    "help_text": "`GCF_` accessions are fetched from RefSeq and `GCA_` accessions from GenBank; the pipeline picks the right section for you. Set `--ncbi_group` to the organism's group (e.g. `vertebrate_mammalian`) to make the lookup much faster.",
+                    "fa_icon": "fas fa-barcode"
+                },
+                "host_taxid": {
+                    "type": "string",
+                    "pattern": "^[0-9]+$",
+                    "description": "NCBI taxonomy ID of the host, e.g. `9606` for human.",
+                    "help_text": "Resolves to that taxon's RefSeq reference assembly. Use `--host_accession` when you need a specific assembly version.",
+                    "fa_icon": "fas fa-sitemap"
+                },
+                "ncbi_group": {
+                    "type": "string",
+                    "default": "all",
+                    "description": "ncbi-genome-download taxonomic group to search.",
+                    "help_text": "`all` always works but downloads every group's assembly summary first. Narrowing it (`vertebrate_mammalian`, `bacteria`, `fungi`, `plant`, `viral`, ...) is considerably faster.",
+                    "fa_icon": "fas fa-layer-group"
+                },
+                "ncbi_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed to ncbi-genome-download.",
+                    "fa_icon": "fas fa-terminal",
+                    "hidden": true
+                },
+                "hisat2_build_memory": {
+                    "type": "string",
+                    "default": "200.GB",
+                    "pattern": "^\\d+(\\.\\d+)?\\.?\\s*(K|M|G|T)?B$",
+                    "description": "Memory required before hisat2-build will use splice sites and exons.",
+                    "help_text": "Building a splice-aware index for a vertebrate genome needs roughly 200 GB of RAM; below this threshold the module silently builds the (much cheaper) genome-only index instead.",
+                    "fa_icon": "fas fa-memory"
+                },
+                "save_reference": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Publish the downloaded genome and the HISAT2 index so later runs can reuse them.",
+                    "fa_icon": "fas fa-save"
+                }
+            }
+        },
+        "read_qc_and_trimming_options": {
+            "title": "Read QC and trimming options",
+            "type": "object",
+            "fa_icon": "fas fa-cut",
+            "description": "FastQC and fastp settings.",
+            "properties": {
+                "adapter_fasta": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "FASTA of adapter sequences to pass to fastp.",
+                    "help_text": "Only needed when fastp's automatic adapter detection is not enough.",
+                    "fa_icon": "far fa-file-code"
+                },
+                "fastp_args": {
+                    "type": "string",
+                    "description": "Replace the default fastp arguments (`--detect_adapter_for_pe`).",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "save_trimmed": {
+                    "type": "boolean",
+                    "description": "Publish the trimmed FASTQ files.",
+                    "fa_icon": "fas fa-save"
+                },
+                "save_trimmed_fail": {
+                    "type": "boolean",
+                    "description": "Publish the reads that fastp discarded.",
+                    "fa_icon": "fas fa-save"
+                }
+            }
+        },
+        "host_depletion_options": {
+            "title": "Host depletion options",
+            "type": "object",
+            "fa_icon": "fas fa-filter",
+            "description": "HISAT2 alignment against the host genome.",
+            "properties": {
+                "hisat2_args": {
+                    "type": "string",
+                    "default": "--very-sensitive",
+                    "description": "Arguments passed to hisat2.",
+                    "help_text": "`--very-sensitive` expands to `--bowtie2-dp 2 -k 50 --score-min L,0,-1`. The `-k 50` part reports up to 50 alignments per read, which makes the host BAM large and the run slower; see `--hisat2_max_alignments`.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "hisat2_max_alignments": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Report at most this many alignments per read (hisat2 `-k`).",
+                    "help_text": "Set to `1` to keep the search sensitivity of `--very-sensitive` while writing only the best alignment. Recommended whenever the host BAM is only used for QC or for counting host reads.",
+                    "fa_icon": "fas fa-compress"
+                },
+                "save_host_bam": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Sort, index and publish the host-aligned BAM files.",
+                    "fa_icon": "fas fa-save"
+                },
+                "save_unaligned": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Publish the non-host (unaligned) FASTQ files that are fed to Kraken2.",
+                    "fa_icon": "fas fa-save"
+                }
+            }
+        },
+        "taxonomic_classification_options": {
+            "title": "Taxonomic classification options",
+            "type": "object",
+            "fa_icon": "fas fa-bacteria",
+            "description": "Kraken2, Bracken and Krona settings.",
+            "properties": {
+                "kraken2_db": {
+                    "type": "string",
+                    "format": "path",
+                    "exists": true,
+                    "description": "Path to a Kraken2 database directory, or a `.tar.gz` of one.",
+                    "help_text": "Prebuilt databases are available from https://benlangmead.github.io/aws-indexes/k2. The directory must contain `hash.k2d`, `opts.k2d` and `taxo.k2d`, plus `databaseNmers.kmer_distrib` files if Bracken is to run.",
+                    "fa_icon": "fas fa-database"
+                },
+                "kraken2_confidence": {
+                    "type": "number",
+                    "default": 0.0,
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "description": "Kraken2 confidence score threshold.",
+                    "help_text": "Raising this (0.05-0.2 is typical) trades sensitivity for far fewer spurious classifications, which matters most for low-biomass samples.",
+                    "fa_icon": "fas fa-percentage"
+                },
+                "kraken2_min_hit_groups": {
+                    "type": "integer",
+                    "default": 2,
+                    "minimum": 1,
+                    "description": "Minimum number of hit groups needed to make a classification call.",
+                    "fa_icon": "fas fa-object-ungroup"
+                },
+                "kraken2_memory_mapping": {
+                    "type": "boolean",
+                    "description": "Read the database from disk instead of loading it into RAM.",
+                    "help_text": "Drastically lowers the memory request at the cost of speed. On a machine where the database already sits in the page cache (for example a fast shared filesystem with plenty of free RAM) this is often close to free, and it is what makes many-sample runs against a large database practical.",
+                    "fa_icon": "fas fa-memory"
+                },
+                "kraken2_report_minimizer_data": {
+                    "type": "boolean",
+                    "description": "Add per-clade distinct-minimizer columns to the Kraken2 report.",
+                    "help_text": "Useful for filtering false positives, but the extra columns cannot be read by Bracken or by MultiQC, so this requires `--skip_bracken`.",
+                    "fa_icon": "fas fa-columns"
+                },
+                "kraken2_save_reads": {
+                    "type": "boolean",
+                    "description": "Publish the classified and unclassified FASTQ files produced by Kraken2.",
+                    "fa_icon": "fas fa-save"
+                },
+                "kraken2_save_readclassifications": {
+                    "type": "boolean",
+                    "description": "Publish the per-read classification table.",
+                    "help_text": "One line per read - these files are large.",
+                    "fa_icon": "fas fa-save"
+                },
+                "kraken2_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed to kraken2.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "kraken2_cpus": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "CPUs per Kraken2 task (default: 12).",
+                    "fa_icon": "fas fa-microchip"
+                },
+                "kraken2_memory": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?\\.?\\s*(K|M|G|T)?B$",
+                    "description": "Memory per Kraken2 task, e.g. `'700.GB'`.",
+                    "help_text": "Must be at least the size of the database unless `--kraken2_memory_mapping` is used. Defaults to 72 GB (16 GB with memory mapping), which suits Standard-8/PlusPF but not core_nt.",
+                    "fa_icon": "fas fa-memory"
+                },
+                "bracken_db": {
+                    "type": "string",
+                    "format": "path",
+                    "exists": true,
+                    "description": "Path to the Bracken kmer distributions. Defaults to `--kraken2_db`.",
+                    "fa_icon": "fas fa-database"
+                },
+                "bracken_read_length": {
+                    "type": "integer",
+                    "default": 100,
+                    "minimum": 1,
+                    "description": "Read length whose kmer distribution Bracken should use.",
+                    "help_text": "Must match a `databaseNmers.kmer_distrib` file present in the database. Pick the value closest to the read length reported by FastQC.",
+                    "fa_icon": "fas fa-ruler-horizontal"
+                },
+                "bracken_level": {
+                    "type": "string",
+                    "default": "S",
+                    "enum": ["D", "P", "C", "O", "F", "G", "S", "S1"],
+                    "description": "Taxonomic level for Bracken abundance re-estimation.",
+                    "fa_icon": "fas fa-sitemap"
+                },
+                "bracken_threshold": {
+                    "type": "integer",
+                    "default": 0,
+                    "minimum": 0,
+                    "description": "Minimum number of reads at the chosen level before Bracken re-estimates it.",
+                    "fa_icon": "fas fa-filter"
+                }
+            }
+        },
+        "process_skipping_options": {
+            "title": "Process skipping options",
+            "type": "object",
+            "fa_icon": "fas fa-fast-forward",
+            "description": "Turn individual steps of the pipeline off.",
+            "properties": {
+                "skip_fastqc": {
+                    "type": "boolean",
+                    "description": "Skip FastQC.",
+                    "fa_icon": "fas fa-forward"
+                },
+                "skip_trimming": {
+                    "type": "boolean",
+                    "description": "Skip fastp trimming.",
+                    "fa_icon": "fas fa-forward"
+                },
+                "skip_host_removal": {
+                    "type": "boolean",
+                    "description": "Skip HISAT2 host depletion and classify the trimmed reads directly.",
+                    "fa_icon": "fas fa-forward"
+                },
+                "skip_kraken2": {
+                    "type": "boolean",
+                    "description": "Skip taxonomic classification (and everything downstream of it).",
+                    "fa_icon": "fas fa-forward"
+                },
+                "skip_bracken": {
+                    "type": "boolean",
+                    "description": "Skip Bracken abundance re-estimation.",
+                    "fa_icon": "fas fa-forward"
+                },
+                "skip_krona": {
+                    "type": "boolean",
+                    "description": "Skip Krona chart generation.",
+                    "fa_icon": "fas fa-forward"
+                },
+                "skip_multiqc": {
+                    "type": "boolean",
+                    "description": "Skip the MultiQC report.",
+                    "fa_icon": "fas fa-forward"
+                }
+            }
+        },
+        "execution_options": {
+            "title": "Execution options",
+            "type": "object",
+            "fa_icon": "fas fa-server",
+            "description": "Caps and scheduler settings used by the `local` and `slurm` profiles.",
+            "properties": {
+                "resource_limit_cpus": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Maximum CPUs a single task may request.",
+                    "help_text": "With `-profile local` this defaults to the number of cores on the machine; with `-profile slurm` to 128. Any task asking for more is capped instead of being rejected.",
+                    "fa_icon": "fas fa-microchip"
+                },
+                "resource_limit_memory": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?\\.?\\s*(K|M|G|T)?B$",
+                    "description": "Maximum memory a single task may request, e.g. `'128.GB'`.",
+                    "help_text": "With `-profile local` this defaults to the machine's total RAM.",
+                    "fa_icon": "fas fa-memory"
+                },
+                "resource_limit_time": {
+                    "type": "string",
+                    "pattern": "^(\\d+\\.?\\s*(s|m|h|d|day)\\s*)+$",
+                    "description": "Maximum walltime a single task may request, e.g. `'24.h'`.",
+                    "fa_icon": "far fa-clock"
+                },
+                "slurm_queue": {
+                    "type": "string",
+                    "description": "SLURM partition to submit to (`-profile slurm`).",
+                    "fa_icon": "fas fa-stream"
+                },
+                "slurm_options": {
+                    "type": "string",
+                    "description": "Extra options appended to every sbatch command, e.g. `'--account=myproject'`.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "slurm_queue_size": {
+                    "type": "integer",
+                    "default": 100,
+                    "minimum": 1,
+                    "description": "Maximum number of jobs Nextflow keeps queued in SLURM at once.",
+                    "fa_icon": "fas fa-list-ol"
                 }
             }
         },
@@ -197,6 +598,27 @@
     "allOf": [
         {
             "$ref": "#/$defs/input_output_options"
+        },
+        {
+            "$ref": "#/$defs/download_options"
+        },
+        {
+            "$ref": "#/$defs/reference_genome_options"
+        },
+        {
+            "$ref": "#/$defs/read_qc_and_trimming_options"
+        },
+        {
+            "$ref": "#/$defs/host_depletion_options"
+        },
+        {
+            "$ref": "#/$defs/taxonomic_classification_options"
+        },
+        {
+            "$ref": "#/$defs/process_skipping_options"
+        },
+        {
+            "$ref": "#/$defs/execution_options"
         },
         {
             "$ref": "#/$defs/institutional_config_options"

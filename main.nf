@@ -28,7 +28,8 @@ include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_rean
 workflow BIOINFOIPBLN_REANATAX {
 
     take:
-    samplesheet // channel: samplesheet read in from --input
+    samplesheet // channel: reads read in from --input / --input_dir
+    accessions  // channel: accessions read in from --input_accessions
 
     main:
 
@@ -37,6 +38,7 @@ workflow BIOINFOIPBLN_REANATAX {
     //
     REANATAX (
         samplesheet,
+        accessions,
         params.multiqc_config,
         params.multiqc_logo,
         params.multiqc_methods_description,
@@ -73,7 +75,8 @@ workflow {
     // WORKFLOW: Run main workflow
     //
     BIOINFOIPBLN_REANATAX (
-        PIPELINE_INITIALISATION.out.samplesheet
+        PIPELINE_INITIALISATION.out.samplesheet,
+        PIPELINE_INITIALISATION.out.accessions
     )
     //
     // SUBWORKFLOW: Run completion tasks

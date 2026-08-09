@@ -12,3 +12,43 @@ report_section_order:
 export_plots: true
 
 disable_version_detection: true
+
+# Follow the order of the pipeline: raw QC, trimming, host depletion, then
+# classification of what was left over.
+module_order:
+  - fastqc:
+      name: "FastQC (raw)"
+      info: "Quality of the reads exactly as they arrived, before any trimming."
+      path_filters:
+        - "*_raw*.zip"
+  - fastp
+  - fastqc:
+      name: "FastQC (trimmed)"
+      info: "Quality of the reads after fastp trimming - these are the reads that go into host depletion."
+      path_filters:
+        - "*_trimmed*.zip"
+  - hisat2
+  - samtools
+  - kraken
+
+# The host mapping rate is the headline number of the depletion step, so pull
+# it into the general statistics table.
+table_columns_visible:
+  "FastQC (raw)":
+    percent_duplicates: false
+    percent_gc: true
+    avg_sequence_length: true
+    total_sequences: true
+  "FastQC (trimmed)":
+    percent_duplicates: false
+    percent_gc: false
+    avg_sequence_length: false
+    total_sequences: false
+  HISAT2:
+    overall_alignment_rate: true
+  Samtools:
+    error_rate: false
+    non-primary_alignments: false
+    reads_mapped: true
+    reads_mapped_percent: false
+    reads_properly_paired_percent: false

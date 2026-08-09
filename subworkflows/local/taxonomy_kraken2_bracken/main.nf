@@ -1,0 +1,107 @@
+//
+// Taxonomic classification of the non-host fraction with Kraken2, abundance
+// re-estimation with Bracken and interactive Krona charts.
+//
+
+include { UNTAR                          } from '../../../modules/nf-core/untar/main'
+include { KRAKEN2_KRAKEN2                } from '../../../modules/nf-core/kraken2/kraken2/main'
+include { BRACKEN_BRACKEN                } from '../../../modules/nf-core/bracken/bracken/main'
+include { BRACKEN_COMBINEBRACKENOUTPUTS  } from '../../../modules/nf-core/bracken/combinebrackenoutputs/main'
+include { KRAKENTOOLS_KREPORT2KRONA      } from '../../../modules/nf-core/krakentools/kreport2krona/main'
+include { KRAKENTOOLS_COMBINEKREPORTS    } from '../../../modules/nf-core/krakentools/combinekreports/main'
+include { KRONA_KTIMPORTTEXT             } from '../../../modules/nf-core/krona/ktimporttext/main'
+
+workflow TAXONOMY_KRAKEN2_BRACKEN {
+
+    take:
+    ch_reads // channel: [ val(meta), [ path(fastq) ] ]
+    kraken2_db // string: path to a Kraken2 database directory or tarball
+    bracken_db // string: path to the Bracken kmer distributions, or null to reuse kraken2_db
+    save_output_fastqs // boolean: keep the classified/unclassified FASTQs
+    save_reads_assignment // boolean: keep the per-read assignment table
+    skip_bracken // boolean
+    skip_krona // boolean
+
+    main:
+
+    def ch_multiqc_files = channel.empty()
+
+    //
+    // Databases are large; accept either an unpacked directory (the usual case
+    // on a cluster) or a tarball (handy for CI and for object storage).
+    //
+    def ch_kraken2_db = channel.empty()
+    if (kraken2_db.endsWith('.tar.gz') || kraken2_db.endsWith('.tgz')) {
+        UNTAR(channel.value([[id: 'kraken2_db'], file(kraken2_db, checkIfExists: true)]))
+        ch_kraken2_db = UNTAR.out.untar.map { _meta, db -> db }
+    }
+    else {
+        ch_kraken2_db = channel.value(file(kraken2_db, checkIfExists: true))
+    }
+
+    def ch_bracken_db = bracken_db
+        ? channel.value(file(bracken_db, checkIfExists: true))
+        : ch_kraken2_db
+
+    //
+    // MODULE: Kraken2
+    //
+    KRAKEN2_KRAKEN2(
+        ch_reads,
+        ch_kraken2_db,
+        save_output_fastqs,
+        save_reads_assignment,
+    )
+    ch_multiqc_files = ch_multiqc_files.mix(KRAKEN2_KRAKEN2.out.report.map { _meta, report -> report })
+
+    //
+    // MODULE: Combine every sample's Kraken2 report into one table
+    //
+    KRAKENTOOLS_COMBINEKREPORTS(
+        KRAKEN2_KRAKEN2.out.report
+            .map { _meta, report -> report }
+            .collect()
+            .map { reports -> [[id: 'kraken2_combined'], reports] }
+    )
+
+    def ch_bracken = channel.empty()
+    def ch_bracken_combined = channel.empty()
+
+    if (!skip_bracken) {
+        //
+        // MODULE: Bracken re-estimates abundances from the Kraken2 report
+        //
+        BRACKEN_BRACKEN(KRAKEN2_KRAKEN2.out.report, ch_bracken_db)
+        ch_bracken = BRACKEN_BRACKEN.out.reports
+
+        BRACKEN_COMBINEBRACKENOUTPUTS(
+            BRACKEN_BRACKEN.out.reports
+                .map { _meta, report -> report }
+                .collect()
+                .map { reports -> [[id: 'bracken_combined'], reports] }
+        )
+        ch_bracken_combined = BRACKEN_COMBINEBRACKENOUTPUTS.out.txt
+    }
+
+    def ch_krona = channel.empty()
+
+    if (!skip_krona) {
+        //
+        // Krona is rendered from the Bracken-corrected report when Bracken ran,
+        // because that is the abundance estimate users are meant to interpret.
+        //
+        def ch_for_krona = skip_bracken ? KRAKEN2_KRAKEN2.out.report : BRACKEN_BRACKEN.out.txt
+
+        KRAKENTOOLS_KREPORT2KRONA(ch_for_krona)
+        KRONA_KTIMPORTTEXT(KRAKENTOOLS_KREPORT2KRONA.out.txt)
+        ch_krona = KRONA_KTIMPORTTEXT.out.html
+    }
+
+    emit:
+    report = KRAKEN2_KRAKEN2.out.report // channel: [ val(meta), path(report) ]
+    report_combined = KRAKENTOOLS_COMBINEKREPORTS.out.txt // channel: [ val(meta), path(txt) ]
+    bracken = ch_bracken // channel: [ val(meta), path(tsv) ]
+    bracken_combined = ch_bracken_combined // channel: [ val(meta), path(txt) ]
+    krona = ch_krona // channel: [ val(meta), path(html) ]
+    multiqc_files = ch_multiqc_files // channel: path(file)
+}

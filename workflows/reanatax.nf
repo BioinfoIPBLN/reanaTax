@@ -3,12 +3,16 @@
     IMPORT MODULES / SUBWORKFLOWS / FUNCTIONS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
-include { FASTQC                 } from '../modules/nf-core/fastqc/main'
-include { MULTIQC                } from '../modules/nf-core/multiqc/main'
-include { paramsSummaryMap       } from 'plugin/nf-schema'
-include { paramsSummaryMultiqc   } from '../subworkflows/nf-core/utils_nfcore_pipeline'
-include { softwareVersionsToYAML } from '../subworkflows/nf-core/utils_nfcore_pipeline'
-include { methodsDescriptionText } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { FASTQ_DOWNLOAD_FASTQDL    } from '../subworkflows/local/fastq_download_fastqdl'
+include { PREPARE_HOST_REFERENCE    } from '../subworkflows/local/prepare_host_reference'
+include { FASTQ_QC_TRIM             } from '../subworkflows/local/fastq_qc_trim'
+include { HOST_DEPLETION_HISAT2     } from '../subworkflows/local/host_depletion_hisat2'
+include { TAXONOMY_KRAKEN2_BRACKEN  } from '../subworkflows/local/taxonomy_kraken2_bracken'
+include { MULTIQC                   } from '../modules/nf-core/multiqc/main'
+include { paramsSummaryMap          } from 'plugin/nf-schema'
+include { paramsSummaryMultiqc      } from '../subworkflows/nf-core/utils_nfcore_pipeline'
+include { softwareVersionsToYAML    } from '../subworkflows/nf-core/utils_nfcore_pipeline'
+include { methodsDescriptionText    } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -19,7 +23,8 @@ include { methodsDescriptionText } from '../subworkflows/local/utils_nfcore_rean
 workflow REANATAX {
 
     take:
-    ch_samplesheet // channel: samplesheet read in from --input
+    ch_samplesheet // channel: [ val(meta), [ path(fastq) ] ] from --input / --input_dir
+    ch_accessions // channel: [ val(meta), val(accession) ] from --input_accessions
     multiqc_config
     multiqc_logo
     multiqc_methods_description
@@ -29,11 +34,69 @@ workflow REANATAX {
 
     def ch_versions = channel.empty()
     def ch_multiqc_files = channel.empty()
+
     //
-    // MODULE: Run FastQC
+    // SUBWORKFLOW: Fetch raw reads from ENA/SRA when accessions were given
     //
-    FASTQC(ch_samplesheet)
-    ch_multiqc_files = ch_multiqc_files.mix(FASTQC.out.zip.map{ _meta, file -> file })
+    FASTQ_DOWNLOAD_FASTQDL(
+        ch_accessions,
+        params.group_runs_by,
+    )
+
+    def ch_raw_reads = ch_samplesheet.mix(FASTQ_DOWNLOAD_FASTQDL.out.reads)
+
+    //
+    // SUBWORKFLOW: Raw read QC, adapter/quality trimming, post-trim QC
+    //
+    FASTQ_QC_TRIM(
+        ch_raw_reads,
+        params.adapter_fasta ? file(params.adapter_fasta, checkIfExists: true) : [],
+        params.skip_fastqc,
+        params.skip_trimming,
+        params.save_trimmed_fail,
+    )
+    ch_multiqc_files = ch_multiqc_files.mix(FASTQ_QC_TRIM.out.multiqc_files)
+
+    //
+    // SUBWORKFLOW: Split host from non-host reads
+    //
+    def ch_nonhost_reads = FASTQ_QC_TRIM.out.reads
+
+    if (!params.skip_host_removal) {
+        PREPARE_HOST_REFERENCE(
+            params.fasta,
+            params.hisat2_index,
+            params.host_accession,
+            params.host_taxid,
+            params.ncbi_group,
+            params.gtf,
+        )
+
+        HOST_DEPLETION_HISAT2(
+            FASTQ_QC_TRIM.out.reads,
+            PREPARE_HOST_REFERENCE.out.index,
+            PREPARE_HOST_REFERENCE.out.fasta,
+            params.save_host_bam,
+        )
+        ch_nonhost_reads = HOST_DEPLETION_HISAT2.out.reads
+        ch_multiqc_files = ch_multiqc_files.mix(HOST_DEPLETION_HISAT2.out.multiqc_files)
+    }
+
+    //
+    // SUBWORKFLOW: Taxonomic classification of the non-host fraction
+    //
+    if (!params.skip_kraken2) {
+        TAXONOMY_KRAKEN2_BRACKEN(
+            ch_nonhost_reads,
+            params.kraken2_db,
+            params.bracken_db,
+            params.kraken2_save_reads,
+            params.kraken2_save_readclassifications,
+            params.skip_bracken,
+            params.skip_krona,
+        )
+        ch_multiqc_files = ch_multiqc_files.mix(TAXONOMY_KRAKEN2_BRACKEN.out.multiqc_files)
+    }
 
     //
     // Collate and save software versions
@@ -67,31 +130,38 @@ workflow REANATAX {
     //
     // MODULE: MultiQC
     //
-    ch_multiqc_files = ch_multiqc_files.mix(ch_collated_versions)
-    def ch_summary_params = paramsSummaryMap(workflow, parameters_schema: "nextflow_schema.json")
-    def ch_workflow_summary = channel.value(paramsSummaryMultiqc(ch_summary_params))
-    ch_multiqc_files = ch_multiqc_files.mix(ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml'))
-    def ch_multiqc_custom_methods_description = multiqc_methods_description
-        ? file(multiqc_methods_description, checkIfExists: true)
-        : file("${projectDir}/assets/methods_description_template.yml", checkIfExists: true)
-    def ch_methods_description = channel.value(methodsDescriptionText(ch_multiqc_custom_methods_description))
-    ch_multiqc_files = ch_multiqc_files.mix(ch_methods_description.collectFile(name: 'methods_description_mqc.yaml', sort: true))
-    MULTIQC(
-        ch_multiqc_files.flatten().collect().map { files ->
-            [
-                [id: 'reanatax'],
-                files,
-                multiqc_config
-                    ? file(multiqc_config, checkIfExists: true)
-                    : file("${projectDir}/assets/multiqc_config.yml", checkIfExists: true),
-                multiqc_logo ? file(multiqc_logo, checkIfExists: true) : [],
-                [],
-                [],
-            ]
-        }
-    )
-    emit:multiqc_report = MULTIQC.out.report.map { _meta, report -> [report] }.toList() // channel: /path/to/multiqc_report.html
-    versions       = ch_versions                 // channel: [ path(versions.yml) ]
+    def ch_multiqc_report = channel.empty()
+
+    if (!params.skip_multiqc) {
+        ch_multiqc_files = ch_multiqc_files.mix(ch_collated_versions)
+        def ch_summary_params = paramsSummaryMap(workflow, parameters_schema: "nextflow_schema.json")
+        def ch_workflow_summary = channel.value(paramsSummaryMultiqc(ch_summary_params))
+        ch_multiqc_files = ch_multiqc_files.mix(ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml'))
+        def ch_multiqc_custom_methods_description = multiqc_methods_description
+            ? file(multiqc_methods_description, checkIfExists: true)
+            : file("${projectDir}/assets/methods_description_template.yml", checkIfExists: true)
+        def ch_methods_description = channel.value(methodsDescriptionText(ch_multiqc_custom_methods_description))
+        ch_multiqc_files = ch_multiqc_files.mix(ch_methods_description.collectFile(name: 'methods_description_mqc.yaml', sort: true))
+        MULTIQC(
+            ch_multiqc_files.flatten().collect().map { files ->
+                [
+                    [id: 'reanatax'],
+                    files,
+                    multiqc_config
+                        ? file(multiqc_config, checkIfExists: true)
+                        : file("${projectDir}/assets/multiqc_config.yml", checkIfExists: true),
+                    multiqc_logo ? file(multiqc_logo, checkIfExists: true) : [],
+                    [],
+                    [],
+                ]
+            }
+        )
+        ch_multiqc_report = MULTIQC.out.report.map { _meta, report -> [report] }
+    }
+
+    emit:
+    multiqc_report = ch_multiqc_report.toList() // channel: /path/to/multiqc_report.html
+    versions       = ch_versions                // channel: [ path(versions.yml) ]
 }
 
 /*

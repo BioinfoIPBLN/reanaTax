@@ -1,210 +1,273 @@
 # BioinfoIPBLN/reanatax: Usage
 
-> _Documentation of pipeline parameters is generated automatically from the pipeline schema and can no longer be found in markdown files._
-
 ## Introduction
 
-<!-- TODO nf-core: Add documentation about anything specific to running your pipeline. For general topics, please point to (and add to) the main nf-core website. -->
+reanatax takes raw sequencing data — either downloaded from the public archives or already on disk — removes the host fraction, and taxonomically profiles what is left. It is built for the reanalysis scenario: you have a BioProject accession from a paper and want to know what non-host organisms are in it.
 
-## Samplesheet input
+The pipeline runs, in order:
 
-You will need to create a samplesheet with information about the samples you would like to analyse before running the pipeline. Use this parameter to specify its location. It has to be a comma-separated file with 3 columns, and a header row as shown in the examples below.
+1. **Data retrieval** — [`fastq-dl`](https://github.com/rpetit3/fastq-dl) (only when accessions are given)
+2. **Read QC** — [`FastQC`](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
+3. **Trimming** — [`fastp`](https://github.com/OpenGene/fastp), followed by a second `FastQC`
+4. **Host depletion** — [`HISAT2`](https://daehwankimlab.github.io/hisat2/), keeping both the aligned BAM and the unaligned FASTQ
+5. **Classification** — [`Kraken2`](https://ccb.jhu.edu/software/kraken2/) → [`Bracken`](https://github.com/jenniferlu717/Bracken) → [`Krona`](https://github.com/marbl/Krona)
+6. **Reporting** — [`MultiQC`](https://multiqc.info/)
+
+## Choosing an input route
+
+Exactly one of the three input options must be given. The pipeline stops with an explicit error if you give zero or more than one.
+
+### 1. Public accessions (`--input_accessions`)
 
 ```bash
---input '[path to samplesheet file]'
+--input_accessions PRJNA682076
+--input_accessions 'SRX9626017,ERX1234253,SRR13191702'
+--input_accessions accessions.txt
 ```
 
-### Multiple runs of the same sample
+`accessions.txt` holds one accession per line; blank lines and `#` comments are ignored.
 
-The `sample` identifiers have to be the same when you have re-sequenced the same sample more than once e.g. to increase sequencing depth. The pipeline will concatenate the raw reads before performing any downstream analysis. Below is an example for the same sample sequenced across 3 lanes:
+Supported accession types are exactly those `fastq-dl` accepts:
+
+| Type       | Prefixes            | Example      |
+| ---------- | ------------------- | ------------ |
+| BioProject | PRJEB, PRJNA, PRJDB | `PRJNA480016` |
+| Study      | ERP, DRP, SRP       | `SRP158268`   |
+| BioSample  | SAMD, SAME, SAMN    | `SAMN06479985` |
+| Sample     | ERS, DRS, SRS       | `SRS2024210`  |
+| Experiment | ERX, DRX, SRX       | `SRX4563689`  |
+| Run        | ERR, DRR, SRR       | `SRR7706354`  |
+
+> [!NOTE]
+> GEO accessions (`GSE*`/`GSM*`) are **not** supported by fastq-dl. Open the GEO page and use the linked SRA study (`SRP…`) or BioProject (`PRJNA…`) instead. The pipeline detects GEO accessions and tells you this rather than failing later.
+
+Each accession is first resolved to its list of runs, and every run is then downloaded as its own task. A 200-run BioProject therefore downloads with up to `--max_download_forks` transfers in flight instead of one long serial job.
+
+**Grouping runs into samples.** Submissions routinely split one library across several runs. `--group_runs_by` decides what becomes a sample:
+
+- `experiment` (default) — runs of the same experiment are concatenated. This is what most submissions mean by "one sample".
+- `sample` — everything sequenced from the same BioSample is concatenated.
+- `run` — every run stays its own sample. Use this when a study mixes single- and paired-end runs under one experiment.
+
+**Being a good archive client.** `--max_download_forks` (default `4`) caps concurrent transfers. ENA and SRA throttle aggressive clients, so raise it gradually. On clusters whose compute nodes have no outbound internet, add `--download_local` to run just the download tasks on the submission host.
+
+### 2. A folder of FASTQ files (`--input_dir`)
+
+```bash
+--input_dir /data/my_reads
+```
+
+Files are found with `--fastq_pattern` (default `**/*.{fastq,fq}{,.gz}`, so subdirectories are searched) and mates are paired from the file names. A trailing `_1`/`_2`, `_R1`/`_R2` or `_R1_001`/`_R2_001` (with `.` or `_` as the separator) marks a mate; anything else is treated as single-end. Sample names are whatever precedes that suffix.
+
+If your sample names legitimately end in `_1`, or the folder is single-end only, add `--single_end` to switch mate detection off entirely.
+
+Folders with more than two files per sample are rejected — use a samplesheet for those.
+
+### 3. A samplesheet (`--input`)
+
+```bash
+--input samplesheet.csv
+```
 
 ```csv title="samplesheet.csv"
 sample,fastq_1,fastq_2
 CONTROL_REP1,AEG588A1_S1_L002_R1_001.fastq.gz,AEG588A1_S1_L002_R2_001.fastq.gz
 CONTROL_REP1,AEG588A1_S1_L003_R1_001.fastq.gz,AEG588A1_S1_L003_R2_001.fastq.gz
-CONTROL_REP1,AEG588A1_S1_L004_R1_001.fastq.gz,AEG588A1_S1_L004_R2_001.fastq.gz
-```
-
-### Full samplesheet
-
-The pipeline will auto-detect whether a sample is single- or paired-end using the information provided in the samplesheet. The samplesheet can have as many columns as you desire, however, there is a strict requirement for the first 3 columns to match those defined in the table below.
-
-A final samplesheet file consisting of both single- and paired-end data may look something like the one below. This is for 6 samples, where `TREATMENT_REP3` has been sequenced twice.
-
-```csv title="samplesheet.csv"
-sample,fastq_1,fastq_2
-CONTROL_REP1,AEG588A1_S1_L002_R1_001.fastq.gz,AEG588A1_S1_L002_R2_001.fastq.gz
-CONTROL_REP2,AEG588A2_S2_L002_R1_001.fastq.gz,AEG588A2_S2_L002_R2_001.fastq.gz
-CONTROL_REP3,AEG588A3_S3_L002_R1_001.fastq.gz,AEG588A3_S3_L002_R2_001.fastq.gz
 TREATMENT_REP1,AEG588A4_S4_L003_R1_001.fastq.gz,
-TREATMENT_REP2,AEG588A5_S5_L003_R1_001.fastq.gz,
-TREATMENT_REP3,AEG588A6_S6_L003_R1_001.fastq.gz,
-TREATMENT_REP3,AEG588A6_S6_L004_R1_001.fastq.gz,
 ```
 
-| Column    | Description                                                                                                                                                                            |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sample`  | Custom sample name. This entry will be identical for multiple sequencing libraries/runs from the same sample. Spaces in sample names are automatically converted to underscores (`_`). |
-| `fastq_1` | Full path to FastQ file for Illumina short reads 1. File has to be gzipped and have the extension ".fastq.gz" or ".fq.gz".                                                             |
-| `fastq_2` | Full path to FastQ file for Illumina short reads 2. File has to be gzipped and have the extension ".fastq.gz" or ".fq.gz".                                                             |
+| Column    | Description                                                                                                       |
+| --------- | ----------------------------------------------------------------------------------------------------------------- |
+| `sample`  | Sample name. Repeat it across rows to declare multiple runs of the same sample; they are concatenated.              |
+| `fastq_1` | Full path to the FASTQ file for read 1. Must end `.fastq.gz` or `.fq.gz`.                                            |
+| `fastq_2` | Full path to the FASTQ file for read 2. Leave empty for single-end data.                                             |
 
-An [example samplesheet](../assets/samplesheet.csv) has been provided with the pipeline.
+All runs of one sample must have the same endedness.
+
+## The host genome
+
+Give exactly one of these, in decreasing order of precedence:
+
+| Option             | Use when                                                                        |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `--hisat2_index`   | You already have an index. Fastest — nothing is built. Accepts a directory or a `.tar.gz`. |
+| `--fasta`          | You have the genome on disk (plain or gzipped). The index is built once and reused within the run. |
+| `--host_accession` | You know the assembly, e.g. `GCF_000001405.40`.                                  |
+| `--host_taxid`     | You only know the organism, e.g. `9606`. Resolves to that taxon's RefSeq reference assembly. |
+
+`GCF_` accessions come from RefSeq and `GCA_` from GenBank; the right section is chosen for you. Set `--ncbi_group` to the organism's group (`vertebrate_mammalian`, `bacteria`, `fungi`, `plant`, `viral`, …) — the default `all` works but downloads every group's assembly summary first and is noticeably slower.
+
+`--save_reference` (on by default) publishes the genome and the index under `<outdir>/reference/`, so subsequent runs can skip the build with `--hisat2_index <outdir>/reference/hisat2`.
+
+**Splice-aware indexing.** Pass `--gtf` if the input is RNA-seq and you want splice-aware host capture. Building such an index for a vertebrate genome needs roughly 200 GB of RAM (`--hisat2_build_memory`); below that threshold hisat2-build silently falls back to a genome-only index.
+
+To skip host depletion entirely and classify the trimmed reads directly, use `--skip_host_removal`.
+
+### A note on `--very-sensitive`
+
+The default `--hisat2_args '--very-sensitive'` expands to `--bowtie2-dp 2 -k 50 --score-min L,0,-1`. The `-k 50` part means HISAT2 reports **up to 50 alignments per read**, which makes the host BAM several times larger and the alignment slower — without changing which reads are classified as host.
+
+If the host BAM is only there for QC or for counting host reads, add:
+
+```bash
+--hisat2_max_alignments 1
+```
+
+This keeps the sensitivity of the search (`--bowtie2-dp 2`, `--score-min L,0,-1`) but writes a single best alignment per read.
+
+The non-host FASTQs are HISAT2's `--un-conc-gz` output, i.e. pairs that did not align **concordantly**. That is deliberately the conservative choice for depletion: a pair where only one mate hit the host still goes forward to classification.
+
+## The Kraken2 database
+
+`--kraken2_db` is required (unless `--skip_kraken2`). It accepts a database directory or a `.tar.gz` of one. Prebuilt databases are published at <https://benlangmead.github.io/aws-indexes/k2>.
+
+**Memory is the thing to get right.** Kraken2 loads the whole database into RAM. The default request is 72 GB, which suits `Standard-8` or `PlusPF` but not `core_nt` (~700 GB). Either raise the request:
+
+```bash
+--kraken2_memory '700.GB'
+```
+
+or read the database from disk instead:
+
+```bash
+--kraken2_memory_mapping
+```
+
+Memory mapping drops the request to 16 GB. It is slower in the worst case, but when the database already sits in the page cache — a fast shared filesystem on a node with plenty of free RAM — it costs almost nothing and is what makes many-sample runs against a large database practical.
+
+**Bracken** re-estimates abundances from the Kraken2 report. It needs a `databaseNmers.kmer_distrib` file in the database matching `--bracken_read_length` (default `100`); check the read length FastQC reports and pick the closest value the database provides. Point `--bracken_db` elsewhere if the distributions live outside the Kraken2 database directory. `--skip_bracken` turns the step off.
+
+`--kraken2_report_minimizer_data` adds distinct-minimizer columns that are useful for filtering false positives, but neither Bracken nor MultiQC can read the resulting report — the pipeline requires `--skip_bracken` alongside it.
 
 ## Running the pipeline
 
-The typical command for running the pipeline is as follows:
+Typical invocation:
 
 ```bash
-nextflow run BioinfoIPBLN/reanatax --input ./samplesheet.csv --outdir ./results  -profile docker
+nextflow run BioinfoIPBLN/reanatax \
+    -profile local,singularity \
+    --input_accessions PRJNA682076 \
+    --host_accession GCF_000001405.40 \
+    --ncbi_group vertebrate_mammalian \
+    --kraken2_db /data/kraken2/Standard \
+    --outdir ./results
 ```
 
-This will launch the pipeline with the `docker` configuration profile. See below for more information about profiles.
+This creates in your working directory:
 
-Note that the pipeline will create the following files in your working directory:
-
-```bash
-work                # Directory containing the nextflow working files
-<OUTDIR>            # Finished results in specified location (defined with --outdir)
-.nextflow_log       # Log file from Nextflow
-# Other nextflow hidden files, eg. history of pipeline runs and old logs.
+```console
+work/                # Nextflow scratch, safe to delete once finished
+results/             # everything from --outdir
+.nextflow.log        # log file from Nextflow
 ```
 
-If you wish to repeatedly use the same parameters for multiple runs, rather than specifying each flag in the command, you can specify these in a params file.
-
-Pipeline settings can be provided in a `yaml` or `json` file via `-params-file <file>`.
-
-> [!WARNING]
-> Do not use `-c <file>` to specify parameters as this will result in errors. Custom config files specified with `-c` must only be used for [tuning process resource specifications](https://nf-co.re/docs/running/run-pipelines#configuring-pipelines), other infrastructural tweaks (such as output directories), or module arguments (args).
-
-The above pipeline run specified with a params file in yaml format:
-
-```bash
-nextflow run BioinfoIPBLN/reanatax -profile docker -params-file params.yaml
-```
-
-with:
+Use `-resume` to restart a failed or modified run from where it left off, and `-params-file params.yaml` to keep the parameters under version control instead of on the command line:
 
 ```yaml title="params.yaml"
-input: './samplesheet.csv'
-outdir: './results/'
-<...>
+input_accessions: "PRJNA682076"
+host_accession: "GCF_000001405.40"
+kraken2_db: "/data/kraken2/Standard"
+outdir: "./results"
 ```
 
-You can also generate such `YAML`/`JSON` files via [nf-core/launch](https://nf-co.re/launch).
-
-### Updating the pipeline
-
-When you run the above command, Nextflow automatically pulls the pipeline code from GitHub and stores it as a cached version. When running the pipeline after this, it will always use the cached version if available - even if the pipeline has been updated since. To make sure that you're running the latest version of the pipeline, make sure that you regularly update the cached version of the pipeline:
+### Local execution
 
 ```bash
-nextflow pull BioinfoIPBLN/reanatax
+-profile local,singularity
 ```
 
-### Reproducibility
+CPU and memory ceilings are detected from the machine, and Nextflow then schedules tasks so that the running tasks' combined requests never exceed them — which is what keeps a 72 GB Kraken2 task from being started four times at once. Override the detection with `--resource_limit_cpus`, `--resource_limit_memory` and `--resource_limit_time`.
 
-It is a good idea to specify the pipeline version when running the pipeline on your data. This ensures that a specific version of the pipeline code and software are used when you run your pipeline. If you keep using the same tag, you'll be running the same version of the pipeline, even if there have been changes to the code since.
+### SLURM execution
 
-First, go to the [BioinfoIPBLN/reanatax releases page](https://github.com/BioinfoIPBLN/reanatax/releases) and find the latest pipeline version - numeric only (eg. `1.3.1`). Then specify this when running the pipeline with `-r` (one hyphen) - eg. `-r 1.3.1`. Of course, you can switch to another version by changing the number after the `-r` flag.
+```bash
+-profile slurm,singularity --slurm_queue <partition>
+```
 
-This version number will be logged in reports when you run the pipeline, so that you'll know what you used when you look back in the future. For example, at the bottom of the MultiQC reports.
+Every process becomes one `sbatch` job requesting exactly the CPU/memory/time of its resource label, so the scheduler decides what runs concurrently. Useful knobs:
 
-To further assist in reproducibility, you can use share and reuse [parameter files](#running-the-pipeline) to repeat pipeline runs with the same settings without having to write out a command with every single parameter.
+| Option                    | Purpose                                                                 |
+| ------------------------- | ----------------------------------------------------------------------- |
+| `--slurm_queue`           | Partition to submit to.                                                  |
+| `--slurm_options`         | Appended to every `sbatch`, e.g. `'--account=myproject'`.                |
+| `--slurm_queue_size`      | Jobs Nextflow keeps queued at once (default `100`).                     |
+| `--resource_limit_*`      | Cap per-job requests when the partition's nodes are smaller than the defaults. |
+| `--download_local`        | Keep download tasks on the submission host when compute nodes are firewalled. |
 
-> [!TIP]
-> If you wish to share such profile (such as upload as supplementary material for academic publications), make sure to NOT include cluster specific paths to files, nor institutional specific profiles.
+Submissions are rate-limited to 20 jobs per minute and failed jobs are retried up to three times, because cluster jobs die for reasons — preemption, node failure, a filesystem hiccup — that have nothing to do with the pipeline.
+
+### Resource tuning
+
+Defaults live in [`conf/base.config`](../conf/base.config), with per-process overrides for the steps whose needs are unusual: downloads (network-bound, 2 CPUs, capped concurrency, retried), `hisat2-build` (memory scales with whether a GTF was given), `HISAT2_ALIGN` and `KRAKEN2_KRAKEN2`.
+
+To change anything else, write a config and pass it with `-c`:
+
+```groovy title="custom.config"
+process {
+    withName: 'HISAT2_ALIGN' {
+        cpus   = 24
+        memory = 64.GB
+    }
+}
+```
+
+`-c` never overrides parameters — use `--param` or `-params-file` for those.
+
+## Reproducibility
+
+Pin the pipeline version with `-r`:
+
+```bash
+nextflow run BioinfoIPBLN/reanatax -r 1.0.0 ...
+```
+
+and prefer `-profile singularity`, `docker`, `apptainer`, `podman` or `conda` over installing the tools yourself. Tool versions are recorded in `<outdir>/pipeline_info/reanatax_software_mqc_versions.yml` and in the MultiQC report.
+
+If you use Singularity and want to reuse images across runs, set:
+
+```bash
+export NXF_SINGULARITY_CACHEDIR=/path/to/cache
+```
 
 ## Core Nextflow arguments
 
 > [!NOTE]
-> These options are part of Nextflow and use a _single_ hyphen (pipeline parameters use a double-hyphen)
+> These options are part of Nextflow and use a _single_ hyphen.
 
 ### `-profile`
 
-Use this parameter to choose a configuration profile. Profiles can give configuration presets for different compute environments.
+Configuration presets, comma-separated. Order matters: later profiles override earlier ones.
 
-Several generic profiles are bundled with the pipeline which instruct the pipeline to use software packaged using different methods (Docker, Singularity, Podman, Shifter, Charliecloud, Apptainer, Conda) - see below.
+Execution: `local`, `slurm`
+Containers/environments: `docker`, `singularity`, `apptainer`, `podman`, `shifter`, `charliecloud`, `conda`, `mamba`, `wave`
+Testing: `test`, `test_accession`, `test_full`
 
-> [!IMPORTANT]
-> We highly recommend the use of Docker or Singularity containers for full pipeline reproducibility, however when this is not possible, Conda is also supported.
-
-The pipeline also dynamically loads configurations from [https://github.com/nf-core/configs](https://github.com/nf-core/configs) when it runs, making multiple config profiles for various institutional clusters available at run time. For more information and to check if your system is supported, please see the [nf-core/configs documentation](https://github.com/nf-core/configs#documentation).
-
-Note that multiple profiles can be loaded, for example: `-profile test,docker` - the order of arguments is important!
-They are loaded in sequence, so later profiles can overwrite earlier profiles.
-
-If `-profile` is not specified, the pipeline will run locally and expect all software to be installed and available on the `PATH`. This is _not_ recommended, since it can lead to different results on different machines dependent on the computer environment.
-
-- `test`
-  - A profile with a complete configuration for automated testing
-  - Includes links to test data so needs no other parameters
-- `docker`
-  - A generic configuration profile to be used with [Docker](https://docker.com/)
-- `singularity`
-  - A generic configuration profile to be used with [Singularity](https://sylabs.io/docs/)
-- `podman`
-  - A generic configuration profile to be used with [Podman](https://podman.io/)
-- `shifter`
-  - A generic configuration profile to be used with [Shifter](https://nersc.gitlab.io/development/shifter/how-to-use/)
-- `charliecloud`
-  - A generic configuration profile to be used with [Charliecloud](https://charliecloud.io/)
-- `apptainer`
-  - A generic configuration profile to be used with [Apptainer](https://apptainer.org/)
-- `wave`
-  - A generic configuration profile to enable [Wave](https://seqera.io/wave/) containers. Use together with one of the above (requires Nextflow `24.03.0-edge` or later).
-- `conda`
-  - A generic configuration profile to be used with [Conda](https://conda.io/docs/). Please only use Conda as a last resort i.e. when it's not possible to run the pipeline with Docker, Singularity, Podman, Shifter, Charliecloud, or Apptainer.
+> [!TIP]
+> We highly recommend using Docker or Singularity containers for full pipeline reproducibility. `conda` is supported as a fallback where containers are not possible.
 
 ### `-resume`
 
-Specify this when restarting a pipeline. Nextflow will use cached results from any pipeline steps where the inputs are the same, continuing from where it got to previously. For input to be considered the same, not only the names must be identical but the files' contents as well. For more info about this parameter, see [this blog post](https://www.nextflow.io/blog/2019/demystifying-nextflow-resume.html).
-
-You can also supply a run name to resume a specific run: `-resume [run-name]`. Use the `nextflow log` command to show previous run names.
+Restart from the last successful step. Processes whose inputs and code are unchanged reuse their cached results. You can also supply a specific run name or session ID (`nextflow log` lists them).
 
 ### `-c`
 
-Specify the path to a specific config file (this is a core Nextflow command). See the [nf-core website documentation](https://nf-co.re/usage/configuration) for more information.
+Supply an additional config file, for example to change resource requests or add an institutional profile.
 
 ## Custom configuration
 
-### Resource requests
-
-Whilst the default requirements set within the pipeline will hopefully work for most people and with most input data, you may find that you want to customise the compute resources that the pipeline requests. Each step in the pipeline has a default set of requirements for number of CPUs, memory and time. For most of the pipeline steps, if the job exits with any of the error codes specified [here](https://github.com/nf-core/rnaseq/blob/4c27ef5610c87db00c3c5a3eed10b1d161abf575/conf/base.config#L18) it will automatically be resubmitted with higher resources request (2 x original, then 3 x original). If it still fails after the third attempt then the pipeline execution is stopped.
-
-To change the resource requests, please see the [max resources](https://nf-co.re/docs/running/configuration/nextflow-for-your-system#set-max-resources) and [customise process resources](https://nf-co.re/docs/running/configuration/nextflow-for-your-system#customize-process-resources) section of the nf-core website.
-
-### Custom Containers
-
-In some cases, you may wish to change the container or conda environment used by a pipeline steps for a particular tool. By default, nf-core pipelines use containers and software from the [biocontainers](https://biocontainers.pro/) or [bioconda](https://bioconda.github.io/) projects. However, in some cases the pipeline specified version maybe out of date.
-
-To use a different container from the default container or conda environment specified in a pipeline, please see the [updating tool versions](https://nf-co.re/docs/running/configuration/nextflow-for-your-system#update-tool-versions) section of the nf-core website.
-
-### Custom Tool Arguments
-
-A pipeline might not always support every possible argument or option of a particular tool used in pipeline. Fortunately, nf-core pipelines provide some freedom to users to insert additional parameters that the pipeline does not include by default.
-
-To learn how to provide additional arguments to a particular tool of the pipeline, please see the [customising tool arguments](https://nf-co.re/docs/running/configuration/nextflow-for-your-system#modifying-tool-arguments) section of the nf-core website.
-
-### nf-core/configs
-
-In most cases, you will only need to create a custom config as a one-off but if you and others within your organisation are likely to be running nf-core pipelines regularly and need to use the same settings regularly it may be a good idea to request that your custom config file is uploaded to the `nf-core/configs` git repository. Before you do this please can you test that the config file works with your pipeline of choice using the `-c` parameter. You can then create a pull request to the `nf-core/configs` repository with the addition of your config file, associated documentation file (see examples in [`nf-core/configs/docs`](https://github.com/nf-core/configs/tree/master/docs)), and amending [`nfcore_custom.config`](https://github.com/nf-core/configs/blob/master/nfcore_custom.config) to include your custom profile.
-
-See the main [Nextflow documentation](https://www.nextflow.io/docs/latest/config.html) for more information about creating your own configuration files.
-
-If you have any questions or issues please send us a message on [Slack](https://nf-co.re/join/slack) on the [`#configs` channel](https://nfcore.slack.com/channels/configs).
+See the [nf-core configuration docs](https://nf-co.re/docs/usage/getting_started/configuration) for the full picture, including how to point Nextflow at an existing institutional profile with `-profile <institute>`.
 
 ## Running in the background
 
-Nextflow handles job submissions and supervises the running jobs. The Nextflow process must run until the pipeline is finished.
+```bash
+nextflow run BioinfoIPBLN/reanatax -bg ...
+```
 
-The Nextflow `-bg` flag launches Nextflow in the background, detached from your terminal so that the workflow does not stop if you log out of your session. The logs are saved to a file.
-
-Alternatively, you can use `screen` / `tmux` or similar tool to create a detached session which you can log back into at a later time.
-Some HPC setups also allow you to run nextflow within a cluster job submitted your job scheduler (from where it submits more jobs).
+Or use `screen`/`tmux`, or submit the Nextflow process itself as a job.
 
 ## Nextflow memory requirements
 
-In some cases, the Nextflow Java virtual machines can start to request a large amount of memory.
-We recommend adding the following line to your environment to limit this (typically in `~/.bashrc` or `~./bash_profile`):
+The Nextflow Java process itself can claim excessive memory. Cap it in `~/.bashrc`:
 
 ```bash
 NXF_OPTS='-Xms1g -Xmx4g'
