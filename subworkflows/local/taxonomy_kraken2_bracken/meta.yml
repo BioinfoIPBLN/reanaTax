@@ -1,0 +1,83 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "taxonomy_kraken2_bracken"
+description: |
+  Classify reads with Kraken2, re-estimate abundances with Bracken, render Krona
+  charts and combine every sample into cross-sample tables.
+keywords:
+  - taxonomy
+  - metagenomics
+  - kraken2
+  - bracken
+  - krona
+components:
+  - untar
+  - kraken2/kraken2
+  - bracken/bracken
+  - bracken/combinebrackenoutputs
+  - krakentools/kreport2krona
+  - krakentools/combinekreports
+  - krona/ktimporttext
+input:
+  - ch_reads:
+      type: file
+      description: |
+        Reads to classify.
+        Structure: [ val(meta), [ path(fastq) ] ]
+      pattern: "*.{fastq,fq}.gz"
+  - kraken2_db:
+      type: string
+      description: Path to a Kraken2 database directory or tarball.
+  - bracken_db:
+      type: string
+      description: Path to the Bracken kmer distributions, or null to reuse kraken2_db.
+  - save_output_fastqs:
+      type: boolean
+      description: Keep the classified/unclassified FASTQ files.
+  - save_reads_assignment:
+      type: boolean
+      description: Keep the per-read assignment table.
+  - skip_bracken:
+      type: boolean
+      description: Skip Bracken abundance re-estimation.
+  - skip_krona:
+      type: boolean
+      description: Skip Krona chart generation.
+output:
+  - report:
+      type: file
+      description: |
+        Per-sample Kraken2 report.
+        Structure: [ val(meta), path(report) ]
+      pattern: "*report.txt"
+  - report_combined:
+      type: file
+      description: |
+        All Kraken2 reports in one table.
+        Structure: [ val(meta), path(txt) ]
+      pattern: "*.txt"
+  - bracken:
+      type: file
+      description: |
+        Per-sample Bracken abundances.
+        Structure: [ val(meta), path(tsv) ]
+      pattern: "*.tsv"
+  - bracken_combined:
+      type: file
+      description: |
+        All Bracken abundances in one table.
+        Structure: [ val(meta), path(txt) ]
+      pattern: "*.txt"
+  - krona:
+      type: file
+      description: |
+        Interactive Krona chart.
+        Structure: [ val(meta), path(html) ]
+      pattern: "*.html"
+  - multiqc_files:
+      type: file
+      description: Files to hand to MultiQC.
+authors:
+  - "Jose L. Ruiz"
+maintainers:
+  - "Jose L. Ruiz"

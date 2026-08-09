@@ -152,4 +152,6 @@ If you update images or graphics, follow the nf-core [style guidelines](https://
 
 ## Pipeline specific contribution guidelines
 
-<!-- TODO nf-core: Add any pipeline specific contribution guidelines here, such as coding styles, procedures, checklists etc. -->
+New analysis steps should be added as a subworkflow under `subworkflows/local/`, wired into `workflows/reanatax.nf`, and given their parameters in both `nextflow.config` and `nextflow_schema.json`. Prefer an existing [nf-core module](https://nf-co.re/modules) over writing a new one; only add to `modules/local/` when no nf-core module fits.
+
+Before opening a pull request, please check that `nf-core pipelines lint` passes and that `-profile test` still completes.

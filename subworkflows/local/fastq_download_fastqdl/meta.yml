@@ -1,0 +1,51 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "fastq_download_fastqdl"
+description: |
+  Resolve ENA/SRA accessions to their sequencing runs, download every run in
+  parallel with fastq-dl, and optionally concatenate the runs that belong to the
+  same experiment or sample.
+keywords:
+  - download
+  - ena
+  - sra
+  - fastq
+  - accession
+components:
+  - fastqdl
+  - fastqdl/metadata
+  - cat/fastq
+input:
+  - ch_accessions:
+      type: file
+      description: |
+        Channel of accessions to resolve and download.
+        Structure: [ val(meta), val(accession) ]
+  - group_runs_by:
+      type: string
+      description: |
+        How runs are grouped into samples: 'run' (no grouping), 'experiment' or
+        'sample'.
+output:
+  - reads:
+      type: file
+      description: |
+        Downloaded reads, one entry per sample.
+        Structure: [ val(meta), [ path(fastq) ] ]
+      pattern: "*.fastq.gz"
+  - runinfo:
+      type: file
+      description: |
+        Full archive metadata for every run under each queried accession.
+        Structure: [ val(meta), path(tsv) ]
+      pattern: "*-run-info.tsv"
+  - runsheet:
+      type: file
+      description: |
+        Normalised one-row-per-run table used to build the download channel.
+        Structure: [ val(meta), path(csv) ]
+      pattern: "*.runsheet.csv"
+authors:
+  - "Jose L. Ruiz"
+maintainers:
+  - "Jose L. Ruiz"

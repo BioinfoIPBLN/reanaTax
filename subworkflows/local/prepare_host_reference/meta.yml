@@ -1,0 +1,58 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "prepare_host_reference"
+description: |
+  Make a HISAT2 index of the host genome available, downloading the genome from
+  NCBI and/or building the index only when the user has not supplied one.
+keywords:
+  - reference
+  - genome
+  - hisat2
+  - index
+  - ncbi
+components:
+  - ncbigenomedownload
+  - gunzip
+  - untar
+  - hisat2/build
+input:
+  - fasta:
+      type: string
+      description: Path to a host genome FASTA (optionally gzipped), or null.
+  - hisat2_index:
+      type: string
+      description: Path to a prebuilt HISAT2 index directory or tarball, or null.
+  - host_accession:
+      type: string
+      description: NCBI assembly accession (GCF_*/GCA_*), or null.
+  - host_taxid:
+      type: string
+      description: NCBI taxonomy ID, or null.
+  - ncbi_group:
+      type: string
+      description: ncbi-genome-download taxonomic group to search.
+  - gtf:
+      type: string
+      description: Path to a GTF for splice-aware index building, or null.
+output:
+  - index:
+      type: directory
+      description: |
+        HISAT2 index directory.
+        Structure: [ val(meta), path(index) ]
+  - fasta:
+      type: file
+      description: |
+        Decompressed host genome, empty when only a prebuilt index was given.
+        Structure: [ val(meta), path(fasta) ]
+      pattern: "*.{fa,fna,fasta}"
+  - gtf:
+      type: file
+      description: |
+        The GTF that was passed in, if any.
+        Structure: [ val(meta), path(gtf) ]
+      pattern: "*.gtf"
+authors:
+  - "Jose L. Ruiz"
+maintainers:
+  - "Jose L. Ruiz"

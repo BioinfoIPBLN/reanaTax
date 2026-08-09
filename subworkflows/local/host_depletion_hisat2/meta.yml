@@ -1,0 +1,68 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "host_depletion_hisat2"
+description: |
+  Align reads against the host genome with HISAT2 and split them into a host
+  fraction (sorted, indexed BAM with samtools statistics) and a non-host
+  fraction (FASTQ).
+keywords:
+  - host depletion
+  - decontamination
+  - hisat2
+  - alignment
+components:
+  - hisat2/align
+  - bam_sort_stats_samtools
+input:
+  - ch_reads:
+      type: file
+      description: |
+        Reads to deplete.
+        Structure: [ val(meta), [ path(fastq) ] ]
+      pattern: "*.{fastq,fq}.gz"
+  - ch_index:
+      type: directory
+      description: |
+        HISAT2 index of the host genome.
+        Structure: [ val(meta), path(index) ]
+  - ch_fasta:
+      type: file
+      description: |
+        Host genome FASTA, used by samtools. May be empty.
+        Structure: [ val(meta), path(fasta) ]
+      pattern: "*.{fa,fna,fasta}"
+  - save_host_bam:
+      type: boolean
+      description: Sort, index and collect statistics for the aligned reads.
+output:
+  - reads:
+      type: file
+      description: |
+        Reads that did not align to the host.
+        Structure: [ val(meta), [ path(fastq) ] ]
+      pattern: "*.unmapped*.fastq.gz"
+  - bam:
+      type: file
+      description: |
+        Coordinate-sorted host alignments.
+        Structure: [ val(meta), path(bam) ]
+      pattern: "*.bam"
+  - bai:
+      type: file
+      description: |
+        Index of the host BAM.
+        Structure: [ val(meta), path(bai) ]
+      pattern: "*.bai"
+  - summary:
+      type: file
+      description: |
+        HISAT2 alignment summary.
+        Structure: [ val(meta), path(log) ]
+      pattern: "*.log"
+  - multiqc_files:
+      type: file
+      description: Files to hand to MultiQC.
+authors:
+  - "Jose L. Ruiz"
+maintainers:
+  - "Jose L. Ruiz"

@@ -13,7 +13,9 @@ export_plots: true
 
 disable_version_detection: true
 
-# Follow the order of the pipeline: raw QC, trimming, host depletion, then
+# HISAT2 writes a Bowtie2-style summary, so it is MultiQC's `bowtie2` module
+# that parses it - renamed here to avoid claiming an aligner that never ran.
+# The order follows the pipeline: raw QC, trimming, host depletion, then
 # classification of what was left over.
 module_order:
   - fastqc:
@@ -27,12 +29,20 @@ module_order:
       info: "Quality of the reads after fastp trimming - these are the reads that go into host depletion."
       path_filters:
         - "*_trimmed*.zip"
-  - hisat2
+  - bowtie2:
+      name: "HISAT2 (host depletion)"
+      info: "Alignment against the host genome. The overall alignment rate is the host fraction of the library; everything that did not align is what gets classified below."
   - samtools
   - kraken
 
-# The host mapping rate is the headline number of the depletion step, so pull
-# it into the general statistics table.
+# HISAT2 and samtools outputs are prefixed `<sample>.host`, so strip that to
+# keep one row per sample across every section of the general statistics table.
+extra_fn_clean_exts:
+  - ".host"
+  - "_raw"
+  - "_trimmed"
+
+# The host alignment rate is the headline number of the depletion step.
 table_columns_visible:
   "FastQC (raw)":
     percent_duplicates: false
@@ -44,7 +54,7 @@ table_columns_visible:
     percent_gc: false
     avg_sequence_length: false
     total_sequences: false
-  HISAT2:
+  "HISAT2 (host depletion)":
     overall_alignment_rate: true
   Samtools:
     error_rate: false

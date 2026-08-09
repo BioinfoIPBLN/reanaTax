@@ -55,12 +55,28 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     ch_multiqc_files = ch_multiqc_files.mix(KRAKEN2_KRAKEN2.out.report.map { _meta, report -> report })
 
     //
+    // A sample in which nothing was classified produces a report holding only
+    // the `U` (unclassified) row. Both Bracken and combine_kreports.py crash on
+    // those, so they are dropped here - loudly - rather than being allowed to
+    // take the whole run down. The report itself is still published and still
+    // reaches MultiQC.
+    //
+    def ch_report_classified = KRAKEN2_KRAKEN2.out.report.filter { meta, report ->
+        def classified = hasClassifiedReads(report)
+        if (!classified) {
+            log.warn("Kraken2 classified no reads for '${meta.id}'; excluding it from Bracken and from the combined tables.")
+        }
+        classified
+    }
+
+    //
     // MODULE: Combine every sample's Kraken2 report into one table
     //
     KRAKENTOOLS_COMBINEKREPORTS(
-        KRAKEN2_KRAKEN2.out.report
+        ch_report_classified
             .map { _meta, report -> report }
             .collect()
+            .filter { reports -> reports }
             .map { reports -> [[id: 'kraken2_combined'], reports] }
     )
 
@@ -71,13 +87,14 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         //
         // MODULE: Bracken re-estimates abundances from the Kraken2 report
         //
-        BRACKEN_BRACKEN(KRAKEN2_KRAKEN2.out.report, ch_bracken_db)
+        BRACKEN_BRACKEN(ch_report_classified, ch_bracken_db)
         ch_bracken = BRACKEN_BRACKEN.out.reports
 
         BRACKEN_COMBINEBRACKENOUTPUTS(
             BRACKEN_BRACKEN.out.reports
                 .map { _meta, report -> report }
                 .collect()
+                .filter { reports -> reports }
                 .map { reports -> [[id: 'bracken_combined'], reports] }
         )
         ch_bracken_combined = BRACKEN_COMBINEBRACKENOUTPUTS.out.txt
@@ -90,6 +107,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         // Krona is rendered from the Bracken-corrected report when Bracken ran,
         // because that is the abundance estimate users are meant to interpret.
         //
+        // Krona copes with an all-unclassified report, so it keeps every sample.
         def ch_for_krona = skip_bracken ? KRAKEN2_KRAKEN2.out.report : BRACKEN_BRACKEN.out.txt
 
         KRAKENTOOLS_KREPORT2KRONA(ch_for_krona)
@@ -104,4 +122,23 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     bracken_combined = ch_bracken_combined // channel: [ val(meta), path(txt) ]
     krona = ch_krona // channel: [ val(meta), path(html) ]
     multiqc_files = ch_multiqc_files // channel: path(file)
+}
+
+//
+// True if a Kraken2 report contains at least one taxon, i.e. anything beyond the
+// `U` row. Matching on the rank-code column rather than a fixed index keeps this
+// working with the extra columns `--report-minimizer-data` adds. Stops at the
+// first hit, so a large report is not read in full.
+//
+def hasClassifiedReads(report) {
+    report.withReader { reader ->
+        def line = reader.readLine()
+        while (line != null) {
+            if (line.split('\t').any { column -> column.trim() ==~ /^[RDKPCOFGS][0-9]*$/ }) {
+                return true
+            }
+            line = reader.readLine()
+        }
+        return false
+    }
 }

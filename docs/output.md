@@ -124,6 +124,8 @@ Turn either output off with `--save_host_bam false` / `--save_unaligned false`.
 
 Read the percentages as *read* abundance, not organism abundance — that is what Bracken corrects.
 
+A sample in which Kraken2 classified nothing (its report holds only the `unclassified` row) is still published and still reaches MultiQC, but is excluded from Bracken and from the combined tables, with a warning naming the sample. Both `combine_kreports.py` and Bracken fail outright on such reports, and one empty sample should not take down the run.
+
 ### Bracken
 
 <details markdown="1">

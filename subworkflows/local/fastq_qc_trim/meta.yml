@@ -1,0 +1,53 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "fastq_qc_trim"
+description: |
+  Read QC with FastQC before and after adapter/quality trimming with fastp.
+keywords:
+  - qc
+  - fastqc
+  - fastp
+  - trimming
+components:
+  - fastqc
+  - fastp
+input:
+  - ch_reads:
+      type: file
+      description: |
+        Input reads.
+        Structure: [ val(meta), [ path(fastq) ] ]
+      pattern: "*.{fastq,fq}.gz"
+  - adapter_fasta:
+      type: file
+      description: Adapter sequences to pass to fastp, or an empty list.
+      pattern: "*.{fa,fasta}"
+  - skip_fastqc:
+      type: boolean
+      description: Skip both FastQC runs.
+  - skip_trimming:
+      type: boolean
+      description: Skip fastp and pass the reads through unchanged.
+  - save_trimmed_fail:
+      type: boolean
+      description: Ask fastp to write the reads it discarded.
+output:
+  - reads:
+      type: file
+      description: |
+        Trimmed reads, or the input reads when trimming was skipped.
+        Structure: [ val(meta), [ path(fastq) ] ]
+      pattern: "*.fastp.fastq.gz"
+  - fastp_json:
+      type: file
+      description: |
+        fastp report in JSON format.
+        Structure: [ val(meta), path(json) ]
+      pattern: "*.json"
+  - multiqc_files:
+      type: file
+      description: Files to hand to MultiQC.
+authors:
+  - "Jose L. Ruiz"
+maintainers:
+  - "Jose L. Ruiz"
