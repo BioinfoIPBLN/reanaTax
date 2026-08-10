@@ -117,6 +117,23 @@ This keeps the sensitivity of the search (`--bowtie2-dp 2`, `--score-min L,0,-1`
 
 The non-host FASTQs are HISAT2's `--un-conc-gz` output, i.e. pairs that did not align **concordantly**. That is deliberately the conservative choice for depletion: a pair where only one mate hit the host still goes forward to classification.
 
+## QC of the host BAM
+
+When `--save_host_bam` is on (the default) the sorted BAM is put through two complementary QC steps, both of which land in the MultiQC report:
+
+- **samtools** `stats`, `flagstat` and `idxstats` — read-level counts: how many reads mapped, how many pairs are proper, and the per-reference breakdown.
+- **Qualimap BamQC** — the things counts cannot tell you: coverage depth and how evenly it is spread over the reference, duplication rate, GC of the mapped reads, and the mapping-quality and insert-size distributions.
+
+That second set is what distinguishes *"this library barely contains host"* from *"the host reference is wrong"*. Both produce a low alignment rate; only the latter also shows patchy coverage concentrated in a few repetitive regions at low mapping quality.
+
+Qualimap is the slowest part of the BAM QC, so `--skip_qualimap` turns it off for very large BAMs. Feature-level statistics need an annotation, which is opt-in and deliberately separate from `--gtf`:
+
+```bash
+--qualimap_gff /data/genomes/host.gtf
+```
+
+`--gtf` only controls whether the HISAT2 index is splice-aware; handing a full vertebrate annotation to BamQC makes it dramatically slower, so it is not inherited.
+
 ## The Kraken2 database
 
 `--kraken2_db` is required (unless `--skip_kraken2`). It accepts a database directory or a `.tar.gz` of one. Prebuilt databases are published at <https://benlangmead.github.io/aws-indexes/k2>.
@@ -138,6 +155,58 @@ Memory mapping drops the request to 16 GB. It is slower in the worst case, but w
 **Bracken** re-estimates abundances from the Kraken2 report. It needs a `databaseNmers.kmer_distrib` file in the database matching `--bracken_read_length` (default `100`); check the read length FastQC reports and pick the closest value the database provides. Point `--bracken_db` elsewhere if the distributions live outside the Kraken2 database directory. `--skip_bracken` turns the step off.
 
 `--kraken2_report_minimizer_data` adds distinct-minimizer columns that are useful for filtering false positives, but neither Bracken nor MultiQC can read the resulting report — the pipeline requires `--skip_bracken` alongside it.
+
+## AI annotations (optional)
+
+The pipeline can have a large language model write short summaries into the HTML reports. This is a port of the AI features in [reanalyzerGSE](https://github.com/BioinfoIPBLN/reanalyzerGSE) and shares their design and their `bin/llm_common.py` plumbing.
+
+**Nothing happens unless you ask for it.** With `--llm_endpoint` unset — the default — no AI process runs and no network call is made.
+
+```bash
+nextflow run BioinfoIPBLN/reanatax \
+   -profile local,singularity \
+   --input_dir /data/my_reads --fasta host.fa --kraken2_db /data/kraken2/Standard \
+   --llm_endpoint http://your-llm-host:8000/v1/chat/completions \
+   --llm_model your-model-name \
+   --outdir ./results
+```
+
+Any OpenAI-compatible `/v1/chat/completions` endpoint works: a self-hosted vLLM, Ollama or llama.cpp server, or a commercial API. `--llm_api_key` defaults to `dummy`, which is what most local servers expect.
+
+### What gets annotated
+
+`--ai_insights` selects which annotations to generate. It takes `all` (default), `no`, or a comma-separated subset:
+
+| Value      | What it does                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `taxonomy` | Reads the combined Kraken2 and Bracken tables and writes a few sentences on the dominant taxa, how consistent samples are, and what looks like contamination. Appears as the **first section of the MultiQC report** and as `ai/taxonomy.ai_insight.md`. |
+| `multiqc`  | One summary under every section of the MultiQC report, generated from that section's own exported data table. Works for every MultiQC module, not just the ones this pipeline runs. |
+| `qualimap` | A summary box at the top of each per-sample Qualimap report.                                                                            |
+
+`--multiqc_ai_builtin` additionally turns on MultiQC's own AI feature, which writes one summary of the whole report. It is complementary to `--ai_insights multiqc`, which annotates the individual sections.
+
+`--ai_qualimap_sections` adds a box to every individual Qualimap plot as well. That is one extra request per plot per sample, issued one at a time, so for a real cohort it means hours of waiting — hence off by default.
+
+### How it behaves
+
+- **Text only.** Only tables the pipeline already produced are sent — never a figure, never a read, never a BAM. `bin/llm_common.py` rejects multimodal message content outright, so no caller can change that by accident.
+- **Strictly sequential.** At most one request is in flight at any moment, because a self-hosted model is usually one server that copes badly with concurrency. This is enforced by the shape of the workflow (`LLM_INSIGHT` → `MULTIQC` → `MULTIQC_AI` → `QUALIMAP_AI` is a chain) plus `maxForks = 1`, with an in-process lock and a `flock` as a backstop. Raising `maxForks` will break it.
+- **Never fatal.** An unreachable endpoint, an HTTP error or an empty answer costs you the summary and nothing else; the reports are written either way. Transient failures are retried three times (10 s, 30 s backoff). On a timeout — `--llm_timeout`, 300 s by default — the box says so rather than silently disappearing, so you can tell a failed summary from one that was never requested.
+- **Implausible answers are dropped.** A response longer than `LLM_MAX_ANSWER_CHARS` (4000) is treated as model degradation and not shown.
+- **Always verify.** Every box is stamped with the model, the date and the table it was built from, under a "MUST always verify against the data" label. Treat the output as a reading aid, not a result.
+
+### Handling of the endpoint and key
+
+The endpoint and API key are treated as deployment secrets; the **model name is not**, and is deliberately kept in every box as provenance.
+
+- They are kept out of the parameter summary that is embedded in the MultiQC report (`validation.summary.hideParams`).
+- `MULTIQC_AI` scrubs them from the report and from `multiqc_data/` before publishing — which is why, with `--llm_endpoint` set, the raw MultiQC report is not published at all and `multiqc_ai/` holds the only copy. The pipeline's own methods section quotes the full command line, so the raw report would otherwise contain whatever you typed.
+- The parameter dump in `pipeline_info/params_*.json` is scrubbed at the end of the run.
+
+Two places are **not** covered, because nothing in the pipeline can reach them:
+
+- Nextflow's work directory keeps every task's `.command.sh`, as it does for any parameter.
+- `pipeline_info/execution_report_*.html` quotes the run command line and each task script, and Nextflow writes it after the pipeline's last hook. Passing the credentials through `-params-file secrets.json` or a private `-c` config keeps them off the command line, which removes most of this.
 
 ## Running the pipeline
 

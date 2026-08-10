@@ -10,7 +10,9 @@
             "type": "object",
             "fa_icon": "fas fa-terminal",
             "description": "Define where the pipeline should find input data and save output data.",
-            "required": ["outdir"],
+            "required": [
+                "outdir"
+            ],
             "properties": {
                 "input": {
                     "type": "string",
@@ -79,7 +81,10 @@
                 "fastqdl_provider": {
                     "type": "string",
                     "default": "ena",
-                    "enum": ["ena", "sra"],
+                    "enum": [
+                        "ena",
+                        "sra"
+                    ],
                     "description": "Archive to try first. fastq-dl falls back to the other one automatically.",
                     "help_text": "ENA is the default because its FASTQs are served directly, whereas SRA downloads have to be converted and recompressed.",
                     "fa_icon": "fas fa-archive"
@@ -87,7 +92,11 @@
                 "group_runs_by": {
                     "type": "string",
                     "default": "experiment",
-                    "enum": ["run", "experiment", "sample"],
+                    "enum": [
+                        "run",
+                        "experiment",
+                        "sample"
+                    ],
                     "description": "How runs are grouped into samples before analysis.",
                     "help_text": "`experiment` (the default) concatenates the technical replicates of one library into a single sample, which is what most submissions intend. `run` keeps every run separate. `sample` merges everything sequenced from the same BioSample.",
                     "fa_icon": "fas fa-object-group"
@@ -252,6 +261,22 @@
                     "default": true,
                     "description": "Publish the non-host (unaligned) FASTQ files that are fed to Kraken2.",
                     "fa_icon": "fas fa-save"
+                },
+                "qualimap_gff": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "mimetype": "text/plain",
+                    "pattern": "^\\S+\\.(gff|gff3|gtf)(\\.gz)?$",
+                    "description": "Optional GFF/GTF passed to Qualimap BamQC for feature-level statistics.",
+                    "help_text": "Deliberately separate from --gtf (which only controls the splice-aware HISAT2 index): a full vertebrate annotation makes BamQC dramatically slower, so this is opt-in rather than inherited.",
+                    "fa_icon": "fas fa-file-alt"
+                },
+                "qualimap_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed to `qualimap bamqc`.",
+                    "fa_icon": "fas fa-terminal",
+                    "hidden": true
                 }
             }
         },
@@ -344,7 +369,16 @@
                 "bracken_level": {
                     "type": "string",
                     "default": "S",
-                    "enum": ["D", "P", "C", "O", "F", "G", "S", "S1"],
+                    "enum": [
+                        "D",
+                        "P",
+                        "C",
+                        "O",
+                        "F",
+                        "G",
+                        "S",
+                        "S1"
+                    ],
                     "description": "Taxonomic level for Bracken abundance re-estimation.",
                     "fa_icon": "fas fa-sitemap"
                 },
@@ -354,6 +388,78 @@
                     "minimum": 0,
                     "description": "Minimum number of reads at the chosen level before Bracken re-estimates it.",
                     "fa_icon": "fas fa-filter"
+                }
+            }
+        },
+        "ai_annotation_options": {
+            "title": "AI annotation options",
+            "type": "object",
+            "fa_icon": "fas fa-robot",
+            "description": "Optional LLM-generated summaries in the HTML reports.",
+            "help_text": "Entirely opt-in: with `--llm_endpoint` unset the pipeline never contacts any LLM service. Any OpenAI-compatible `/v1/chat/completions` endpoint works (a self-hosted vLLM/Ollama/llama.cpp server, or a commercial API). Everything sent is plain text taken from the pipeline's own QC tables - never a figure, never a read. Calls are strictly serialised so a single small server is never hit concurrently. The endpoint and the API key are scrubbed from every published report; the model name is kept as provenance.",
+            "properties": {
+                "llm_endpoint": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "OpenAI-compatible /v1/chat/completions URL. Setting it enables the AI annotations.",
+                    "help_text": "Nothing AI-related happens unless this is set. The value is treated as a deployment secret: it is kept out of the parameter summary and scrubbed from the published reports. It is still visible in the Nextflow work directory (`.command.sh`), as any parameter is.",
+                    "fa_icon": "fas fa-plug"
+                },
+                "llm_model": {
+                    "type": "string",
+                    "description": "Model name served at --llm_endpoint. Required whenever --llm_endpoint is set.",
+                    "help_text": "Unlike the endpoint, the model name is deliberately kept in the reports: it is useful provenance for a summary a reader has to judge.",
+                    "fa_icon": "fas fa-brain"
+                },
+                "llm_api_key": {
+                    "type": "string",
+                    "default": "dummy",
+                    "description": "Bearer token for the endpoint. Leave as 'dummy' for local servers that ignore it.",
+                    "fa_icon": "fas fa-key"
+                },
+                "ai_insights": {
+                    "type": "string",
+                    "default": "all",
+                    "description": "Which AI annotations to generate: 'all', 'no', or a comma-separated subset of multiqc,qualimap,taxonomy.",
+                    "help_text": "`taxonomy` narrates the combined Kraken2/Bracken tables and puts the result at the top of the MultiQC report. `multiqc` adds a summary under every section of that report. `qualimap` adds one to each per-sample Qualimap report. Has no effect unless --llm_endpoint is set.",
+                    "fa_icon": "fas fa-list-check"
+                },
+                "llm_context_window": {
+                    "type": "integer",
+                    "default": 128000,
+                    "description": "Model context window in tokens. Input tables are trimmed to fit it.",
+                    "fa_icon": "fas fa-ruler-horizontal"
+                },
+                "llm_timeout": {
+                    "type": "integer",
+                    "default": 300,
+                    "description": "Seconds to wait for one response before giving up on it.",
+                    "help_text": "On timeout the box shows a 'timed out, please try again' placeholder rather than disappearing, so you can tell a failed summary from one that was never requested.",
+                    "fa_icon": "fas fa-hourglass-half"
+                },
+                "multiqc_ai_builtin": {
+                    "type": "boolean",
+                    "description": "Also use MultiQC's own AI feature to write a global report summary.",
+                    "help_text": "Complementary to `--ai_insights multiqc`, which annotates individual sections. Note that MultiQC bakes the endpoint URL into the report it writes, so with this on the raw report is not published: the redacted copy in `multiqc_ai/` is.",
+                    "fa_icon": "fas fa-file-contract"
+                },
+                "multiqc_ai_summary": {
+                    "type": "string",
+                    "default": "full",
+                    "enum": [
+                        "full",
+                        "short"
+                    ],
+                    "description": "Length of MultiQC's builtin summary (--multiqc_ai_builtin only).",
+                    "fa_icon": "fas fa-text-height",
+                    "hidden": true
+                },
+                "ai_qualimap_sections": {
+                    "type": "boolean",
+                    "description": "Also summarise every individual Qualimap plot, not just the report as a whole.",
+                    "help_text": "One extra LLM call per plot per sample, issued one at a time. For a real cohort that is hours of requests, which is why it is off by default.",
+                    "fa_icon": "fas fa-chart-area",
+                    "hidden": true
                 }
             }
         },
@@ -397,6 +503,12 @@
                     "type": "boolean",
                     "description": "Skip the MultiQC report.",
                     "fa_icon": "fas fa-forward"
+                },
+                "skip_qualimap": {
+                    "type": "boolean",
+                    "description": "Skip Qualimap BamQC on the host BAM.",
+                    "help_text": "samtools stats/flagstat/idxstats still run. Qualimap adds coverage depth and uniformity, duplication rate and mapping-quality distributions, which is what tells 'little host in this library' apart from 'wrong host reference'. It is the slowest step of the BAM QC, so it is worth skipping for very large BAMs.",
+                    "fa_icon": "fas fa-fast-forward"
                 }
             }
         },
@@ -512,7 +624,14 @@
                     "description": "Method used to save pipeline results to output directory.",
                     "help_text": "The Nextflow `publishDir` option specifies which intermediate files should be saved to the output directory. This option tells the pipeline what method should be used to move these files. See [Nextflow docs](https://www.nextflow.io/docs/latest/process.html#publishdir) for details.",
                     "fa_icon": "fas fa-copy",
-                    "enum": ["symlink", "rellink", "link", "copy", "copyNoFollow", "move"],
+                    "enum": [
+                        "symlink",
+                        "rellink",
+                        "link",
+                        "copy",
+                        "copyNoFollow",
+                        "move"
+                    ],
                     "hidden": true
                 },
                 "email_on_fail": {
@@ -582,7 +701,10 @@
                     "hidden": true
                 },
                 "help": {
-                    "type": ["boolean", "string"],
+                    "type": [
+                        "boolean",
+                        "string"
+                    ],
                     "description": "Display the help message."
                 },
                 "help_full": {
@@ -614,6 +736,9 @@
         },
         {
             "$ref": "#/$defs/taxonomic_classification_options"
+        },
+        {
+            "$ref": "#/$defs/ai_annotation_options"
         },
         {
             "$ref": "#/$defs/process_skipping_options"

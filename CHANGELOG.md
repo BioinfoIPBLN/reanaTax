@@ -14,6 +14,8 @@ Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-
 - Host genome handling: use a prebuilt HISAT2 index, a local FASTA, or let the pipeline fetch the assembly from NCBI by accession or taxonomy ID.
 - Host depletion with `hisat2 --very-sensitive`, keeping both the aligned reads (sorted, indexed BAM plus samtools statistics) and the unaligned reads (FASTQ).
 - Taxonomic classification of the non-host fraction with Kraken2, abundance re-estimation with Bracken, per-sample Krona charts and combined cross-sample tables.
+- Alignment QC of the host BAM: samtools stats/flagstat/idxstats plus Qualimap BamQC, both fed into MultiQC.
+- Optional AI annotations against any OpenAI-compatible endpoint, ported from [reanalyzerGSE](https://github.com/BioinfoIPBLN/reanalyzerGSE): a narrative of the combined taxonomic profile at the top of the MultiQC report, per-section summaries throughout it, and a summary box in each Qualimap report. Entirely opt-in via `--llm_endpoint`, text-only, strictly serialised, and the endpoint/API key are scrubbed from the published reports.
 - `local` and `slurm` execution profiles, with per-process resource tuning and capped, retried downloads.
 
 ### `Fixed`

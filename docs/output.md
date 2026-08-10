@@ -105,6 +105,24 @@ The overall alignment rate in the summary log is the number to look at first —
 
 Turn either output off with `--save_host_bam false` / `--save_unaligned false`.
 
+### Qualimap
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `qualimap/<sample>/`
+  - `qualimapReport.html`: the BamQC report for that sample's host BAM.
+  - `genome_results.txt`: the same numbers as plain text.
+  - `raw_data_qualimapReport/`: the table behind each plot.
+
+</details>
+
+[Qualimap](http://qualimap.conesalab.org/) BamQC covers what the samtools statistics above cannot: coverage depth and its uniformity across the reference, duplication rate, GC content of the mapped reads, and the mapping-quality and insert-size distributions. Its headline numbers also appear in MultiQC.
+
+Read it with the host-depletion context in mind. A low genome fraction and shallow, patchy coverage are the *expected* result for a library that is not dominated by host — they are only a warning sign when paired with poor mapping quality, which usually means the host reference is the wrong one.
+
+`--skip_qualimap` turns the step off; `--qualimap_gff` adds feature-level statistics.
+
 ### Kraken2
 
 <details markdown="1">
@@ -164,7 +182,29 @@ A sample in which Kraken2 classified nothing (its report holds only the `unclass
 
 </details>
 
-[MultiQC](http://multiqc.info) collects FastQC (raw and trimmed, shown as separate sections), fastp, HISAT2, samtools and Kraken2 into a single page. The General Statistics table carries the host alignment rate per sample, which is usually the fastest way to spot a sample that behaved differently from the rest.
+[MultiQC](http://multiqc.info) collects FastQC (raw and trimmed, shown as separate sections), fastp, HISAT2, samtools, Qualimap and Kraken2 into a single page. The General Statistics table carries the host alignment rate per sample, which is usually the fastest way to spot a sample that behaved differently from the rest.
+
+### AI annotations
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `ai/`
+  - `taxonomy.ai_insight.md`: the LLM's narrative of the combined taxonomic profile.
+- `multiqc_ai/`
+  - `multiqc_report.html`: the MultiQC report with a summary under each section, and with the LLM endpoint scrubbed out.
+  - `multiqc_data/section_mappings.txt`: which exported data table each section's summary was built from — the first thing to check if a summary looks like it is describing the wrong plot.
+  - `multiqc_data/section_prompts.txt`: which sections were sent, and the model used.
+- `qualimap_ai/<sample>/`
+  - `qualimapReport.html`: the Qualimap report with an AI summary box under its Summary heading.
+
+</details>
+
+These directories only exist when `--llm_endpoint` was given. `qualimap_ai/` is an annotated copy alongside the pristine `qualimap/`; `multiqc_ai/` **replaces** `multiqc/`, because the unannotated report still contains the run's command line and therefore the endpoint. See [usage.md](usage.md) for the full behaviour.
+
+Every box carries the model name, the timestamp, the generation rate and the table it was built from, under a "MUST always verify against the data" label. They are a reading aid for a report you should still read.
+
+A sample whose summary reads `AI summary timed out. Please try again` was attempted and did not get a response within `--llm_timeout`; one with no box at all was either not selected in `--ai_insights` or had no data table to send.
 
 ### Pipeline information
 

@@ -145,6 +145,15 @@ workflow PIPELINE_COMPLETION {
     // Completion email and summary
     //
     workflow.onComplete {
+        //
+        // The template dumps every parameter to pipeline_info/params_*.json, so
+        // that file would carry the LLM endpoint and API key into the results
+        // directory in plain text. Scrub it here, once, at the end of the run.
+        // (The MultiQC report is handled by MULTIQC_AI; the parameter summary
+        // never gets them in the first place, see validation.summary.hideParams.)
+        //
+        redactPipelineInfo(outdir)
+
         if (email || email_on_fail) {
             completionEmail(
                 summary_params,
@@ -208,6 +217,111 @@ def validateInputParameters() {
     if (!['run', 'experiment', 'sample'].contains(params.group_runs_by)) {
         error("--group_runs_by must be one of 'run', 'experiment' or 'sample' (got '${params.group_runs_by}').")
     }
+
+    // Parses and therefore validates --ai_insights; also warns about the
+    // combinations that silently do nothing.
+    def ai_options = aiInsightOptions(params.ai_insights, params.llm_endpoint)
+
+    if (params.llm_endpoint && !params.llm_model) {
+        error("--llm_endpoint was given but --llm_model was not. The endpoint has no way to know which model to serve.")
+    }
+
+    if (!params.llm_endpoint && (params.llm_model || params.multiqc_ai_builtin)) {
+        log.warn("An LLM option was set but --llm_endpoint was not, so every AI annotation is disabled.")
+    }
+
+    if (params.multiqc_ai_builtin && !params.llm_endpoint) {
+        error("--multiqc_ai_builtin requires --llm_endpoint (MultiQC's own AI feature needs an endpoint to call).")
+    }
+
+    if (ai_options.contains('qualimap') && (params.skip_qualimap || params.skip_host_removal || !params.save_host_bam)) {
+        log.warn("--ai_insights includes 'qualimap' but no Qualimap report will be produced (--skip_qualimap / --skip_host_removal / --save_host_bam false).")
+    }
+
+    if (ai_options.contains('taxonomy') && params.skip_kraken2) {
+        log.warn("--ai_insights includes 'taxonomy' but classification is disabled with --skip_kraken2, so there is nothing to summarise.")
+    }
+}
+
+//
+// Replace the LLM endpoint and API key with a placeholder everywhere in
+// pipeline_info/. The model name is deliberately left alone - it is provenance,
+// not a secret. No-op when no endpoint was given.
+//
+// The parameter dump (params_*.json) is the file this is really for, but every
+// text artifact in the directory is scrubbed rather than just that one, so a
+// future template change cannot silently reintroduce a leak.
+//
+// Two places stay out of reach. Nextflow's work directory keeps every
+// `.command.sh`, as it does for any parameter. And execution_report_*.html -
+// which quotes both the run command line and each task script - is written by
+// Nextflow's own observer AFTER this hook, so it still shows whatever was typed
+// on the command line. Passing the credentials through `-params-file` or a
+// private `-c` config keeps them out of that too.
+//
+def redactPipelineInfo(outdir) {
+    if (!params.llm_endpoint) {
+        return
+    }
+    def secrets = [params.llm_endpoint, params.llm_api_key]
+        .findAll { secret -> secret && secret != 'dummy' && secret.toString().size() >= 4 }
+        .collect { secret -> secret.toString() }
+        .sort { secret -> -secret.size() }
+
+    def info_dir = file("${outdir}/pipeline_info")
+    if (secrets.isEmpty() || !info_dir.exists()) {
+        return
+    }
+
+    def scrubbed = []
+    info_dir.list().findAll { name -> name ==~ /(?i).*\.(html|json|txt|tsv|csv|log|yml|yaml)$/ }.each { name ->
+        def target = info_dir.resolve(name)
+        try {
+            def text = target.text
+            def redacted = secrets.inject(text) { acc, secret -> acc.replace(secret, '[redacted]') }
+            if (redacted != text) {
+                target.text = redacted
+                scrubbed << name
+            }
+        }
+        catch (Exception e) {
+            log.warn("Could not scrub the LLM endpoint from ${outdir}/pipeline_info/${name}: ${e.message}")
+        }
+    }
+    if (scrubbed) {
+        log.info("Scrubbed the LLM endpoint/API key from ${scrubbed.size()} file(s) in ${outdir}/pipeline_info/.")
+    }
+}
+
+//
+// Resolve --ai_insights into the set of AI annotations to actually run.
+//
+// Accepts 'all'/'yes' (everything), 'no'/'none' (nothing) or a comma-separated
+// subset. Everything is off unless --llm_endpoint is set, so the AI features are
+// opt-in and the default parameter set never contacts an external service.
+//
+def aiInsightOptions(ai_insights, llm_endpoint) {
+    def known = ['multiqc', 'qualimap', 'taxonomy'] as Set
+
+    if (!llm_endpoint) {
+        return [] as Set
+    }
+
+    def selection = (ai_insights ?: 'all').toString().toLowerCase().replaceAll(/\s/, '')
+
+    if (['no', 'none', 'false', ''].contains(selection)) {
+        return [] as Set
+    }
+    if (['all', 'yes', 'true'].contains(selection)) {
+        return known
+    }
+
+    def chosen = selection.tokenize(',') as Set
+    def unknown = chosen - known
+    if (unknown) {
+        error("Unknown --ai_insights value(s): ${unknown.sort().join(', ')}. Choose from ${known.sort().join(', ')}, or use 'all' / 'no'.")
+    }
+    return chosen
 }
 
 //
@@ -308,6 +422,7 @@ def toolCitationText() {
             params.skip_trimming ? "" : "fastp (Chen et al. 2018),",
             params.skip_host_removal ? "" : "HISAT2 (Kim et al. 2019),",
             params.skip_host_removal || !params.save_host_bam ? "" : "SAMtools (Danecek et al. 2021),",
+            params.skip_host_removal || !params.save_host_bam || params.skip_qualimap ? "" : "Qualimap (Okonechnikov et al. 2016),",
             params.skip_kraken2 ? "" : "Kraken2 (Wood et al. 2019),",
             params.skip_kraken2 || params.skip_bracken ? "" : "Bracken (Lu et al. 2017),",
             params.skip_kraken2 || params.skip_krona ? "" : "KronaTools (Ondov et al. 2011),",
@@ -325,6 +440,7 @@ def toolBibliographyText() {
             params.skip_trimming ? "" : "<li>Chen, S., Zhou, Y., Chen, Y., & Gu, J. (2018). fastp: an ultra-fast all-in-one FASTQ preprocessor. Bioinformatics, 34(17), i884-i890. doi: 10.1093/bioinformatics/bty560</li>",
             params.skip_host_removal ? "" : "<li>Kim, D., Paggi, J. M., Park, C., Bennett, C., & Salzberg, S. L. (2019). Graph-based genome alignment and genotyping with HISAT2 and HISAT-genotype. Nature Biotechnology, 37(8), 907-915. doi: 10.1038/s41587-019-0201-4</li>",
             params.skip_host_removal || !params.save_host_bam ? "" : "<li>Danecek, P., Bonfield, J. K., Liddle, J., et al. (2021). Twelve years of SAMtools and BCFtools. GigaScience, 10(2), giab008. doi: 10.1093/gigascience/giab008</li>",
+            params.skip_host_removal || !params.save_host_bam || params.skip_qualimap ? "" : "<li>Okonechnikov, K., Conesa, A., & García-Alcalde, F. (2016). Qualimap 2: advanced multi-sample quality control for high-throughput sequencing data. Bioinformatics, 32(2), 292-294. doi: 10.1093/bioinformatics/btv566</li>",
             params.skip_kraken2 ? "" : "<li>Wood, D. E., Lu, J., & Langmead, B. (2019). Improved metagenomic analysis with Kraken 2. Genome Biology, 20(1), 257. doi: 10.1186/s13059-019-1891-0</li>",
             params.skip_kraken2 || params.skip_bracken ? "" : "<li>Lu, J., Breitwieser, F. P., Thielen, P., & Salzberg, S. L. (2017). Bracken: estimating species abundance in metagenomics data. PeerJ Computer Science, 3, e104. doi: 10.7717/peerj-cs.104</li>",
             params.skip_kraken2 || params.skip_krona ? "" : "<li>Ondov, B. D., Bergman, N. H., & Phillippy, A. M. (2011). Interactive metagenomic visualization in a Web browser. BMC Bioinformatics, 12, 385. doi: 10.1186/1471-2105-12-385</li>",

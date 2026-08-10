@@ -138,18 +138,12 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
 //
 // True if a Kraken2 report contains at least one taxon, i.e. anything beyond the
 // `U` row. Matching on the rank-code column rather than a fixed index keeps this
-// working with the extra columns `--report-minimizer-data` adds. Stops at the
-// first hit, so a large report is not read in full.
+// working with the extra columns `--report-minimizer-data` adds. A Kraken2
+// report is one line per taxon, so even against a large database this is a few
+// MB, and `any` stops scanning at the first classified row.
 //
 def hasClassifiedReads(report) {
-    report.withReader { reader ->
-        def line = reader.readLine()
-        while (line != null) {
-            if (line.split('\t').any { column -> column.trim() ==~ /^[RDKPCOFGS][0-9]*$/ }) {
-                return true
-            }
-            line = reader.readLine()
-        }
-        return false
+    return report.readLines().any { line ->
+        line.split('\t').any { column -> column.trim() ==~ /^[RDKPCOFGS][0-9]*$/ }
     }
 }

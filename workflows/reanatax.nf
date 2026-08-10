@@ -8,11 +8,14 @@ include { PREPARE_HOST_REFERENCE    } from '../subworkflows/local/prepare_host_r
 include { FASTQ_QC_TRIM             } from '../subworkflows/local/fastq_qc_trim'
 include { HOST_DEPLETION_HISAT2     } from '../subworkflows/local/host_depletion_hisat2'
 include { TAXONOMY_KRAKEN2_BRACKEN  } from '../subworkflows/local/taxonomy_kraken2_bracken'
+include { AI_ANNOTATE_REPORTS       } from '../subworkflows/local/ai_annotate_reports'
+include { LLM_INSIGHT               } from '../modules/local/llm/insight/main'
 include { MULTIQC                   } from '../modules/nf-core/multiqc/main'
 include { paramsSummaryMap          } from 'plugin/nf-schema'
 include { paramsSummaryMultiqc      } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { softwareVersionsToYAML    } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { methodsDescriptionText    } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { aiInsightOptions          } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -34,6 +37,10 @@ workflow REANATAX {
 
     def ch_versions = channel.empty()
     def ch_multiqc_files = channel.empty()
+
+    // Which AI annotations to run. Empty unless --llm_endpoint is set, so the
+    // pipeline never contacts an external service by default.
+    def ai_options = aiInsightOptions(params.ai_insights, params.llm_endpoint)
 
     //
     // SUBWORKFLOW: Fetch raw reads from ENA/SRA when accessions were given
@@ -61,6 +68,7 @@ workflow REANATAX {
     // SUBWORKFLOW: Split host from non-host reads
     //
     def ch_nonhost_reads = FASTQ_QC_TRIM.out.reads
+    def ch_qualimap = channel.empty()
 
     if (!params.skip_host_removal) {
         PREPARE_HOST_REFERENCE(
@@ -77,8 +85,11 @@ workflow REANATAX {
             PREPARE_HOST_REFERENCE.out.index,
             PREPARE_HOST_REFERENCE.out.fasta,
             params.save_host_bam,
+            params.skip_qualimap,
+            params.qualimap_gff,
         )
         ch_nonhost_reads = HOST_DEPLETION_HISAT2.out.reads
+        ch_qualimap = HOST_DEPLETION_HISAT2.out.qualimap
         ch_multiqc_files = ch_multiqc_files.mix(HOST_DEPLETION_HISAT2.out.multiqc_files)
     }
 
@@ -96,6 +107,32 @@ workflow REANATAX {
             params.skip_krona,
         )
         ch_multiqc_files = ch_multiqc_files.mix(TAXONOMY_KRAKEN2_BRACKEN.out.multiqc_files)
+
+        //
+        // MODULE: Ask the LLM to narrate the combined taxonomic profile.
+        //
+        // This runs BEFORE MultiQC on purpose: its `*_mqc.html` becomes a
+        // MultiQC custom-content section, so the summary lands at the top of the
+        // report the user already opens instead of in a file they never see.
+        // Running here also keeps it off the critical path of every other AI
+        // call - see subworkflows/local/ai_annotate_reports on why LLM calls
+        // are strictly serialised.
+        //
+        if (ai_options.contains('taxonomy')) {
+            def ch_ai_tables = TAXONOMY_KRAKEN2_BRACKEN.out.report_combined
+                .mix(TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined)
+                .map { _meta, table -> table }
+                .collect(sort: true)
+                .map { tables -> [[id: 'reanatax_taxonomy'], tables] }
+
+            LLM_INSIGHT(
+                ch_ai_tables,
+                params.llm_endpoint,
+                params.llm_model,
+                params.llm_api_key,
+            )
+            ch_multiqc_files = ch_multiqc_files.mix(LLM_INSIGHT.out.mqc.map { _meta, mqc -> mqc })
+        }
     }
 
     //
@@ -131,6 +168,7 @@ workflow REANATAX {
     // MODULE: MultiQC
     //
     def ch_multiqc_report = channel.empty()
+    def ch_multiqc_data = channel.empty()
 
     if (!params.skip_multiqc) {
         ch_multiqc_files = ch_multiqc_files.mix(ch_collated_versions)
@@ -156,11 +194,36 @@ workflow REANATAX {
                 ]
             }
         )
-        ch_multiqc_report = MULTIQC.out.report.map { _meta, report -> [report] }
+        ch_multiqc_report = MULTIQC.out.report
+        ch_multiqc_data = MULTIQC.out.data
+    }
+
+    //
+    // SUBWORKFLOW: AI annotation of the finished reports.
+    //
+    // Entered whenever an endpoint is configured, even if no annotation was
+    // selected, because it is also where the endpoint gets scrubbed out of the
+    // MultiQC report (the run's parameter summary contains it, whether or not
+    // MultiQC's own AI feature was used).
+    //
+    if (params.llm_endpoint) {
+        AI_ANNOTATE_REPORTS(
+            ch_multiqc_report,
+            ch_multiqc_data,
+            ch_qualimap,
+            params.llm_endpoint,
+            params.llm_model,
+            params.llm_api_key,
+            ai_options.contains('multiqc'),
+            ai_options.contains('qualimap'),
+        )
+        // The annotated, redacted report is the one to link from the completion
+        // email - the raw one is not even published in this case.
+        ch_multiqc_report = AI_ANNOTATE_REPORTS.out.multiqc_report
     }
 
     emit:
-    multiqc_report = ch_multiqc_report.toList() // channel: /path/to/multiqc_report.html
+    multiqc_report = ch_multiqc_report.map { _meta, report -> [report] }.toList() // channel: /path/to/multiqc_report.html
     versions       = ch_versions                // channel: [ path(versions.yml) ]
 }
 

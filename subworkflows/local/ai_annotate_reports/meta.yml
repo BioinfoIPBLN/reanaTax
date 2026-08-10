@@ -1,0 +1,73 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "ai_annotate_reports"
+description: |
+  Annotate the finished HTML reports with LLM-written summaries, and scrub the
+  LLM endpoint out of anything that gets published. Also owns the pipeline's
+  guarantee that no two LLM calls are ever in flight at once.
+keywords:
+  - ai
+  - llm
+  - report
+  - multiqc
+  - qualimap
+components:
+  - multiqc/ai
+  - qualimap/ai
+input:
+  - ch_multiqc_report:
+      type: file
+      description: |
+        The MultiQC report to annotate.
+        Structure: [ val(meta), path(html) ]
+      pattern: "*.html"
+  - ch_multiqc_data:
+      type: directory
+      description: |
+        The matching multiqc_data directory, which holds the per-section tables
+        that are sent to the model.
+        Structure: [ val(meta), path(multiqc_data) ]
+  - ch_qualimap:
+      type: directory
+      description: |
+        Per-sample Qualimap BamQC result directories.
+        Structure: [ val(meta), path(results) ]
+  - llm_endpoint:
+      type: string
+      description: OpenAI-compatible /v1/chat/completions URL.
+  - llm_model:
+      type: string
+      description: Model name served at that endpoint.
+  - llm_api_key:
+      type: string
+      description: Bearer token for the endpoint.
+  - annotate_multiqc:
+      type: boolean
+      description: |
+        Add per-section summaries. When false the MultiQC report is only
+        redacted, not annotated.
+  - annotate_qualimap:
+      type: boolean
+      description: Add a summary box to each Qualimap report.
+output:
+  - multiqc_report:
+      type: file
+      description: |
+        The annotated, redacted MultiQC report.
+        Structure: [ val(meta), path(html) ]
+      pattern: "*.html"
+  - multiqc_data:
+      type: directory
+      description: |
+        The redacted multiqc_data directory, plus the section-to-data-file
+        mapping the annotation pass used.
+        Structure: [ val(meta), path(multiqc_data) ]
+  - qualimap:
+      type: directory
+      description: |
+        Annotated copies of the Qualimap report directories.
+        Structure: [ val(meta), path(results) ]
+authors:
+  - "Jose L. Ruiz"
+maintainers:
+  - "Jose L. Ruiz"

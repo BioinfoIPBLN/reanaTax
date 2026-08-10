@@ -80,6 +80,11 @@
                         "git_sha": "46cee3233c7c56524e3c32a52cec089316e09ee5",
                         "installed_by": ["modules"]
                     },
+                    "qualimap/bamqc": {
+                        "branch": "master",
+                        "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
+                        "installed_by": ["modules"]
+                    },
                     "samtools/flagstat": {
                         "branch": "master",
                         "git_sha": "9339809fcb90af8a8b7051e6cd914894d5c52002",
