@@ -11,6 +11,7 @@ keywords:
   - hisat2
   - alignment
 components:
+  - subread/featurecounts
   - qualimap/bamqc
   - hisat2/align
   - bam_sort_stats_samtools

@@ -123,6 +123,19 @@ Read it with the host-depletion context in mind. A low genome fraction and shall
 
 `--skip_qualimap` turns the step off; `--qualimap_gff` adds feature-level statistics.
 
+### Host gene counts
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `host_counts/`
+  - `<sample>.host.featureCounts.tsv`: per-gene counts for the host alignment.
+  - `<sample>.host.featureCounts.tsv.summary`: assignment summary, also in MultiQC.
+
+</details>
+
+Only written with `--quantify_host` and `--gtf`. These come from the same library as the microbial profile, which is what makes correlating the two defensible — see [usage.md](usage.md).
+
 ### Kraken2
 
 <details markdown="1">
@@ -183,6 +196,33 @@ A sample in which Kraken2 classified nothing (its report holds only the `unclass
 </details>
 
 [MultiQC](http://multiqc.info) collects FastQC (raw and trimmed, shown as separate sections), fastp, HISAT2, samtools, Qualimap and Kraken2 into a single page. The General Statistics table carries the host alignment rate per sample, which is usually the fastest way to spot a sample that behaved differently from the rest.
+
+### Functional profiling
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `humann/`
+  - `<sample>_genefamilies.tsv.gz`, `<sample>_pathabundance.tsv.gz`: HUMAnN output.
+  - `taxonomic_profile/<sample>.mpa.txt`: the Kraken2 report translated into MetaPhlAn format, which is what HUMAnN used to choose pangenomes.
+- `humann/regrouped/`, `humann/normalised/`: gene families regrouped (default: KEGG orthologs) and renormalised (default: CPM).
+
+</details>
+
+Only written with `--run_humann`. These are the files the bundled [exploreMetaTax](../apps/exploreMetaTax/) app reads in its Gene families and Stratified tabs.
+
+### Read accounting
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `read_accounting/`
+  - `reanatax.read_accounting.tsv`: one row per sample, raw reads through to classified reads.
+  - `reanatax_polya_mqc.tsv`: poly(A) carry-over diagnostic, with `--run_polya_check`.
+
+</details>
+
+The first table to open when a sample looks odd. `host_carryover_pct` and `nonhost_pct_of_raw` also appear in MultiQC's general statistics; a high carry-over means host depletion is leaking rather than that the sample is unusual.
 
 ### AI annotations
 

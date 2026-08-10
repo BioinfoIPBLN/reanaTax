@@ -37,6 +37,9 @@ module_order:
       name: "HISAT2 (host depletion)"
       info: "Alignment against the host genome. The overall alignment rate is the host fraction of the library; everything that did not align is what gets classified below."
   - samtools
+  - featurecounts:
+      name: "Host gene counts"
+      info: "featureCounts assignment of the host alignments, when --quantify_host was used. A high unassigned fraction usually means the GTF does not match the assembly."
   - qualimap:
       name: "Qualimap (host BAM)"
       info: "Coverage, duplication and mapping-quality profile of the reads that DID align to the host. Low genome fraction here is expected - it means the library is not dominated by host."
@@ -45,6 +48,7 @@ module_order:
 # HISAT2 and samtools outputs are prefixed `<sample>.host`, so strip that to
 # keep one row per sample across every section of the general statistics table.
 extra_fn_clean_exts:
+  - ".host1"
   - ".host"
   - "_raw"
   - "_trimmed"

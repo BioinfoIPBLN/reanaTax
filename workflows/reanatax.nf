@@ -6,16 +6,26 @@
 include { FASTQ_DOWNLOAD_FASTQDL    } from '../subworkflows/local/fastq_download_fastqdl'
 include { PREPARE_HOST_REFERENCE    } from '../subworkflows/local/prepare_host_reference'
 include { FASTQ_QC_TRIM             } from '../subworkflows/local/fastq_qc_trim'
-include { HOST_DEPLETION_HISAT2     } from '../subworkflows/local/host_depletion_hisat2'
+include { PREPARE_HOST_REFERENCE as PREPARE_HOST_REFERENCE_FIRST } from '../subworkflows/local/prepare_host_reference'
+include { HOST_DEPLETION_HISAT2 as HOST_DEPLETION_FIRST } from '../subworkflows/local/host_depletion_hisat2'
+include { HOST_DEPLETION_HISAT2 as HOST_DEPLETION_FINAL } from '../subworkflows/local/host_depletion_hisat2'
 include { TAXONOMY_KRAKEN2_BRACKEN  } from '../subworkflows/local/taxonomy_kraken2_bracken'
+include { FUNCTIONAL_HUMANN         } from '../subworkflows/local/functional_humann'
 include { AI_ANNOTATE_REPORTS       } from '../subworkflows/local/ai_annotate_reports'
 include { LLM_INSIGHT               } from '../modules/local/llm/insight/main'
+include { READ_ACCOUNTING           } from '../modules/local/read/accounting/main'
+include { POLYA_CARRYOVER           } from '../modules/local/polya/carryover/main'
+include { POLYA_MERGE               } from '../modules/local/polya/merge/main'
 include { MULTIQC                   } from '../modules/nf-core/multiqc/main'
 include { paramsSummaryMap          } from 'plugin/nf-schema'
 include { paramsSummaryMultiqc      } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { softwareVersionsToYAML    } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { methodsDescriptionText    } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { aiInsightOptions          } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { hostReferences            } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { meanReadLength            } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { brackenDistributions      } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { resolveBrackenReadLength  } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -69,44 +79,155 @@ workflow REANATAX {
     //
     def ch_nonhost_reads = FASTQ_QC_TRIM.out.reads
     def ch_qualimap = channel.empty()
+    def ch_host_counts = channel.empty()
+    def ch_hisat2_summaries = channel.empty()
 
-    if (!params.skip_host_removal) {
+    // Up to two references, applied in turn. The reads that survive the first
+    // pass are the input to the second, so a read has to fail against BOTH
+    // assemblies to be called non-host - which is the point of pairing GRCh38
+    // with T2T-CHM13: the second assembly holds the centromeric, satellite and
+    // structurally variant sequence that the first is missing, and those are
+    // exactly the regions whose reads otherwise surface as spurious microbes.
+    def host_refs = hostReferences()
+
+    if (!params.skip_host_removal && host_refs) {
+        def two_pass = host_refs.size() > 1
+        // The first reference is the primary one: --gtf describes it, so it is
+        // the one indexed splice-aware, QC'd with Qualimap and counted.
+        def primary = host_refs.first()
+        def secondary = two_pass ? host_refs[1] : null
+
+        if (two_pass) {
+            PREPARE_HOST_REFERENCE_FIRST(
+                primary.kind == 'fasta' ? primary.value : null,
+                primary.kind == 'index' ? primary.value : null,
+                primary.kind == 'accession' ? primary.value : null,
+                primary.kind == 'taxid' ? primary.value : null,
+                params.ncbi_group,
+                params.gtf,
+            )
+            HOST_DEPLETION_FIRST(
+                FASTQ_QC_TRIM.out.reads,
+                PREPARE_HOST_REFERENCE_FIRST.out.index,
+                PREPARE_HOST_REFERENCE_FIRST.out.fasta,
+                params.save_host_bam,
+                params.skip_qualimap,
+                params.qualimap_gff,
+                params.quantify_host ? params.gtf : null,
+            )
+            ch_nonhost_reads = HOST_DEPLETION_FIRST.out.reads
+            ch_qualimap = HOST_DEPLETION_FIRST.out.qualimap
+            ch_host_counts = HOST_DEPLETION_FIRST.out.host_counts
+            ch_hisat2_summaries = HOST_DEPLETION_FIRST.out.summary
+            ch_multiqc_files = ch_multiqc_files.mix(HOST_DEPLETION_FIRST.out.multiqc_files)
+        }
+
+        // The final pass is always the one whose leftovers get classified, so it
+        // is always this alias - which is what lets conf/modules.config publish
+        // the non-host FASTQs from exactly one place regardless of how many
+        // references were given.
+        def last = secondary ?: primary
         PREPARE_HOST_REFERENCE(
-            params.fasta,
-            params.hisat2_index,
-            params.host_accession,
-            params.host_taxid,
+            last.kind == 'fasta' ? last.value : null,
+            last.kind == 'index' ? last.value : null,
+            last.kind == 'accession' ? last.value : null,
+            last.kind == 'taxid' ? last.value : null,
             params.ncbi_group,
-            params.gtf,
+            // A GTF describes one assembly. Handing the primary reference's
+            // annotation to a second, different assembly would build a
+            // nonsense splice index, so the second pass never gets it.
+            two_pass ? null : params.gtf,
         )
-
-        HOST_DEPLETION_HISAT2(
-            FASTQ_QC_TRIM.out.reads,
+        HOST_DEPLETION_FINAL(
+            two_pass ? HOST_DEPLETION_FIRST.out.reads : FASTQ_QC_TRIM.out.reads,
             PREPARE_HOST_REFERENCE.out.index,
             PREPARE_HOST_REFERENCE.out.fasta,
             params.save_host_bam,
-            params.skip_qualimap,
+            // Qualimap on the primary reference only; a second report of the
+            // leftovers aligned to another assembly answers no question.
+            two_pass ? true : params.skip_qualimap,
             params.qualimap_gff,
+            two_pass ? null : (params.quantify_host ? params.gtf : null),
         )
-        ch_nonhost_reads = HOST_DEPLETION_HISAT2.out.reads
-        ch_qualimap = HOST_DEPLETION_HISAT2.out.qualimap
-        ch_multiqc_files = ch_multiqc_files.mix(HOST_DEPLETION_HISAT2.out.multiqc_files)
+        ch_nonhost_reads = HOST_DEPLETION_FINAL.out.reads
+        ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_FINAL.out.summary)
+        ch_multiqc_files = ch_multiqc_files.mix(HOST_DEPLETION_FINAL.out.multiqc_files)
+        if (!two_pass) {
+            ch_qualimap = HOST_DEPLETION_FINAL.out.qualimap
+            ch_host_counts = HOST_DEPLETION_FINAL.out.host_counts
+        }
+    }
+
+    //
+    // MODULE: Is the microbial signal genuine poly(A) capture or carry-over?
+    //
+    // Only meaningful for poly(A)-selected libraries, which is why it is opt-in:
+    // on a metagenome or an rRNA-depleted library the question does not arise.
+    //
+    def ch_polya_mqc = channel.empty()
+
+    if (params.run_polya_check) {
+        POLYA_CARRYOVER(ch_nonhost_reads)
+        POLYA_MERGE(
+            POLYA_CARRYOVER.out.tsv
+                .map { _meta, tsv -> tsv }
+                .collect(sort: true)
+                .map { tables -> [[id: 'reanatax'], tables] }
+        )
+        ch_polya_mqc = POLYA_MERGE.out.mqc
+        ch_multiqc_files = ch_multiqc_files.mix(POLYA_MERGE.out.mqc.map { _meta, mqc -> mqc })
     }
 
     //
     // SUBWORKFLOW: Taxonomic classification of the non-host fraction
     //
+    def ch_kraken2_report = channel.empty()
+
     if (!params.skip_kraken2) {
+        //
+        // Bracken's -r has to match the k-mer distribution the database was
+        // built with, not merely the reads. Getting it wrong does not fail, it
+        // silently returns the wrong abundances - so the length is measured from
+        // fastp rather than assumed, then snapped to a distribution the database
+        // actually ships. It rides on the meta so it stays per-sample: a cohort
+        // pulled from several studies will not share one read length.
+        //
+        def bracken_dists = brackenDistributions(params.bracken_db ?: params.kraken2_db)
+        def ch_reads_for_tax = ch_nonhost_reads
+            .join(FASTQ_QC_TRIM.out.fastp_json, remainder: true)
+            .map { meta, reads, json ->
+                def observed = json ? meanReadLength(json) : null
+                [meta + [bracken_r: resolveBrackenReadLength(observed, bracken_dists, params.bracken_read_length)], reads]
+            }
+
         TAXONOMY_KRAKEN2_BRACKEN(
-            ch_nonhost_reads,
+            ch_reads_for_tax,
             params.kraken2_db,
             params.bracken_db,
             params.kraken2_save_reads,
             params.kraken2_save_readclassifications,
             params.skip_bracken,
             params.skip_krona,
+            params.min_rel_abundance,
+            params.min_samples,
         )
         ch_multiqc_files = ch_multiqc_files.mix(TAXONOMY_KRAKEN2_BRACKEN.out.multiqc_files)
+        ch_kraken2_report = TAXONOMY_KRAKEN2_BRACKEN.out.report
+
+        //
+        // SUBWORKFLOW: What the community is doing, not just who is in it.
+        //
+        if (params.run_humann) {
+            FUNCTIONAL_HUMANN(
+                ch_nonhost_reads,
+                TAXONOMY_KRAKEN2_BRACKEN.out.report,
+                params.humann_nucleotide_db,
+                params.humann_protein_db,
+                params.humann_utility_db,
+                params.humann_regroup,
+                params.humann_renorm,
+            )
+        }
 
         //
         // MODULE: Ask the LLM to narrate the combined taxonomic profile.
@@ -119,8 +240,11 @@ workflow REANATAX {
         // are strictly serialised.
         //
         if (ai_options.contains('taxonomy')) {
-            def ch_ai_tables = TAXONOMY_KRAKEN2_BRACKEN.out.report_combined
-                .mix(TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined)
+            // The filtered tables, deliberately: the unfiltered long tail of
+            // single-read taxa is exactly the material an LLM would narrate as
+            // if it meant something.
+            def ch_ai_tables = TAXONOMY_KRAKEN2_BRACKEN.out.report_combined_filtered
+                .mix(TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined_filtered)
                 .map { _meta, table -> table }
                 .collect(sort: true)
                 .map { tables -> [[id: 'reanatax_taxonomy'], tables] }
@@ -133,6 +257,21 @@ workflow REANATAX {
             )
             ch_multiqc_files = ch_multiqc_files.mix(LLM_INSIGHT.out.mqc.map { _meta, mqc -> mqc })
         }
+    }
+
+    //
+    // MODULE: One table saying what happened to every read, and how much host
+    // survived depletion. Everything it needs already exists; nothing joins it.
+    //
+    if (!params.skip_read_accounting) {
+        READ_ACCOUNTING(
+            FASTQ_QC_TRIM.out.fastp_json.map { _meta, json -> json }.collect(sort: true).ifEmpty([])
+                .combine(ch_hisat2_summaries.map { _meta, log_file -> log_file }.collect(sort: true).ifEmpty([]))
+                .combine(ch_kraken2_report.map { _meta, report -> report }.collect(sort: true).ifEmpty([]))
+                .map { fastp, hisat2, kraken2 -> [[id: 'reanatax'], fastp, hisat2, kraken2] },
+            params.host_carryover_taxid,
+        )
+        ch_multiqc_files = ch_multiqc_files.mix(READ_ACCOUNTING.out.mqc.map { _meta, mqc -> mqc }.flatten())
     }
 
     //

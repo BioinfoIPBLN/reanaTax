@@ -105,17 +105,33 @@ To skip host depletion entirely and classify the trimmed reads directly, use `--
 
 ### A note on `--very-sensitive`
 
-The default `--hisat2_args '--very-sensitive'` expands to `--bowtie2-dp 2 -k 50 --score-min L,0,-1`. The `-k 50` part means HISAT2 reports **up to 50 alignments per read**, which makes the host BAM several times larger and the alignment slower — without changing which reads are classified as host.
+The default `--hisat2_args '--very-sensitive'` expands to `--bowtie2-dp 2 -k 50 --score-min L,0,-1`. The `-k 50` part makes HISAT2 look for **up to 50 alignments per read**, which costs alignment time without changing which reads are classified as host.
 
-If the host BAM is only there for QC or for counting host reads, add:
+It does **not** bloat the BAM: the module pipes HISAT2 through `samtools view -F 256`, so secondary alignments are discarded before anything is written and the BAM holds one primary alignment per aligned read. That is also what makes the BAM directly usable for `--gtf`-driven host quantification.
+
+To spend less time on it:
 
 ```bash
 --hisat2_max_alignments 1
 ```
 
-This keeps the sensitivity of the search (`--bowtie2-dp 2`, `--score-min L,0,-1`) but writes a single best alignment per read.
+This keeps the sensitivity of the search (`--bowtie2-dp 2`, `--score-min L,0,-1`) and only stops HISAT2 hunting for alignments that are thrown away anyway.
 
 The non-host FASTQs are HISAT2's `--un-conc-gz` output, i.e. pairs that did not align **concordantly**. That is deliberately the conservative choice for depletion: a pair where only one mate hit the host still goes forward to classification.
+
+### Two host references
+
+`--fasta`, `--hisat2_index`, `--host_accession` and `--host_taxid` each accept a comma-separated list and can be mixed. Up to two references are supported, and reads are depleted against them in turn — a read has to fail against **both** to be called non-host:
+
+```bash
+--fasta /data/genomes/GRCh38.fa --host_accession GCA_009914755.4   # GRCh38 + T2T-CHM13
+```
+
+This is worth the second pass. GRCh38 is missing most centromeric and satellite sequence and a good deal of structurally variant genome; reads from those regions do not align to it, survive depletion, and then get classified as whatever microbe shares a k-mer with them. T2T-CHM13 contains that sequence, so the second pass removes them. Monteleone et al. (*Microbiome* 2026) use exactly this pairing for the same reason.
+
+The **first** reference given is the primary one: it is the one `--gtf` describes, the one Qualimap reports on, and the one `--quantify_host` counts against. The second pass gets no GTF — an annotation belongs to one assembly, and handing it to another would build a nonsense splice index.
+
+Whether you needed the second reference is answerable after the fact: check the **host carry-over** column described below.
 
 ## QC of the host BAM
 
@@ -133,6 +149,14 @@ Qualimap is the slowest part of the BAM QC, so `--skip_qualimap` turns it off fo
 ```
 
 `--gtf` only controls whether the HISAT2 index is splice-aware; handing a full vertebrate annotation to BamQC makes it dramatically slower, so it is not inherited.
+
+## Host gene counts
+
+`--quantify_host` (with `--gtf`) runs featureCounts on the host BAM and writes a per-sample count matrix to `host_counts/`.
+
+The point is not the counts on their own — it is that they come from the *same library* as the microbial profile. Host expression and microbiome composition measured from one set of molecules share their technical batch effects, so correlating them is defensible in a way that correlating a separate RNA-seq run against a separate 16S run is not. That is the core methodological argument of Monteleone et al. (*Microbiome* 2026), and `--quantify_host` is what puts both halves in your `--outdir`.
+
+No special alignment settings are needed: the HISAT2 module already pipes through `samtools view -F 256`, so each read is counted once.
 
 ## The Kraken2 database
 
@@ -154,7 +178,46 @@ Memory mapping drops the request to 16 GB. It is slower in the worst case, but w
 
 **Bracken** re-estimates abundances from the Kraken2 report. It needs a `databaseNmers.kmer_distrib` file in the database matching `--bracken_read_length` (default `100`); check the read length FastQC reports and pick the closest value the database provides. Point `--bracken_db` elsewhere if the distributions live outside the Kraken2 database directory. `--skip_bracken` turns the step off.
 
+**Stringency.** `--kraken2_min_hit_groups` (Kraken2's `--minimum-hit-groups`) defaults to `2`, which is Kraken2's own default. For host-dominated or low-biomass libraries — RNA-seq mined for microbial signal is both — raising it is the standard tightening, and Monteleone et al. use `3`:
+
+```bash
+--kraken2_min_hit_groups 3
+```
+
+Each hit group is a run of consecutive k-mers matching the same taxon, so requiring more of them demands that a classification rest on more than one lucky k-mer. It costs sensitivity for rare taxa; that is the trade you are making.
+
+**Sparse taxa.** The combined tables are filtered to taxa exceeding `--min_rel_abundance` (default `0.001`, i.e. 0.1%) in at least `--min_samples` samples, following the same paper. Per-sample reports are left untouched — prevalence is a cross-sample property. This is a sparsity filter, **not** a contamination caller: with no negative controls it cannot tell a reagent contaminant from a rare real organism, it only removes taxa too sparse for any statistic to speak about. What it dropped is written to a `.removed.tsv` beside each filtered table.
+
 `--kraken2_report_minimizer_data` adds distinct-minimizer columns that are useful for filtering false positives, but neither Bracken nor MultiQC can read the resulting report — the pipeline requires `--skip_bracken` alongside it.
+
+## Functional profiling (optional)
+
+Taxonomy says who is present; `--run_humann` says what they are doing. HUMAnN 3 produces gene-family and pathway abundances from the non-host reads, optionally regrouped onto KEGG orthologs — the third layer in Monteleone et al.'s host-mRNA / species / pathway analysis.
+
+```bash
+--run_humann \
+--humann_nucleotide_db /data/humann/chocophlan \
+--humann_protein_db    /data/humann/uniref \
+--humann_utility_db    /data/humann/utility_mapping
+```
+
+It is off by default because it needs those large databases and is comfortably the most expensive step here.
+
+Two things to know about how it is wired:
+
+- **The taxonomic profile comes from Kraken2, not MetaPhlAn.** HUMAnN picks which pangenomes to align against from a taxonomic profile and only reads MetaPhlAn's format, so the Kraken2 report is translated with KrakenTools' `kreport2mpa.py`. The alternative — running MetaPhlAn as a second classifier — would mean a second database and a second set of abundances quietly disagreeing with the Bracken tables in the same report. `--run_humann` therefore cannot be combined with `--skip_kraken2`.
+- **Species-level assignments are what count.** HUMAnN keys on `s__` lines. Clades Kraken2 could only place at genus or above contribute nothing to the functional table, so a profile that is mostly genus-level will produce a thin result. That is a property of the classification, not a failure.
+
+`--humann_regroup` (default `uniref90_ko`) and `--humann_renorm` (default `cpm`) control the regrouping and normalisation; raw HUMAnN output is in RPK, which is not comparable across libraries of different depth. Both outputs are also what the bundled [exploreMetaTax](../apps/exploreMetaTax/) app reads in its Gene families and Stratified tabs.
+
+## Read accounting and diagnostics
+
+Every run writes `read_accounting/reanatax.read_accounting.tsv`: one row per sample tracking raw → trimmed → aligned to each host reference → non-host → classified. All of it exists somewhere already; the table is where it finally sits side by side, which is what you need to decide whether a sample has enough non-host reads for its profile to mean anything. Two columns also land in MultiQC's general statistics:
+
+- **Host carry-over** — the share of supposedly non-host reads that Kraken2 still assigns to the host taxon (`--host_carryover_taxid`, default 9606). Kraken2's standard databases contain the host genome deliberately, which makes this a free audit of the aligner. A few percent is normal. Tens of percent means depletion is leaking, and the fix is usually a second host reference.
+- **Non-host** — what fraction of the raw library survived to classification.
+
+`--run_polya_check` adds a diagnostic for poly(A)-selected libraries only. Most bacterial transcripts have no poly(A) tail, so microbial reads in such a library need an explanation: oligo-dT internal mispriming, or non-specific carry-over. The check counts internal poly-A/T runs in the non-host reads against a null built by shuffling each read while preserving its length and base composition — the comparison has to be composition-matched, because A/T runs are common in AT-rich genomes for entirely trivial reasons. An enrichment near 1 means carry-over; clearly above 1 means capture, which biases abundances towards A-rich transcripts.
 
 ## AI annotations (optional)
 

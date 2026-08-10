@@ -10,6 +10,8 @@ include { BRACKEN_COMBINEBRACKENOUTPUTS  } from '../../../modules/nf-core/bracke
 include { KRAKENTOOLS_KREPORT2KRONA      } from '../../../modules/nf-core/krakentools/kreport2krona/main'
 include { KRAKENTOOLS_COMBINEKREPORTS    } from '../../../modules/nf-core/krakentools/combinekreports/main'
 include { KRONA_KTIMPORTTEXT             } from '../../../modules/nf-core/krona/ktimporttext/main'
+include { ABUNDANCE_FILTER as FILTER_KRAKEN2 } from '../../../modules/local/abundance/filter/main'
+include { ABUNDANCE_FILTER as FILTER_BRACKEN } from '../../../modules/local/abundance/filter/main'
 
 workflow TAXONOMY_KRAKEN2_BRACKEN {
 
@@ -21,6 +23,8 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     save_reads_assignment // boolean: keep the per-read assignment table
     skip_bracken // boolean
     skip_krona // boolean
+    min_rel_abundance // float: relative abundance a taxon must exceed...
+    min_samples // integer: ...in at least this many samples
 
     main:
 
@@ -87,8 +91,17 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
             }
     )
 
+    //
+    // MODULE: Drop taxa too sparse for any downstream statistic to speak about.
+    // Applied to the COMBINED tables only: the per-sample reports stay intact,
+    // because prevalence is a cross-sample property and filtering a sample in
+    // isolation would just be a detection threshold.
+    //
+    FILTER_KRAKEN2(KRAKENTOOLS_COMBINEKREPORTS.out.txt, min_rel_abundance, min_samples)
+
     def ch_bracken = channel.empty()
     def ch_bracken_combined = channel.empty()
+    def ch_bracken_combined_filtered = channel.empty()
 
     if (!skip_bracken) {
         //
@@ -109,6 +122,9 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
                 }
         )
         ch_bracken_combined = BRACKEN_COMBINEBRACKENOUTPUTS.out.txt
+
+        FILTER_BRACKEN(BRACKEN_COMBINEBRACKENOUTPUTS.out.txt, min_rel_abundance, min_samples)
+        ch_bracken_combined_filtered = FILTER_BRACKEN.out.filtered
     }
 
     def ch_krona = channel.empty()
@@ -131,6 +147,8 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     report_combined = KRAKENTOOLS_COMBINEKREPORTS.out.txt // channel: [ val(meta), path(txt) ]
     bracken = ch_bracken // channel: [ val(meta), path(tsv) ]
     bracken_combined = ch_bracken_combined // channel: [ val(meta), path(txt) ]
+    report_combined_filtered = FILTER_KRAKEN2.out.filtered // channel: [ val(meta), path(tsv) ]
+    bracken_combined_filtered = ch_bracken_combined_filtered // channel: [ val(meta), path(tsv) ]
     krona = ch_krona // channel: [ val(meta), path(html) ]
     multiqc_files = ch_multiqc_files // channel: path(file)
 }

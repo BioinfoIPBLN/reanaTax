@@ -196,12 +196,28 @@ def validateInputParameters() {
         )
     }
 
-    if (!params.skip_host_removal && !params.fasta && !params.hisat2_index && !params.host_accession && !params.host_taxid) {
+    def host_refs = hostReferences()
+
+    if (!params.skip_host_removal && host_refs.isEmpty()) {
         error("Host depletion is enabled but no host genome was given. Provide one of --fasta, --hisat2_index, --host_accession or --host_taxid, or disable the step with --skip_host_removal.")
     }
 
-    if (params.host_accession && params.host_taxid) {
-        error("--host_accession and --host_taxid are mutually exclusive.")
+    // Two references is the useful maximum and the one the literature uses
+    // (GRCh38 + T2T-CHM13). Beyond that the passes cost more than they remove.
+    if (host_refs.size() > 2) {
+        error("At most two host references are supported, but ${host_refs.size()} were given (${host_refs.collect { ref -> ref.value }.join(', ')}). Reads are depleted against them in turn; a third pass has nothing left to find.")
+    }
+
+    if (params.quantify_host && !params.gtf) {
+        error("--quantify_host needs an annotation: add --gtf. Counts are taken from the host BAM of the first reference given.")
+    }
+
+    if (params.run_humann && !(params.humann_nucleotide_db && params.humann_protein_db)) {
+        error("--run_humann requires both --humann_nucleotide_db (ChocoPhlAn) and --humann_protein_db (UniRef).")
+    }
+
+    if (params.run_humann && params.skip_kraken2) {
+        error("--run_humann needs the Kraken2 report to build HUMAnN's taxonomic profile; it cannot be combined with --skip_kraken2.")
     }
 
     if (!params.skip_kraken2 && !params.kraken2_db) {
@@ -291,6 +307,92 @@ def redactPipelineInfo(outdir) {
     if (scrubbed) {
         log.info("Scrubbed the LLM endpoint/API key from ${scrubbed.size()} file(s) in ${outdir}/pipeline_info/.")
     }
+}
+
+//
+// The host references to deplete against, in the order they will be applied.
+//
+// Each of --hisat2_index / --fasta / --host_accession / --host_taxid accepts a
+// comma-separated list, and they can be mixed: `--fasta hg38.fa --host_accession
+// GCA_009914755.4` is one local assembly plus one fetched from NCBI, which is
+// exactly the GRCh38 + T2T-CHM13 pairing that Monteleone et al. use to stop
+// centromeric, satellite and structurally variant reads from being mistaken for
+// microbes.
+//
+// The FIRST reference is the primary one: it is the one --gtf describes, so it
+// is the one indexed splice-aware, QC'd with Qualimap and counted for host
+// expression.
+//
+def commaList(value) {
+    return value
+        ? value.toString().split(',').collect { entry -> entry.trim() }.findAll { entry -> entry }
+        : []
+}
+
+def hostReferences() {
+    def refs = []
+    commaList(params.hisat2_index).each { value -> refs << [kind: 'index', value: value] }
+    commaList(params.fasta).each { value -> refs << [kind: 'fasta', value: value] }
+    commaList(params.host_accession).each { value -> refs << [kind: 'accession', value: value] }
+    commaList(params.host_taxid).each { value -> refs << [kind: 'taxid', value: value] }
+    return refs
+}
+
+//
+// Mean read length after trimming, from fastp's JSON. Used to pick Bracken's
+// -r, which has to match the read length the database was built for.
+//
+def meanReadLength(json_file) {
+    try {
+        def parsed = new groovy.json.JsonSlurper().parse(json_file.toFile())
+        def after = parsed?.summary?.after_filtering
+        def lengths = [after?.read1_mean_length, after?.read2_mean_length].findAll { value -> value }
+        return lengths ? (lengths.sum() / lengths.size()) as Integer : null
+    }
+    catch (Exception e) {
+        log.warn("Could not read the trimmed read length from ${json_file}: ${e.message}")
+        return null
+    }
+}
+
+//
+// Bracken's -r must match one of the k-mer distributions in the database, not
+// merely the reads: `-r 100` against a database that only has 50/150 silently
+// gives you the wrong estimates. So take the observed length and snap it to the
+// nearest distribution the database actually ships.
+//
+def brackenDistributions(db) {
+    if (!db) {
+        return []
+    }
+    def dir = file(db)
+    if (!dir.exists() || !dir.isDirectory()) {
+        return []                                  // a tarball; nothing to inspect yet
+    }
+    return dir
+        .list()
+        .collect { name -> (name =~ /^database(\d+)mers\.kmer_distrib$/) }
+        .findAll { matcher -> matcher.matches() }
+        .collect { matcher -> matcher.group(1) as Integer }
+        .sort()
+}
+
+def resolveBrackenReadLength(observed, available, configured) {
+    if (configured?.toString()?.toLowerCase() != 'auto') {
+        return configured as Integer
+    }
+    if (!observed) {
+        log.warn("--bracken_read_length auto could not determine the trimmed read length (no fastp JSON); falling back to 100.")
+        return 100
+    }
+    if (!available) {
+        return observed
+    }
+    def nearest = available.min { candidate -> Math.abs(candidate - observed) }
+    if (Math.abs(nearest - observed) > 25) {
+        log.warn("Trimmed reads are ~${observed} bp but the Bracken database only provides distributions for ${available.join(', ')} bp; using ${nearest}. Abundance estimates will be approximate.")
+    }
+    return nearest
 }
 
 //

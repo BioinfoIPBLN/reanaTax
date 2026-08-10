@@ -38,6 +38,14 @@
 
   > Okonechnikov K, Conesa A, García-Alcalde F. Qualimap 2: advanced multi-sample quality control for high-throughput sequencing data. Bioinformatics. 2016 Jan 15;32(2):292-4. doi: 10.1093/bioinformatics/btv566. PubMed PMID: 26428292; PubMed Central PMCID: PMC4708105.
 
+- [featureCounts](https://pubmed.ncbi.nlm.nih.gov/24227677/)
+
+  > Liao Y, Smyth GK, Shi W. featureCounts: an efficient general purpose program for assigning sequence reads to genomic features. Bioinformatics. 2014 Apr 1;30(7):923-30. doi: 10.1093/bioinformatics/btt656. PubMed PMID: 24227677.
+
+- [HUMAnN 3](https://pubmed.ncbi.nlm.nih.gov/33944776/)
+
+  > Beghini F, McIver LJ, Blanco-Míguez A, Dubois L, Asnicar F, Maharjan S, et al. Integrating taxonomic, functional, and strain-level profiling of diverse microbial communities with bioBakery 3. Elife. 2021 May 4;10:e65088. doi: 10.7554/eLife.65088. PubMed PMID: 33944776.
+
 - [Kraken2](https://pubmed.ncbi.nlm.nih.gov/31779668/)
 
   > Wood DE, Lu J, Langmead B. Improved metagenomic analysis with Kraken 2. Genome Biol. 2019 Nov 28;20(1):257. doi: 10.1186/s13059-019-1891-0. PubMed PMID: 31779668; PubMed Central PMCID: PMC6883579.
@@ -57,6 +65,14 @@
 - [MultiQC](https://pubmed.ncbi.nlm.nih.gov/27312411/)
 
   > Ewels P, Magnusson M, Lundin S, Käller M. MultiQC: summarize analysis results for multiple tools and samples in a single report. Bioinformatics. 2016 Oct 1;32(19):3047-8. doi: 10.1093/bioinformatics/btw354. Epub 2016 Jun 16. PubMed PMID: 27312411; PubMed Central PMCID: PMC5039924.
+
+## Methods this pipeline follows
+
+- [Monteleone et al. 2026](https://pubmed.ncbi.nlm.nih.gov/42098796/)
+
+  > Monteleone E, Amato Cianci M, Albano A, Loperfido F, Griffante G, Brasi L, et al. Unleashing the potential of mRNA-seq to uncover the microbiome structure and their crosstalk with host cells: the vulvar ecosystem. Microbiome. 2026. doi: 10.1186/s40168-026-02420-x. PubMed PMID: 42098796.
+
+  Source of several defaults and options here: depletion against two host assemblies, keeping the host in the Kraken2 database as a carry-over check, `--minimum-hit-groups 3` for host-dominated libraries, the >0.1%-in-≥1-sample sparse-taxon filter, and the poly(A) carry-over diagnostic.
 
 ## Software packaging/containerisation tools
 

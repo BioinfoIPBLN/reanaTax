@@ -132,12 +132,9 @@
             "properties": {
                 "fasta": {
                     "type": "string",
-                    "format": "file-path",
-                    "exists": true,
-                    "mimetype": "text/plain",
-                    "pattern": "^\\S+\\.(fn?a|fasta)(\\.gz)?$",
                     "description": "Path to the host genome FASTA file (optionally gzipped).",
-                    "fa_icon": "far fa-file-code"
+                    "fa_icon": "far fa-file-code",
+                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to two references are supported and reads are depleted against them in turn: a read must fail against both to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. "
                 },
                 "gtf": {
                     "type": "string",
@@ -151,23 +148,20 @@
                 },
                 "hisat2_index": {
                     "type": "string",
-                    "format": "path",
-                    "exists": true,
                     "description": "Path to a prebuilt HISAT2 index directory, or a `.tar.gz` of one.",
-                    "fa_icon": "fas fa-bezier-curve"
+                    "fa_icon": "fas fa-bezier-curve",
+                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to two references are supported and reads are depleted against them in turn: a read must fail against both to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. "
                 },
                 "host_accession": {
                     "type": "string",
-                    "pattern": "^GC[AF]_[0-9]+\\.[0-9]+$",
                     "description": "NCBI assembly accession of the host genome to download, e.g. `GCF_000001405.40`.",
-                    "help_text": "`GCF_` accessions are fetched from RefSeq and `GCA_` accessions from GenBank; the pipeline picks the right section for you. Set `--ncbi_group` to the organism's group (e.g. `vertebrate_mammalian`) to make the lookup much faster.",
+                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to two references are supported and reads are depleted against them in turn: a read must fail against both to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. `GCF_` accessions are fetched from RefSeq and `GCA_` accessions from GenBank; the pipeline picks the right section for you. Set `--ncbi_group` to the organism's group (e.g. `vertebrate_mammalian`) to make the lookup much faster.",
                     "fa_icon": "fas fa-barcode"
                 },
                 "host_taxid": {
                     "type": "string",
-                    "pattern": "^[0-9]+$",
                     "description": "NCBI taxonomy ID of the host, e.g. `9606` for human.",
-                    "help_text": "Resolves to that taxon's RefSeq reference assembly. Use `--host_accession` when you need a specific assembly version.",
+                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to two references are supported and reads are depleted against them in turn: a read must fail against both to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. Resolves to that taxon's RefSeq reference assembly. Use `--host_accession` when you need a specific assembly version.",
                     "fa_icon": "fas fa-sitemap"
                 },
                 "ncbi_group": {
@@ -277,6 +271,32 @@
                     "description": "Extra arguments passed to `qualimap bamqc`.",
                     "fa_icon": "fas fa-terminal",
                     "hidden": true
+                },
+                "quantify_host": {
+                    "type": "boolean",
+                    "description": "Count host reads per gene with featureCounts. Requires --gtf.",
+                    "help_text": "Turns the host half of the split from a QC by-product into an expression matrix, measured from the same library as the microbial profile - which is what makes host/microbiome correlation defensible, since both sides share the same technical batch. The BAM needs no preparation: the HISAT2 module already pipes through `samtools view -F 256`, so each read appears once. Counts come from the first host reference given.",
+                    "fa_icon": "fas fa-calculator"
+                },
+                "featurecounts_feature_type": {
+                    "type": "string",
+                    "default": "exon",
+                    "description": "GTF feature type to count over (featureCounts -t).",
+                    "fa_icon": "fas fa-align-left",
+                    "hidden": true
+                },
+                "featurecounts_attribute": {
+                    "type": "string",
+                    "default": "gene_id",
+                    "description": "GTF attribute to group features by (featureCounts -g).",
+                    "fa_icon": "fas fa-tag",
+                    "hidden": true
+                },
+                "featurecounts_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed to featureCounts.",
+                    "fa_icon": "fas fa-terminal",
+                    "hidden": true
                 }
             }
         },
@@ -359,11 +379,10 @@
                     "fa_icon": "fas fa-database"
                 },
                 "bracken_read_length": {
-                    "type": "integer",
-                    "default": 100,
-                    "minimum": 1,
-                    "description": "Read length whose kmer distribution Bracken should use.",
-                    "help_text": "Must match a `databaseNmers.kmer_distrib` file present in the database. Pick the value closest to the read length reported by FastQC.",
+                    "type": "string",
+                    "default": "auto",
+                    "description": "Read length for Bracken (-r), or 'auto' to measure it.",
+                    "help_text": "Bracken's -r must match a k-mer distribution the database was built with, not merely your reads: a mismatch does not fail, it silently returns wrong abundances. 'auto' takes the mean read length after trimming from fastp, per sample, and snaps it to the nearest `database<N>mers.kmer_distrib` present in the database, warning if the gap is large. Give a number to pin it.",
                     "fa_icon": "fas fa-ruler-horizontal"
                 },
                 "bracken_level": {
@@ -388,6 +407,71 @@
                     "minimum": 0,
                     "description": "Minimum number of reads at the chosen level before Bracken re-estimates it.",
                     "fa_icon": "fas fa-filter"
+                },
+                "min_rel_abundance": {
+                    "type": "number",
+                    "default": 0.001,
+                    "description": "Relative abundance a taxon must exceed to be kept in the combined tables.",
+                    "help_text": "Applied with --min_samples to the combined tables only; per-sample reports are left intact. This is a sparsity filter, NOT a contamination caller: with no negative controls it cannot tell a reagent contaminant from a rare real organism, it only removes taxa too sparse for any statistic to speak about. Without it the long tail of single-read hits dominates every distance metric. Dropped taxa are written to a `.removed.tsv` next to the filtered table.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "min_samples": {
+                    "type": "integer",
+                    "default": 1,
+                    "description": "Number of samples in which --min_rel_abundance must be exceeded.",
+                    "fa_icon": "fas fa-layer-group"
+                }
+            }
+        },
+        "functional_profiling_options": {
+            "title": "Functional profiling options",
+            "type": "object",
+            "fa_icon": "fas fa-gears",
+            "description": "Optional HUMAnN 3 profiling of what the non-host community is doing.",
+            "help_text": "Off by default: HUMAnN needs large user-provided databases and is by far the most expensive step in the pipeline. It answers the question taxonomy cannot - which gene families and pathways are present - and its output is what the bundled exploreMetaTax app reads in its Gene families and Stratified tabs.",
+            "properties": {
+                "run_humann": {
+                    "type": "boolean",
+                    "description": "Run HUMAnN 3 on the non-host reads.",
+                    "help_text": "Requires --humann_nucleotide_db and --humann_protein_db, and cannot be combined with --skip_kraken2: HUMAnN selects pangenomes from a taxonomic profile, which is built from the Kraken2 report with KrakenTools' kreport2mpa.py rather than by running MetaPhlAn as a second, disagreeing classifier. Note the consequence - HUMAnN keys on species (`s__`) lines, so clades Kraken2 could only place above species contribute nothing.",
+                    "fa_icon": "fas fa-gears"
+                },
+                "humann_nucleotide_db": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "ChocoPhlAn nucleotide database directory.",
+                    "fa_icon": "fas fa-folder"
+                },
+                "humann_protein_db": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "UniRef translated-search database directory.",
+                    "fa_icon": "fas fa-folder"
+                },
+                "humann_utility_db": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "HUMAnN utility mapping directory. Required for --humann_regroup.",
+                    "fa_icon": "fas fa-folder"
+                },
+                "humann_regroup": {
+                    "type": "string",
+                    "default": "uniref90_ko",
+                    "description": "Regroup gene families onto another namespace, e.g. uniref90_ko for KEGG orthologs. Empty to skip.",
+                    "fa_icon": "fas fa-object-group"
+                },
+                "humann_renorm": {
+                    "type": "string",
+                    "default": "cpm",
+                    "description": "Renormalise abundances: cpm or relab. Empty to keep raw RPK.",
+                    "help_text": "Raw HUMAnN output is in reads per kilobase, which is not comparable between libraries of different depth.",
+                    "fa_icon": "fas fa-percent"
+                },
+                "humann_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed to humann.",
+                    "fa_icon": "fas fa-terminal",
+                    "hidden": true
                 }
             }
         },
@@ -459,6 +543,38 @@
                     "description": "Also summarise every individual Qualimap plot, not just the report as a whole.",
                     "help_text": "One extra LLM call per plot per sample, issued one at a time. For a real cohort that is hours of requests, which is why it is off by default.",
                     "fa_icon": "fas fa-chart-area",
+                    "hidden": true
+                }
+            }
+        },
+        "diagnostics_options": {
+            "title": "Read accounting and diagnostics",
+            "type": "object",
+            "fa_icon": "fas fa-clipboard-check",
+            "description": "Cross-tool read bookkeeping and library-chemistry checks.",
+            "properties": {
+                "skip_read_accounting": {
+                    "type": "boolean",
+                    "description": "Skip the consolidated per-sample read-fate table.",
+                    "fa_icon": "fas fa-fast-forward"
+                },
+                "host_carryover_taxid": {
+                    "type": "integer",
+                    "default": 9606,
+                    "description": "Taxon counted as host leakage in the Kraken2 report (default: 9606, Homo sapiens).",
+                    "help_text": "Kraken2's standard databases contain the host genome deliberately, which makes it a free audit of the aligner: any non-host read that Kraken2 still calls host escaped depletion. A few percent is normal; tens of percent means the host reference is wrong or incomplete, and a second reference is worth adding.",
+                    "fa_icon": "fas fa-viruses"
+                },
+                "run_polya_check": {
+                    "type": "boolean",
+                    "description": "Check whether microbial reads in a poly(A) library came from capture or carry-over.",
+                    "help_text": "Bacterial transcripts mostly lack poly(A) tails, so their presence in a poly(A)-selected library needs explaining. This counts internal poly-A/T runs in the non-host reads against a null built by shuffling each read (preserving its length and base composition): around 1 means carry-over, clearly above 1 means oligo-dT internal mispriming, which biases abundances towards A-rich transcripts. Only meaningful for poly(A)-selected libraries.",
+                    "fa_icon": "fas fa-flask"
+                },
+                "polya_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed to polya_carryover.py.",
+                    "fa_icon": "fas fa-terminal",
                     "hidden": true
                 }
             }
@@ -738,7 +854,13 @@
             "$ref": "#/$defs/taxonomic_classification_options"
         },
         {
+            "$ref": "#/$defs/functional_profiling_options"
+        },
+        {
             "$ref": "#/$defs/ai_annotation_options"
+        },
+        {
+            "$ref": "#/$defs/diagnostics_options"
         },
         {
             "$ref": "#/$defs/process_skipping_options"

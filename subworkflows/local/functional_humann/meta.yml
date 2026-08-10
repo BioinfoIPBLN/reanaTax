@@ -1,0 +1,93 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "functional_humann"
+description: |
+  Functional profiling of the non-host fraction with HUMAnN 3: gene families and
+  pathway abundances, optionally regrouped onto another namespace (KEGG
+  orthologs by default) and renormalised.
+
+  HUMAnN chooses which pangenomes to align against from a taxonomic profile and
+  only reads MetaPhlAn's format, so the Kraken2 report is translated rather than
+  a second classifier being run - which would mean a second database and a
+  second set of abundances disagreeing with the Bracken tables in the same
+  report. The trade-off is that HUMAnN keys on species-level lines, so clades
+  resolved only above species contribute nothing here.
+keywords:
+  - metagenomics
+  - metatranscriptomics
+  - functional profiling
+  - humann
+  - pathways
+components:
+  - krakentools/kreport2mpa
+  - humann3/humann
+  - humann3/regroup
+  - humann3/renorm
+input:
+  - ch_reads:
+      type: file
+      description: |
+        The non-host fraction, after host depletion.
+        Structure: [ val(meta), [ path(fastq) ] ]
+      pattern: "*.fastq.gz"
+  - ch_kraken2_report:
+      type: file
+      description: |
+        Per-sample Kraken2 report, translated to MetaPhlAn format to steer
+        HUMAnN's pangenome selection.
+        Structure: [ val(meta), path(report) ]
+      pattern: "*.report.txt"
+  - nucleotide_db:
+      type: directory
+      description: ChocoPhlAn nucleotide database directory.
+  - protein_db:
+      type: directory
+      description: UniRef translated-search database directory.
+  - utility_db:
+      type: directory
+      description: HUMAnN utility mapping directory, or null. Required for regrouping.
+  - regroup_groups:
+      type: string
+      description: Namespace to regroup gene families onto (e.g. uniref90_ko), or null.
+  - renorm_units:
+      type: string
+      description: "cpm or relab, or null to keep raw RPK."
+output:
+  - genefamilies:
+      type: file
+      description: |
+        Per-sample gene-family abundances.
+        Structure: [ val(meta), path(tsv.gz) ]
+      pattern: "*_genefamilies.tsv.gz"
+  - pathabundance:
+      type: file
+      description: |
+        Per-sample pathway abundances.
+        Structure: [ val(meta), path(tsv.gz) ]
+      pattern: "*_pathabundance.tsv.gz"
+  - regrouped:
+      type: file
+      description: |
+        Gene families regrouped onto the requested namespace.
+        Structure: [ val(meta), path(tsv.gz) ]
+      pattern: "*_regroup.tsv.gz"
+  - renormed:
+      type: file
+      description: |
+        Renormalised abundances.
+        Structure: [ val(meta), path(tsv.gz) ]
+      pattern: "*_renorm.tsv.gz"
+  - mpa:
+      type: file
+      description: |
+        The Kraken2 report in MetaPhlAn format, as handed to HUMAnN.
+        Structure: [ val(meta), path(txt) ]
+      pattern: "*.mpa.txt"
+  - versions:
+      type: file
+      description: File containing software versions.
+      pattern: "versions.yml"
+authors:
+  - "Jose L. Ruiz"
+maintainers:
+  - "Jose L. Ruiz"

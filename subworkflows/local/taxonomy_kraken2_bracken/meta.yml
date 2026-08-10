@@ -11,6 +11,7 @@ keywords:
   - bracken
   - krona
 components:
+  - abundance/filter
   - untar
   - kraken2/kraken2
   - bracken/bracken

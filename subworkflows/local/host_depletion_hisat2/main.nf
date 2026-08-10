@@ -6,6 +6,7 @@
 include { HISAT2_ALIGN             } from '../../../modules/nf-core/hisat2/align/main'
 include { BAM_SORT_STATS_SAMTOOLS  } from '../../../subworkflows/nf-core/bam_sort_stats_samtools/main'
 include { QUALIMAP_BAMQC           } from '../../../modules/nf-core/qualimap/bamqc/main'
+include { SUBREAD_FEATURECOUNTS    } from '../../../modules/nf-core/subread/featurecounts/main'
 
 workflow HOST_DEPLETION_HISAT2 {
 
@@ -16,6 +17,7 @@ workflow HOST_DEPLETION_HISAT2 {
     save_host_bam // boolean: sort, index and stat the aligned (host) reads
     skip_qualimap // boolean
     qualimap_gff // string: optional GFF/GTF to add feature-level stats, or null
+    quantify_gtf // string: GTF to count host reads against, or null to skip
 
     main:
 
@@ -72,6 +74,30 @@ workflow HOST_DEPLETION_HISAT2 {
     }
 
     //
+    // MODULE: Host gene counts.
+    //
+    // The BAM is already exactly what featureCounts needs: the HISAT2 module
+    // pipes through `samtools view -F 256`, so secondary alignments never
+    // reached it and every aligned read appears once. Without that filter,
+    // `--very-sensitive` (-k 50) would have counted each read up to 50 times.
+    //
+    // This is what turns the host half of the split from a QC by-product into
+    // data - the expression matrix that the microbial profile can be correlated
+    // against, from the very same library.
+    //
+    def ch_host_counts = channel.empty()
+    def ch_host_counts_summary = channel.empty()
+
+    if (save_host_bam && quantify_gtf) {
+        SUBREAD_FEATURECOUNTS(
+            ch_bam.map { meta, bam -> [meta, bam, file(quantify_gtf, checkIfExists: true)] }
+        )
+        ch_host_counts = SUBREAD_FEATURECOUNTS.out.counts
+        ch_host_counts_summary = SUBREAD_FEATURECOUNTS.out.summary
+        ch_multiqc_files = ch_multiqc_files.mix(SUBREAD_FEATURECOUNTS.out.summary.map { _meta, summary -> summary })
+    }
+
+    //
     // For paired-end input HISAT2 writes `<id>.unmapped_1.fastq.gz` and
     // `<id>.unmapped_2.fastq.gz`; sort so mate 1 always comes first.
     //
@@ -85,6 +111,8 @@ workflow HOST_DEPLETION_HISAT2 {
     bam = ch_bam // channel: [ val(meta), path(bam) ]
     bai = ch_bai // channel: [ val(meta), path(bai) ]
     qualimap = ch_qualimap // channel: [ val(meta), path(results_dir) ]
+    host_counts = ch_host_counts // channel: [ val(meta), path(featureCounts.tsv) ]
+    host_counts_summary = ch_host_counts_summary // channel: [ val(meta), path(summary) ]
     summary = HISAT2_ALIGN.out.summary // channel: [ val(meta), path(log) ]
     multiqc_files = ch_multiqc_files // channel: path(file)
 }

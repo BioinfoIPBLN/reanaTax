@@ -50,6 +50,21 @@
                         "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
                         "installed_by": ["modules"]
                     },
+                    "humann3/humann": {
+                        "branch": "master",
+                        "git_sha": "7a2d8f7e1861c9c62472f1cd168d33cef918b108",
+                        "installed_by": ["modules"]
+                    },
+                    "humann3/regroup": {
+                        "branch": "master",
+                        "git_sha": "7a2d8f7e1861c9c62472f1cd168d33cef918b108",
+                        "installed_by": ["modules"]
+                    },
+                    "humann3/renorm": {
+                        "branch": "master",
+                        "git_sha": "7a2d8f7e1861c9c62472f1cd168d33cef918b108",
+                        "installed_by": ["modules"]
+                    },
                     "kraken2/kraken2": {
                         "branch": "master",
                         "git_sha": "d67d33d5925fcec4691b499670fa2bd926fd2be5",
@@ -109,6 +124,11 @@
                         "branch": "master",
                         "git_sha": "9339809fcb90af8a8b7051e6cd914894d5c52002",
                         "installed_by": ["bam_stats_samtools"]
+                    },
+                    "subread/featurecounts": {
+                        "branch": "master",
+                        "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
+                        "installed_by": ["modules"]
                     },
                     "untar": {
                         "branch": "master",
