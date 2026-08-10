@@ -8,3 +8,9 @@ testing*
 *.pyc
 null/
 .lineage/
+
+# Generated shinylive bundle (~180 MB: the R WebAssembly runtime plus ~90
+# packages). Rebuild it with apps/exploreMetaTax/build.R rather than committing
+# it -- git keeps every version of a binary blob forever. Remove this line if
+# you want to publish the bundle straight from the repo, e.g. via GitHub Pages.
+apps/*/site/

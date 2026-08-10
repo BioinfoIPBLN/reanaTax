@@ -206,6 +206,30 @@ Every box carries the model name, the timestamp, the generation rate and the tab
 
 A sample whose summary reads `AI summary timed out. Please try again` was attempted and did not get a response within `--llm_timeout`; one with no box at all was either not selected in `--ai_insights` or had no data table to send.
 
+## Exploring the results interactively
+
+The taxonomic tables are meant to be explored, not just read. **exploreMetaTax**
+is a Shiny app for exactly that — upload the `kraken2/` and `bracken/` tables
+from your `--outdir`, add a metadata sheet, and get filtering, alpha and beta
+diversity, rarefaction, PCA, a LifemapR taxonomy tree and publication-ready
+exports.
+
+Two ways to run it:
+
+- **Hosted (recommended):** <https://shiny-public.fgcz.uzh.ch/app/exploreMetaTax>
+- **Self-contained:** [`apps/exploreMetaTax/`](../apps/exploreMetaTax/) ships a
+  [shinylive](https://posit-dev.github.io/r-shinylive/) build that runs entirely
+  in your browser — no server, and your data never leaves your machine. Serve it
+  with any static web server; see that folder's README.
+
+> [!TIP]
+> The hosted app is likely to be **more up to date and considerably faster**.
+> Prefer it, and use the self-contained build when the hosted instance is
+> unreachable or your data must not leave your machine. If the self-contained
+> version feels slow or misbehaves, try the hosted one before reporting a
+> problem: R compiled to WebAssembly is several times slower than native R, and
+> large datasets feel it.
+
 ### Pipeline information
 
 <details markdown="1">

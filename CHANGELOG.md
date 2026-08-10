@@ -16,6 +16,7 @@ Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-
 - Taxonomic classification of the non-host fraction with Kraken2, abundance re-estimation with Bracken, per-sample Krona charts and combined cross-sample tables.
 - Alignment QC of the host BAM: samtools stats/flagstat/idxstats plus Qualimap BamQC, both fed into MultiQC.
 - Optional AI annotations against any OpenAI-compatible endpoint, ported from [reanalyzerGSE](https://github.com/BioinfoIPBLN/reanalyzerGSE): a narrative of the combined taxonomic profile at the top of the MultiQC report, per-section summaries throughout it, and a summary box in each Qualimap report. Entirely opt-in via `--llm_endpoint`, text-only, strictly serialised, and the endpoint/API key are scrubbed from the published reports.
+- A self-contained [shinylive](https://posit-dev.github.io/r-shinylive/) build of the exploreMetaTax Shiny app under `apps/exploreMetaTax/`, for exploring the Kraken2/Bracken tables in a browser with no server. The hosted app at <https://shiny-public.fgcz.uzh.ch/app/exploreMetaTax> remains the faster and more current option.
 - `local` and `slurm` execution profiles, with per-process resource tuning and capped, retried downloads.
 
 ### `Fixed`

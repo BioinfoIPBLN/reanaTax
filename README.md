@@ -28,6 +28,11 @@ Given a BioProject/SRA/ENA accession, a folder of FASTQ files, or a samplesheet,
 9. Aggregate report ([`MultiQC`](http://multiqc.info/))
 10. Optional AI summaries written into those reports by any OpenAI-compatible LLM endpoint (off unless `--llm_endpoint` is given)
 
+Results can be explored interactively with **exploreMetaTax**, either at
+<https://shiny-public.fgcz.uzh.ch/app/exploreMetaTax> (recommended — more up to
+date and faster) or with the browser-only [shinylive build](apps/exploreMetaTax/)
+shipped in this repository, which needs no server and keeps your data local.
+
 ## Usage
 
 > [!NOTE]
