@@ -34,7 +34,7 @@ process STARSOLO_UNMAPPED {
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
     // --compression_level, for the gzip stream below.
-    def level = task.ext.compression != null ? task.ext.compression : 6
+    def level = task.ext.compression != null ? "-${task.ext.compression} " : ''
     // -f 4 keeps the unmapped records. STARsolo writes one record per cDNA
     // read, so this is single-end from here on: the barcode read carries no
     // biological sequence and nothing would be gained by classifying it.
@@ -61,7 +61,7 @@ process STARSOLO_UNMAPPED {
             END {
                 printf "reads\\t%d\\nreads_without_barcode\\t%d\\nbarcodes\\t%d\\n", total, nocb, length(seen) > stats
             }' \\
-        | gzip -${level} -c > ${prefix}.nonhost.fastq.gz
+        | gzip ${level}-c > ${prefix}.nonhost.fastq.gz
 
     {
         echo -e "sample\\t${prefix}"

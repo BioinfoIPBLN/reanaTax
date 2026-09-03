@@ -36,7 +36,7 @@ process KRAKENTOOLS_EXTRACTREADS {
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
     // --compression_level, for the gzip stream below.
-    def level = task.ext.compression != null ? task.ext.compression : 6
+    def level = task.ext.compression != null ? "-${task.ext.compression} " : ''
     def label = taxid.toString().replaceAll(/[^0-9]+/, '_')
     def seq_in = meta.single_end ? "-s ${reads}" : "-s1 ${reads[0]} -s2 ${reads[1]}"
     def seq_out = meta.single_end
@@ -52,7 +52,7 @@ process KRAKENTOOLS_EXTRACTREADS {
         --fastq-output \\
         ${args} 2>&1 | tee ${prefix}.extract.log
 
-    gzip -${level} -f ${prefix}.taxon_${label}*.fastq
+    gzip ${level}-f ${prefix}.taxon_${label}*.fastq
     """
 
     stub:

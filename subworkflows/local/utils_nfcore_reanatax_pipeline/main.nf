@@ -539,8 +539,8 @@ def validateInputParameters() {
     if (params.cleanup_intermediates && params.skip_trimming) {
         log.warn("--cleanup_intermediates will not remove the downloaded FASTQs with --skip_trimming: they are then the working read set, and everything downstream is still reading them. The chunk BAMs are still removed.")
     }
-    if (!(params.compression_level instanceof Integer) || params.compression_level < 0 || params.compression_level > 9) {
-        error("--compression_level must be an integer from 0 to 9, not '${params.compression_level}'.")
+    if (params.compression_level != null && (!(params.compression_level instanceof Integer) || params.compression_level < 0 || params.compression_level > 9)) {
+        error("--compression_level must be an integer from 0 to 9, not '${params.compression_level}'. Leave it unset to keep every tool at its own default.")
     }
 
     // The negative-control filter. Its settings are validated in

@@ -1653,12 +1653,14 @@
                     "fa_icon": "fas fa-list-ol"
                 },
                 "compression_level": {
-                    "type": "integer",
-                    "default": 6,
+                    "type": [
+                        "integer",
+                        "null"
+                    ],
                     "minimum": 0,
                     "maximum": 9,
-                    "description": "Compression level for every BGZF/gzip stream the pipeline writes.",
-                    "help_text": "Applied to `samtools sort -l`, `samtools view -l`, `samtools fastq -c`, `fastp -z` (clamped to 1, which fastp requires) and the `pigz`/`gzip` calls in the local modules. 6 is the zlib and samtools default. 9 buys roughly 5-10% on BAM for 2-3x the CPU, which is rarely the right trade on a large cohort; 1 is worth considering when the intermediates are deleted anyway. The vendored nf-core `HISAT2_ALIGN` writes its intermediate BAM at its own default and is not covered - its output is re-encoded by the sort, which is.",
+                    "description": "Compression level for every BGZF/gzip stream the pipeline writes. Unset leaves each tool at its own default.",
+                    "help_text": "Applied to `samtools sort -l`, `samtools view -l`, `samtools fastq -c`, `fastp -z` (clamped to 1, which fastp requires) and the `pigz`/`gzip` calls in the local modules. 9 buys roughly 5-10% on BAM for 2-3x the CPU, which is rarely the right trade on a large cohort; 1 is worth considering when the intermediates are deleted anyway.\n\nLeaving it unset passes no flag at all, which is deliberately not the same as naming the number a tool already uses: a flag on the command line changes the task hash and un-resumes every cached task in the run. It also avoids quietly moving fastp, whose own default is 4 rather than the 6 samtools and zlib use. The vendored nf-core `HISAT2_ALIGN` writes its intermediate at its own default and is not covered - its output is re-encoded by the sort, which is.",
                     "fa_icon": "fas fa-file-archive"
                 },
                 "alignment_output_format": {

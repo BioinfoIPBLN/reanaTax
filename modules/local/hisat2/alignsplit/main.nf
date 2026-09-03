@@ -52,7 +52,12 @@ process HISAT2_ALIGN_SPLIT {
     // the throwaway tmp/*.all.bam too, so the setting means one thing across
     // the module rather than being quietly ignored on the largest file it
     // writes. `samtools view` spells it -l, `samtools fastq` spells it -c.
-    def level = task.ext.compression != null ? task.ext.compression : 6
+    //
+    // Absent unless a level was asked for. An unrequested flag would still
+    // change the command line, and so the task hash, and so un-resume every
+    // cached alignment in the run.
+    def bam_level = task.ext.compression != null ? "-l ${task.ext.compression} " : ''
+    def fq_level = task.ext.compression != null ? "-c ${task.ext.compression} " : ''
 
     def strandedness = ''
     if (meta.strandedness == 'forward') {
@@ -65,7 +70,7 @@ process HISAT2_ALIGN_SPLIT {
 
     if (meta.single_end) {
         def unaligned = save_unaligned
-            ? "samtools view -u -f 4 tmp/${prefix}.all.bam | samtools fastq -c ${level} -0 ${prefix}.unmapped.fastq.gz -n -"
+            ? "samtools view -u -f 4 tmp/${prefix}.all.bam | samtools fastq ${fq_level}-0 ${prefix}.unmapped.fastq.gz -n -"
             : ''
         """
         INDEX=`find -L ./ -name "*.1.ht2*" | sed 's/\\.1.ht2.*\$//'`
@@ -79,15 +84,15 @@ process HISAT2_ALIGN_SPLIT {
             --threads $task.cpus \\
             $rg \\
             $args \\
-            | samtools view -bS -l ${level} -F 256 - > tmp/${prefix}.all.bam
+            | samtools view -bS ${bam_level}-F 256 - > tmp/${prefix}.all.bam
 
-        samtools view -b -l ${level} -F 4 tmp/${prefix}.all.bam > ${prefix}.bam
+        samtools view -b ${bam_level}-F 4 tmp/${prefix}.all.bam > ${prefix}.bam
         ${unaligned}
         """
     } else {
         def unaligned = save_unaligned
             ? """samtools view -u -f 12 tmp/${prefix}.all.bam \\
-            | samtools fastq -c ${level} -1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n -"""
+            | samtools fastq ${fq_level}-1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n -"""
             : ''
         """
         INDEX=`find -L ./ -name "*.1.ht2*" | sed 's/\\.1.ht2.*\$//'`
@@ -102,9 +107,9 @@ process HISAT2_ALIGN_SPLIT {
             --threads $task.cpus \\
             $rg \\
             $args \\
-            | samtools view -bS -l ${level} -F 256 - > tmp/${prefix}.all.bam
+            | samtools view -bS ${bam_level}-F 256 - > tmp/${prefix}.all.bam
 
-        samtools view -b -l ${level} -F 4 -F 8 tmp/${prefix}.all.bam > ${prefix}.bam
+        samtools view -b ${bam_level}-F 4 -F 8 tmp/${prefix}.all.bam > ${prefix}.bam
         ${unaligned}
         """
     }

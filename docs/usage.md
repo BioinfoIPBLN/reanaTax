@@ -291,19 +291,26 @@ FASTQ. Three knobs address that, and they are independent.
 
 | Parameter | Default | What it does |
 |---|---|---|
-| `--compression_level` | 6 | level for every BGZF/gzip stream the pipeline writes |
+| `--compression_level` | unset | level for every BGZF/gzip stream the pipeline writes |
 | `--alignment_output_format` | `bam` | `cram` for the sorted host alignments |
 | `--cleanup_intermediates` | `false` | delete intermediates once nothing reads them |
 
 **`--compression_level`** reaches `samtools sort -l`, `samtools view -l`,
 `samtools fastq -c`, `fastp -z` and the `pigz`/`gzip` calls in the local
-modules. 6 is the zlib and samtools default; 9 buys roughly 5–10% on BAM for
-2–3× the CPU, which is rarely the right trade on a large cohort, and 1 is worth
-considering for a run whose intermediates are deleted anyway. fastp refuses 0,
-so it is clamped to 1 there. The vendored nf-core `HISAT2_ALIGN` writes its
-intermediate at its own default and is the one gap — its output is re-encoded by
-the sort, which does honour the setting. The **split** aligner, which is what a
-chunked run uses, honours it throughout.
+modules. 9 buys roughly 5–10% on BAM for 2–3× the CPU, which is rarely the right
+trade on a large cohort; 1 is worth considering for a run whose intermediates are
+deleted anyway. fastp refuses 0, so it is clamped to 1 there.
+
+**Unset passes no flag at all**, and that is deliberately not the same as naming
+the number a tool already uses. A flag on the command line changes the task hash,
+which un-resumes every cached task in the run — a knob nobody asked for must not
+appear on any command. It also avoids quietly moving fastp, whose own default is
+4 rather than the 6 samtools and zlib use.
+
+The vendored nf-core `HISAT2_ALIGN` writes its intermediate at its own default
+and is the one gap — its output is re-encoded by the sort, which does honour the
+setting. The **split** aligner, which is what a chunked run uses, honours it
+throughout.
 
 **`--alignment_output_format cram`** typically halves the host alignments. It
 comes with three hard requirements, all checked at startup rather than left to
