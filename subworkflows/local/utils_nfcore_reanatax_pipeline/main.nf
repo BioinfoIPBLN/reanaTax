@@ -196,20 +196,255 @@ def validateInputParameters() {
         )
     }
 
+    if (params.kraken2_use_daemon) {
+        if (params.kraken2_memory_mapping) {
+            error("--kraken2_use_daemon and --kraken2_memory_mapping are contradictory: the daemon exists to hold the index in RAM, memory-mapping exists to avoid doing so. Pick one.")
+        }
+        if (params.kraken2_db && (params.kraken2_db.toString().endsWith('.tar.gz') || params.kraken2_db.toString().endsWith('.tgz'))) {
+            error("--kraken2_use_daemon needs an unpacked database directory: the daemon keys its resident index on the --db path, and an untarred copy lives at a different path in every task. Point --kraken2_db at the extracted directory.")
+        }
+        if (workflow.containerEngine == 'docker') {
+            error("--kraken2_use_daemon cannot work under Docker: every task gets its own PID namespace and its own /tmp, so the daemon and the FIFOs it is addressed through do not survive the task that started them. Use -profile singularity/apptainer, or drop the flag.")
+        }
+        log.warn("--kraken2_use_daemon leaves a background process holding the index after this run finishes. Stop it with 'k2 clean --stop-daemon' on the execution node when you are done.")
+    }
+
+    if (params.single_cell) {
+        def chemistry = scChemistry()
+        if (params.input_accessions) {
+            log.warn("--single_cell with --input_accessions: the archives rarely label which run is the barcode read, so check that fastq_1 really is the barcode+UMI read and fastq_2 the cDNA read. A samplesheet makes this explicit.")
+        }
+        if (!chemistry.cb_len || !chemistry.umi_len || !chemistry.umi_start) {
+            error("--sc_chemistry '${params.sc_chemistry}' has no preset, so --sc_cb_len, --sc_umi_start and --sc_umi_len must all be given.")
+        }
+        if (!params.sc_whitelist) {
+            error("--single_cell needs --sc_whitelist: the barcode whitelists ship with Cell Ranger, not with STAR. For ${params.sc_chemistry} that is '${chemistry.expected_whitelist}'. Pass --sc_whitelist None to accept every observed barcode uncorrected, which lets one sequencing error in a barcode create a new cell.")
+        }
+        if (!params.gtf && !params.star_index) {
+            error("--single_cell needs --gtf: STARsolo assigns reads to genes at alignment time, so an index built without an annotation cannot produce a cell-by-gene matrix. Supply --gtf, or a --star_index that was built with one.")
+        }
+        if (params.skip_kraken2) {
+            error("--single_cell with --skip_kraken2 leaves nothing to classify the non-host reads with, and the cell-by-taxon matrix is built from Kraken2's read-level output.")
+        }
+        if (!params.kraken2_save_readclassifications) {
+            error("--single_cell needs Kraken2's read-level output to recover the cell barcode from each read name, which is only written with --kraken2_save_readclassifications.")
+        }
+        if (params.remove_rrna) {
+            error("--remove_rrna cannot be combined with --single_cell. 10x chemistry is poly(A) capture, and bacterial mRNA is polyadenylated rarely and with short tails, so poly(A) capture of bacteria is effectively rRNA capture: CSI-Microbes measured 82-95% of captured bacterial reads as rRNA (plexWell 82%, 10x 5' 92%, 10x 3'v3 95%). Depleting rRNA here would delete most of the microbial signal before Kraken2 ever sees it. rRNA depletion is correct for total-RNA/ribo-depleted libraries and catastrophic for poly(A) ones.")
+        }
+    }
+
+    if (params.sc_ambient) {
+        if (!params.single_cell) {
+            error("--sc_ambient needs --single_cell. It compares cell-containing droplets against empty ones, and only droplet chemistry has empty droplets - in plate-based data (--sc_plate_based) every well is a library and there is no ambient pool to compare against.")
+        }
+        if (params.sc_cell_filter.toString().toLowerCase() == 'none') {
+            error("--sc_ambient cannot be combined with --sc_cell_filter None. It needs BOTH halves of STARsolo's Solo.out tree - filtered/ to name the cells and raw/ to name the empty droplets - and with no cell filter STARsolo writes only one matrix, so there is nothing to compare cells against.")
+        }
+    }
+
+    if (params.sc_host_de) {
+        if (!params.single_cell) {
+            error("--sc_host_de needs --single_cell: the comparison is between cells of one library, and it reads the cell-by-gene matrix STARsolo produces. On plate-based data (--sc_plate_based) every cell is its own library, so the equivalent question is asked by the ordinary --host_de_method contrast with the cell type as the grouping variable.")
+        }
+        if (!params.sc_cell_metadata && !params.sc_host_de_force_pooled) {
+            error("--sc_host_de needs --sc_cell_metadata. Which cell types carry a taxon is itself a result - it is what the enrichment step measures - so infection is not distributed at random over cell types, and a pooled infected-vs-uninfected test recovers the difference BETWEEN cell types and reports it as a response TO infection. Supply the annotations, or pass --sc_host_de_force_pooled to accept a pooled comparison; every row of the output is then stamped ALL_POOLED.")
+        }
+    }
+
+    if (params.sc_plate_based) {
+        if (params.single_cell) {
+            error("--sc_plate_based and --single_cell are two different experiments, not two settings of one. In droplet data one library holds thousands of barcoded cells and needs STARsolo; in plate-based data every well is its own library and needs none of that machinery. Pick the one that matches the samplesheet.")
+        }
+        if (!params.sc_cell_metadata) {
+            error("--sc_plate_based needs --sc_cell_metadata: with one library per cell, the pipeline has no other way to know which cells came from which patient or what type they are. The file must carry the cell id in the first column plus a sample/patient/donor/plate column - without the latter every cell becomes its own stratum and the enrichment test collapses to the pooled one it exists to avoid.")
+        }
+        if (params.skip_kraken2) {
+            error("--sc_plate_based builds its cell-by-taxon matrix from the per-cell Kraken2 reports, so it cannot be combined with --skip_kraken2.")
+        }
+    }
+
+    if (params.univec && !params.univec_source) {
+        error("--univec needs --univec_source: it names the vector database to deplete against, and defaults to NCBI's UniVec_Core. Set it to a local FASTA to run offline.")
+    }
+
+    if (params.run_prism) {
+        if (!params.prism_path) {
+            error("--run_prism needs --prism_path, pointing at a prepared clone of sjdlabgroup/PRISM. The clone alone is not enough: it must also hold `genbank/` (the processed GenBank RDS files, distributed separately by the authors) and `sorted_accession_map.txt` (built once with blastdbcmd against the BLAST database). See docs/usage.md.")
+        }
+        def missing = [
+            prism_blast_db: params.prism_blast_db,
+            prism_star_genome_dir: params.prism_star_genome_dir,
+            prism_minimap2_index: params.prism_minimap2_index,
+        ].findAll { _name, value -> !value }.keySet()
+        if (missing) {
+            error("--run_prism also needs ${missing.collect { name -> '--' + name }.join(', ')}. PRISM shells out to BLAST, STAR and minimap2 and validates every path before it starts, so a missing one fails the task rather than degrading the result.")
+        }
+        if (!(params.prism_kraken_db ?: params.kraken2_db)) {
+            error("--run_prism needs a Kraken2 database: give --prism_kraken_db, or --kraken2_db, which it falls back to.")
+        }
+        if (params.single_cell && !params.prism_barcode_only) {
+            error("--run_prism with --single_cell needs --prism_barcode_only. On 10x chemistry read 1 is barcode plus UMI with no biological sequence in it, so without that flag PRISM classifies and BLASTs it as if it were cDNA. Setting it drops the barcode read before PRISM sees anything, so Kraken2, STAR, minimap2 and BLAST all work on the cDNA read alone.")
+        }
+        if (workflow.containerEngine in ['docker', 'singularity', 'apptainer', 'podman'] && !params.prism_container) {
+            error("--run_prism under -profile ${workflow.containerEngine} needs --prism_container. PRISM is an R script that shells out to Kraken2, minimap2, STAR, BLAST and SeqKit, and no public image carries that set - so there is no default to fall back to. Build one from modules/local/prism/run/environment.yml, or use -profile conda, which builds that environment directly.")
+        }
+    }
+
+    if (params.gene_diversity_filter) {
+        if (!params.run_humann) {
+            error("--gene_diversity_filter needs --run_humann. It asks whether a taxon's reads spread over its genome or pile onto one locus, and the only table in this pipeline that says so is HUMAnN's species-stratified gene-family output. Nothing else here records which gene a read landed on.")
+        }
+        if (params.skip_bracken) {
+            error("--gene_diversity_filter needs Bracken: HUMAnN names a species by its clade name, and the combined Bracken table is what turns that name back into the taxid the abundance filter removes by.")
+        }
+    }
+
+    if (params.pathseq_microbe_bwa_image) {
+        def missing = [
+            pathseq_microbe_dict: params.pathseq_microbe_dict,
+            pathseq_taxonomy_db: params.pathseq_taxonomy_db,
+        ].findAll { _name, value -> !value }.keySet()
+        if (missing) {
+            error("--pathseq_microbe_bwa_image also needs ${missing.collect { name -> '--' + name }.join(' and ')}. PathSeq scores a taxon from the alignments of its reads, so it needs the sequence dictionary to know what was aligned to and the taxonomy database to know where that sits on the tree; the index image alone cannot produce a result. Broad distributes all three prebuilt as one resource bundle.")
+        }
+        if ((params.pathseq_host_bwa_image ? 1 : 0) + (params.pathseq_host_kmers ? 1 : 0) == 1) {
+            error("--pathseq_host_bwa_image and --pathseq_host_kmers go together: the k-mer file is what makes the alignment-based host filter affordable, and PathSeq's filter stage expects the pair. Give both to run PathSeq's own host filter as a second pass after HISAT2, or neither to skip it - which is reasonable here, because the reads reaching PathSeq are the ones host depletion could not place.")
+        }
+    }
+    else if (params.pathseq_microbe_dict || params.pathseq_taxonomy_db || params.pathseq_host_bwa_image || params.pathseq_host_kmers) {
+        error("PathSeq resources were given but --pathseq_microbe_bwa_image was not, so the PathSeq route is off and they would be ignored.")
+    }
+
+    if (params.decontam) {
+        def decontam_metadata = params.decontam_metadata ?: params.da_metadata
+        if (!decontam_metadata) {
+            error("--decontam needs sample metadata naming the negative controls: give --decontam_metadata (or --da_metadata, which it falls back to).")
+        }
+        if (params.skip_kraken2 || params.skip_bracken) {
+            error("--decontam is scored on the combined Bracken table, so it cannot be combined with --skip_kraken2 or --skip_bracken.")
+        }
+        def needs_neg = params.decontam_method in ['prevalence', 'combined', 'either', 'minimum']
+        def needs_conc = params.decontam_method in ['frequency', 'combined', 'either', 'minimum']
+        if (needs_neg && !params.decontam_neg_column) {
+            error("--decontam_method '${params.decontam_method}' compares against negative controls, so --decontam_neg_column must name the metadata column that marks them.")
+        }
+        if (needs_conc && !params.decontam_conc_column) {
+            error("--decontam_method '${params.decontam_method}' regresses abundance on DNA concentration, so --decontam_conc_column must name the metadata column holding it.")
+        }
+    }
+
+    if (params.run_diversity && (params.skip_kraken2 || params.skip_bracken)) {
+        error("--run_diversity works from the combined Bracken table, so it cannot be combined with --skip_kraken2 or --skip_bracken.")
+    }
+
+    if (params.host_kmer_filter) {
+        if (params.skip_kraken2) {
+            error("--host_kmer_filter reads Kraken2's per-read output, so it cannot be combined with --skip_kraken2.")
+        }
+        if (!params.kraken2_save_readclassifications) {
+            error("--host_kmer_filter needs Kraken2's read-level output, which is only written with --kraken2_save_readclassifications. Add that flag, or drop --host_kmer_filter.")
+        }
+        if (!(params.host_kmer_taxid ?: params.host_carryover_taxid)) {
+            error("--host_kmer_filter needs a host taxid: set --host_kmer_taxid, or leave --host_carryover_taxid at a value that names your host.")
+        }
+    }
+
+    if (params.remove_rrna && !params.single_cell) {
+        log.warn("--remove_rrna is correct for total-RNA / ribo-depleted libraries and wrong for poly(A)-selected ones, where most captured bacterial reads are rRNA (82-95% in CSI-Microbes' measurements). On a poly(A) library this deletes most of the microbial signal. Check the library type.")
+    }
+
+    if (params.minimizer_correlation && !params.minimizer_filter) {
+        error("--minimizer_correlation is part of the minimizer filter; add --minimizer_filter to enable it.")
+    }
+
+    if (params.minimizer_filter && !params.skip_kraken2 && !params.kraken2_report_minimizer_data) {
+        error("--minimizer_filter needs the distinct-minimizer columns, which Kraken2 only writes with --kraken2_report_minimizer_data. Add that flag, or run the filter on a KrakenUniq route alone (--krakenuniq_db --skip_kraken2).")
+    }
+
+    if (params.remove_rrna && !params.sortmerna_db) {
+        error("--remove_rrna needs rRNA references: give --sortmerna_db (e.g. the smr_*_db.fasta shipped in SortMeRNA's database.tar.gz), or drop --remove_rrna.")
+    }
+
     def host_refs = hostReferences()
 
     if (!params.skip_host_removal && host_refs.isEmpty()) {
         error("Host depletion is enabled but no host genome was given. Provide one of --fasta, --hisat2_index, --host_accession or --host_taxid, or disable the step with --skip_host_removal.")
     }
 
-    // Two references is the useful maximum and the one the literature uses
-    // (GRCh38 + T2T-CHM13). Beyond that the passes cost more than they remove.
-    if (host_refs.size() > 2) {
-        error("At most two host references are supported, but ${host_refs.size()} were given (${host_refs.collect { ref -> ref.value }.join(', ')}). Reads are depleted against them in turn; a third pass has nothing left to find.")
+    // The limit is how many depletion passes the workflow declares, not a
+    // property of the data. Nextflow needs one alias per invocation of a
+    // subworkflow, so the passes are named at compile time and their number is
+    // fixed; four covers the cases that actually arise - two assemblies of one
+    // species (GRCh38 + T2T-CHM13), a second organism the library genuinely
+    // contains (a blood meal, a graft, a co-cultured cell line), and a
+    // synthetic reference such as UniVec or PhiX.
+    if (host_refs.size() > maxHostPasses()) {
+        error("At most ${maxHostPasses()} host references are supported, but ${host_refs.size()} were given (${host_refs.collect { ref -> ref.value }.join(', ')}). Reads are depleted against each in turn. To go higher, add another HOST_DEPLETION_HISAT2 alias in workflows/reanatax.nf, its PREPARE_HOST_REFERENCE alias, its naming rules in conf/modules.config, and raise maxHostPasses().")
+    }
+
+    // Measured, not assumed: with `--very-sensitive -k 1` on the command line
+    // HISAT2 still reported up to 50 alignments per read (identical NH-tag
+    // distributions to a `-k 50` run, and identical alignment rates). The
+    // preset wins over a later -k, so --hisat2_max_alignments is silently
+    // inert while a preset is in hisat2_args. Expand the preset by hand to
+    // make it bite: --hisat2_args '--bowtie2-dp 2 --score-min L,0,-1'.
+    if (params.hisat2_max_alignments && params.hisat2_args =~ /--(very-)?(sensitive|fast)/) {
+        log.warn("--hisat2_max_alignments ${params.hisat2_max_alignments} has no effect: the preset in --hisat2_args ('${params.hisat2_args}') overrides -k. See docs/usage.md.")
     }
 
     if (params.quantify_host && !params.gtf) {
         error("--quantify_host needs an annotation: add --gtf. Counts are taken from the host BAM of the first reference given.")
+    }
+
+    // Validate the method names up front rather than at the point of use, so a
+    // typo fails in seconds instead of after the classification has run.
+    hostDeMethods(params.host_de_method)
+
+    if (params.host_de_method && params.da_metadata && !params.quantify_host) {
+        log.warn("--host_de_method is set and --da_metadata was given, but --quantify_host is not: there are no host gene counts to test. Add --quantify_host (which also needs --gtf), or set --host_de_method null.")
+    }
+
+    if (params.host_microbe_correlation && !(params.quantify_host && params.da_metadata)) {
+        error("--host_microbe_correlation needs host gene counts and the sample metadata: add --quantify_host (with --gtf) and --da_metadata.")
+    }
+
+    if (params.target_taxid) {
+        hostDeMethods(params.target_de_method)
+        if (!params.target_reference) {
+            error("--target_taxid needs --target_reference: extracting a taxon's reads is only useful if they can then be aligned to that organism's genome. Give an accession (GCF_*/GCA_*), a taxid, a FASTA or a HISAT2 index.")
+        }
+        if (!params.kraken2_save_readclassifications) {
+            error("--target_taxid needs --kraken2_save_readclassifications: the per-read output is the record of which read Kraken2 put on which taxon, and without it there is nothing to extract from.")
+        }
+        if (params.skip_kraken2) {
+            error("--target_taxid needs Kraken2; it cannot be combined with --skip_kraken2.")
+        }
+        if (params.target_de_method && !params.target_gtf) {
+            log.warn("--target_taxid is set without --target_gtf: the branch will align the extracted reads and stop at the BAM, because gene counts need an annotation.")
+        }
+        if (params.target_de_method && params.target_gtf && !params.da_metadata) {
+            log.warn("--target_taxid will count genes but not test them: differential expression needs --da_metadata and a --da_grouping contrast.")
+        }
+        if (params.target_include_parents) {
+            log.warn("--target_include_parents also takes reads Kraken2 could only place ABOVE the target taxon. Those are consistent with the target but are not evidence for it, and they will be quantified as if they were.")
+        }
+    }
+
+    if (params.host_transcripts && params.quantify_host) {
+        log.warn("--host_transcripts and --quantify_host both give host gene counts; kallisto's are used and featureCounts' are published but not tested. Drop --quantify_host unless you want both tables.")
+    }
+
+    if (params.host_tx2gene && !params.host_transcripts) {
+        error("--host_tx2gene has nothing to map without --host_transcripts.")
+    }
+
+    if (params.target_tx2gene && !params.target_transcripts) {
+        error("--target_tx2gene has nothing to map without --target_transcripts.")
+    }
+
+    if (params.target_transcripts && params.target_gtf) {
+        log.warn("--target_transcripts is set, so the targeted taxon is quantified by pseudoalignment and --target_gtf is not used. Drop one of them.")
     }
 
     if (params.run_humann && !(params.humann_nucleotide_db && params.humann_protein_db)) {
@@ -220,15 +455,25 @@ def validateInputParameters() {
         error("--run_humann needs the Kraken2 report to build HUMAnN's taxonomic profile; it cannot be combined with --skip_kraken2.")
     }
 
+    if (params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan) {
+        log.warn("--skip_kraken2 with neither --krakenuniq_db nor --run_metaphlan leaves nothing to classify the non-host reads with.")
+    }
+
     if (!params.skip_kraken2 && !params.kraken2_db) {
         error("--kraken2_db is required. Point it at a Kraken2 database directory (or .tar.gz), or disable classification with --skip_kraken2.")
     }
 
-    // `--report-minimizer-data` adds two columns to the Kraken2 report, which
-    // both Bracken and MultiQC's kraken parser choke on.
-    if (params.kraken2_report_minimizer_data && !params.skip_bracken) {
-        error("--kraken2_report_minimizer_data changes the Kraken2 report layout and cannot be read by Bracken. Add --skip_bracken, or drop the minimizer columns.")
-    }
+    // `--report-minimizer-data` inserts two columns in the MIDDLE of the Kraken2
+    // report, and every consumer here was checked against that: Bracken 3.1,
+    // combine_kreports.py, kreport2mpa.py and kreport2krona.py all index the
+    // rank/taxid/name from the END of the row and the counts from the front, so
+    // the insertion passes between them untouched; MultiQC's kraken module
+    // unpacks the 8-field layout explicitly and plots the duplication it adds.
+    // read_accounting.py and hasClassifiedReads() key on the taxid, which is
+    // stable across all three layouts this pipeline can produce. An earlier
+    // guard here refused the combination on the assumption Bracken could not
+    // read it; that was wrong, and removing it is what makes --minimizer_filter
+    // usable without --skip_bracken.
 
     if (!['run', 'experiment', 'sample'].contains(params.group_runs_by)) {
         error("--group_runs_by must be one of 'run', 'experiment' or 'sample' (got '${params.group_runs_by}').")
@@ -323,19 +568,208 @@ def redactPipelineInfo(outdir) {
 // is the one indexed splice-aware, QC'd with Qualimap and counted for host
 // expression.
 //
+//
+// The four minimizer-evidence thresholds, gathered so the taxonomy subworkflows
+// take one argument rather than four positional numbers it would be easy to
+// transpose.
+//
+def minimizerThresholds() {
+    return [
+        min_reads: params.minimizer_min_reads,
+        min_distinct: params.minimizer_min_distinct,
+        max_duplication: params.minimizer_max_duplication,
+        min_coverage: params.minimizer_min_coverage,
+        distinct_scale: params.minimizer_distinct_scale,
+    ]
+}
+
+//
+// The host-k-mer filter's settings. The taxid defaults to whatever the report
+// already treats as host leakage, so the two agree unless deliberately split -
+// --host_kmer_taxid also takes a comma-separated list, to add the host's genus
+// when Kraken2 can only place its k-mers that high.
+//
+def hostKmerSettings() {
+    return [
+        taxid: params.host_kmer_taxid ?: params.host_carryover_taxid,
+        max_fraction: params.host_kmer_max_fraction,
+        min_reads: params.host_kmer_min_reads,
+    ]
+}
+
+//
+// decontam's settings, or null when it is off. Returned as one map so the
+// subworkflow takes a single argument and "is decontam on" is the same test as
+// "are its settings present".
+//
+def decontamSettings() {
+    if (!params.decontam) {
+        return null
+    }
+    return [
+        metadata: params.decontam_metadata ?: params.da_metadata,
+        neg_column: params.decontam_neg_column,
+        neg_value: params.decontam_neg_value,
+        conc_column: params.decontam_conc_column,
+        method: params.decontam_method,
+        threshold: params.decontam_threshold,
+        batch_column: params.decontam_batch_column,
+        batch_combine: params.decontam_batch_combine,
+    ]
+}
+
+//
+// The shuffled-read control's settings, or null when it is off.
+//
+def shuffleSettings() {
+    if (!params.shuffle_control) {
+        return null
+    }
+    def known = ['dinuc', 'mono', 'reverse']
+    if (!known.contains(params.shuffle_method)) {
+        error("--shuffle_method: '${params.shuffle_method}' is not one of ${known.join(', ')}.")
+    }
+    return [
+        method: params.shuffle_method,
+        seed: params.shuffle_seed,
+        max_reads: params.shuffle_reads,
+        max_ratio: params.shuffle_max_ratio,
+        min_reads: params.shuffle_min_reads,
+    ]
+}
+
+//
+// Barcode geometry per chemistry. STARsolo needs the barcode length, the UMI
+// start and the UMI length explicitly; getting them wrong produces a run that
+// completes with almost every barcode unmatched, which is easy to miss.
+//
+// The whitelists themselves ship with Cell Ranger rather than with STAR, so
+// --sc_whitelist has to be supplied. Passing 'None' disables correction: every
+// observed barcode is then taken at face value, and a sequencing error in a
+// barcode manufactures a new cell.
+//
+def scChemistry() {
+    // Inlined rather than held in a script-level constant: Nextflow allows no
+    // statements outside a process or workflow, so a top-level `def` map does
+    // not parse.
+    def presets = [
+        '10xv2': [cb_len: 16, umi_start: 17, umi_len: 10, whitelist: '737K-august-2016.txt'],
+        '10xv3': [cb_len: 16, umi_start: 17, umi_len: 12, whitelist: '3M-february-2018.txt'],
+        '10xv4': [cb_len: 16, umi_start: 17, umi_len: 12, whitelist: '3M-3pgex-may-2023.txt'],
+    ]
+    def preset = presets[params.sc_chemistry] ?: [cb_len: null, umi_start: null, umi_len: null, whitelist: null]
+    return [
+        name: params.sc_chemistry,
+        cb_len: params.sc_cb_len ?: preset.cb_len,
+        umi_start: params.sc_umi_start ?: preset.umi_start,
+        umi_len: params.sc_umi_len ?: preset.umi_len,
+        expected_whitelist: preset.whitelist,
+    ]
+}
+
 def commaList(value) {
     return value
         ? value.toString().split(',').collect { entry -> entry.trim() }.findAll { entry -> entry }
         : []
 }
 
+//
+// Work out what a single --host entry is, so one parameter can take an NCBI
+// accession, a taxid, a genome FASTA or a prebuilt HISAT2 index.
+//
+def classifyHostReference(entry) {
+    def value = entry.toString().trim()
+    def tarball = value.endsWith('.tar.gz') || value.endsWith('.tgz')
+
+    // Accessions and taxids are identifiers, never paths.
+    if (value ==~ /(?i)^GC[AF]_[0-9]+(\.[0-9]+)?$/) {
+        return [kind: 'accession', value: value]
+    }
+    if (value ==~ /^[0-9]+$/) {
+        return [kind: 'taxid', value: value]
+    }
+
+    // A remote URL cannot be probed without fetching it, so it is classified by
+    // name alone; everything else is on disk and can be inspected.
+    if (value.contains('://')) {
+        return [kind: tarball ? 'index' : 'fasta', value: value]
+    }
+
+    def path = file(value)
+    if (!path.exists()) {
+        error("--host entry '${value}' is not an NCBI accession (GCF_*/GCA_*), not a taxid, and not an existing path.")
+    }
+    if (path.isDirectory()) {
+        if (!path.list().any { name -> name.endsWith('.ht2') || name.endsWith('.ht2l') }) {
+            error("--host entry '${value}' is a directory but holds no HISAT2 index (*.ht2). Point it at the index directory, or pass the genome FASTA instead.")
+        }
+        return [kind: 'index', value: value]
+    }
+    return [kind: tarball ? 'index' : 'fasta', value: value]
+}
+
+//
+// Resolve --da_method into the set of differential-abundance methods to run.
+// Each has its own container, so 'ancombc,aldex2' runs two processes.
+//
+def daMethods(da_method) {
+    def known = ['aldex2', 'ancombc']
+    def selection = commaList((da_method ?: 'ancombc').toString().toLowerCase())
+        .collect { entry -> entry == 'ancombc2' ? 'ancombc' : entry }
+    def unknown = selection.findAll { entry -> !known.contains(entry) }
+    if (unknown) {
+        error("--da_method: unknown method(s) ${unknown.join(', ')}. Expected any of ${known.join(', ')}.")
+    }
+    return selection.unique()
+}
+
+//
+// Resolve --host_de_method into the set of gene-level DE methods to run. Same
+// shape as daMethods(): each has its own container, so both means two processes.
+//
+def hostDeMethods(host_de_method) {
+    def known = ['deseq2', 'edger']
+    def selection = commaList((host_de_method ?: '').toString().toLowerCase())
+    def unknown = selection.findAll { entry -> !known.contains(entry) }
+    if (unknown) {
+        error("--host_de_method: unknown method(s) ${unknown.join(', ')}. Expected any of ${known.join(', ')}.")
+    }
+    return selection.unique()
+}
+
+//
+// The target genome, classified the same way a host reference is: accession,
+// taxid, FASTA or prebuilt index, detected from the value.
+//
+def targetReference() {
+    return params.target_reference ? classifyHostReference(params.target_reference) : null
+}
+
 def hostReferences() {
-    def refs = []
+    def refs = commaList(params.host).collect { value -> classifyHostReference(value) }
+
+    // The superseded parameters still work, but they are grouped by kind rather
+    // than kept in the order they were written, so they cannot express "this
+    // accession first, that local file second". --host can, because one list
+    // preserves its own order - and the first entry is the primary reference.
     commaList(params.hisat2_index).each { value -> refs << [kind: 'index', value: value] }
     commaList(params.fasta).each { value -> refs << [kind: 'fasta', value: value] }
     commaList(params.host_accession).each { value -> refs << [kind: 'accession', value: value] }
     commaList(params.host_taxid).each { value -> refs << [kind: 'taxid', value: value] }
+
+    // No truncation here. Silently dropping a host reference produces a
+    // non-host fraction that is still full of host, and nothing downstream can
+    // tell that from a real microbial signal - so the count is validated in
+    // validateInputParameters() and refused there instead.
     return refs
+}
+
+//
+// How many depletion passes the workflow declares. See the comment on the
+// check in validateInputParameters() for what raising it involves.
+//
+def maxHostPasses() {
+    return 4
 }
 
 //

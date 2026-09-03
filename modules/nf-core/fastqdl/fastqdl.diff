@@ -1,0 +1,36 @@
+--- modules/nf-core/fastqdl/main.nf
++++ modules/nf-core/fastqdl/main.nf
+@@ -30,6 +30,33 @@
+         --accession ${accession} \\
+         --cpus ${task.cpus} \\
+         --outdir .
++
++    # fastq-dl exits 0 even when every attempt at a file failed, leaving a
++    # zero-byte .fastq.gz behind. Nothing downstream can tell that apart from a
++    # real download, so the run continues and dies several steps later inside
++    # whichever tool reads the file first - reporting a corrupt FASTQ rather
++    # than a failed download, and never retrying the thing that actually broke.
++    #
++    # Checking here makes the task fail where the fault is, so Nextflow's retry
++    # retries the download. gzip -t reads the whole stream because a truncated
++    # transfer has a valid header and only fails at the end.
++    found=0
++    for fastq in *.fastq.gz; do
++        [ -e "\$fastq" ] || continue
++        found=1
++        if [ ! -s "\$fastq" ]; then
++            echo "ERROR: ${accession}: '\$fastq' is empty. fastq-dl exhausted its retries and still exited 0 - the archive most likely lists a file it cannot serve. Check the other provider (--fastqdl_provider)." >&2
++            exit 1
++        fi
++        if ! gzip -t "\$fastq" 2>/dev/null; then
++            echo "ERROR: ${accession}: '\$fastq' is not a complete gzip stream - the download was truncated." >&2
++            exit 1
++        fi
++    done
++    if [ "\$found" -eq 0 ]; then
++        echo "ERROR: ${accession}: fastq-dl produced no FASTQ at all." >&2
++        exit 1
++    fi
+     """
+ 
+     stub:

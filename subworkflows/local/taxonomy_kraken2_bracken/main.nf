@@ -5,11 +5,20 @@
 
 include { UNTAR                          } from '../../../modules/nf-core/untar/main'
 include { KRAKEN2_KRAKEN2                } from '../../../modules/nf-core/kraken2/kraken2/main'
+include { KRAKEN2_DAEMON                } from '../../../modules/local/kraken2/daemon/main'
 include { BRACKEN_BRACKEN                } from '../../../modules/nf-core/bracken/bracken/main'
 include { BRACKEN_COMBINEBRACKENOUTPUTS  } from '../../../modules/nf-core/bracken/combinebrackenoutputs/main'
 include { KRAKENTOOLS_KREPORT2KRONA      } from '../../../modules/nf-core/krakentools/kreport2krona/main'
 include { KRAKENTOOLS_COMBINEKREPORTS    } from '../../../modules/nf-core/krakentools/combinekreports/main'
 include { KRONA_KTIMPORTTEXT             } from '../../../modules/nf-core/krona/ktimporttext/main'
+include { ABUNDANCE_MINIMIZER               } from '../../../modules/local/abundance/minimizer/main'
+include { HOSTKMER_SCAN                     } from '../../../modules/local/hostkmer/scan/main'
+include { HOSTKMER_MERGE                    } from '../../../modules/local/hostkmer/merge/main'
+include { DECONTAM_FILTER                   } from '../../../modules/local/decontam/main'
+include { SHUFFLE_READS                     } from '../../../modules/local/shuffle/reads/main'
+include { SHUFFLE_COMPARE                   } from '../../../modules/local/shuffle/compare/main'
+include { KRAKEN2_KRAKEN2 as KRAKEN2_SHUFFLED } from '../../../modules/nf-core/kraken2/kraken2/main'
+include { KRAKEN2_DAEMON as KRAKEN2_DAEMON_SHUFFLED } from '../../../modules/local/kraken2/daemon/main'
 include { ABUNDANCE_FILTER as FILTER_KRAKEN2 } from '../../../modules/local/abundance/filter/main'
 include { ABUNDANCE_FILTER as FILTER_BRACKEN } from '../../../modules/local/abundance/filter/main'
 
@@ -23,8 +32,16 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     save_reads_assignment // boolean: keep the per-read assignment table
     skip_bracken // boolean
     skip_krona // boolean
+    minimizer_filter // boolean: drop taxa whose evidence has no breadth
+    minimizer_thresholds // map: min_reads, min_distinct, max_duplication, min_coverage
+    host_kmer_filter // boolean: drop taxa whose reads are mostly host k-mers
+    host_kmer_settings // map: taxid, max_fraction, min_reads
+    decontam_settings // map: metadata, neg_column, neg_value, conc_column, method, threshold, batch_column, batch_combine - or null
+    shuffle_settings // map: method, seed, max_reads, max_ratio, min_reads - or null
+    use_daemon // boolean: classify through `k2 classify --use-daemon`
     min_rel_abundance // float: relative abundance a taxon must exceed...
     min_samples // integer: ...in at least this many samples
+    min_reads // number: ...and this many reads in total, 0 to disable
 
     main:
 
@@ -48,15 +65,38 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         : ch_kraken2_db
 
     //
-    // MODULE: Kraken2
+    // MODULE: Kraken2.
     //
-    KRAKEN2_KRAKEN2(
-        ch_reads,
-        ch_kraken2_db,
-        save_output_fastqs,
-        save_reads_assignment,
-    )
-    ch_multiqc_files = ch_multiqc_files.mix(KRAKEN2_KRAKEN2.out.report.map { _meta, report -> report })
+    // The daemon variant hands the database to a resident background process
+    // instead of loading it per task, which is the difference between paying
+    // the index load once and paying it per sample. It needs the database as an
+    // unstaged absolute path - see modules/local/kraken2/daemon - so it cannot
+    // take the untarred channel, and a tarball is rejected up front.
+    //
+    def ch_kraken2_report = channel.empty()
+    def ch_classifiedreads = channel.empty()
+
+    if (use_daemon) {
+        KRAKEN2_DAEMON(
+            ch_reads,
+            file(kraken2_db, checkIfExists: true).toAbsolutePath().toString(),
+            save_output_fastqs,
+            save_reads_assignment,
+        )
+        ch_kraken2_report = KRAKEN2_DAEMON.out.report
+        ch_classifiedreads = KRAKEN2_DAEMON.out.classified_reads_assignment
+    }
+    else {
+        KRAKEN2_KRAKEN2(
+            ch_reads,
+            ch_kraken2_db,
+            save_output_fastqs,
+            save_reads_assignment,
+        )
+        ch_kraken2_report = KRAKEN2_KRAKEN2.out.report
+        ch_classifiedreads = KRAKEN2_KRAKEN2.out.classified_reads_assignment
+    }
+    ch_multiqc_files = ch_multiqc_files.mix(ch_kraken2_report.map { _meta, report -> report })
 
     //
     // A sample in which nothing was classified produces a report holding only
@@ -65,12 +105,81 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     // take the whole run down. The report itself is still published and still
     // reaches MultiQC.
     //
-    def ch_report_classified = KRAKEN2_KRAKEN2.out.report.filter { meta, report ->
+    def ch_report_classified = ch_kraken2_report.filter { meta, report ->
         def classified = hasClassifiedReads(report)
         if (!classified) {
             log.warn("Kraken2 classified no reads for '${meta.id}'; excluding it from Bracken and from the combined tables.")
         }
         classified
+    }
+
+    //
+    // MODULE: The shuffled-read negative control.
+    //
+    // The same libraries, classified twice: once as sequenced and once with
+    // every read shuffled so that its length, GC content and dinucleotide
+    // frequencies survive and none of its k-mers do. Whatever the database
+    // reports from the second pass is what it produces from base composition
+    // alone, and a taxon that scores comparably on both is not supported by
+    // homology at all.
+    //
+    // This is the only check here with an external null. Every other filter
+    // asks whether a taxon's evidence looks strong on its own terms; this one
+    // measures what "strong" is worth against reads that contain no sequence.
+    //
+    // The shuffled reports deliberately keep the same file names as the real
+    // ones - SHUFFLE_COMPARE pairs them by basename - and are staged into
+    // separate directories to keep them apart. They are NOT mixed into MultiQC,
+    // which keys on file name and would treat them as duplicate samples.
+    //
+    def ch_shuffle_drop = channel.empty()
+    def ch_shuffle_evidence = channel.empty()
+
+    if (shuffle_settings) {
+        SHUFFLE_READS(
+            ch_reads,
+            shuffle_settings.method,
+            shuffle_settings.seed,
+            shuffle_settings.max_reads,
+        )
+
+        def ch_shuffled_report = channel.empty()
+        if (use_daemon) {
+            KRAKEN2_DAEMON_SHUFFLED(
+                SHUFFLE_READS.out.reads,
+                file(kraken2_db, checkIfExists: true).toAbsolutePath().toString(),
+                false,
+                false,
+            )
+            ch_shuffled_report = KRAKEN2_DAEMON_SHUFFLED.out.report
+        }
+        else {
+            KRAKEN2_SHUFFLED(SHUFFLE_READS.out.reads, ch_kraken2_db, false, false)
+            ch_shuffled_report = KRAKEN2_SHUFFLED.out.report
+        }
+
+        // Joined on sample id rather than zipped: a sample whose shuffled copy
+        // classified nothing at all would otherwise shift every later pairing
+        // by one and silently compare the wrong two libraries.
+        SHUFFLE_COMPARE(
+            ch_report_classified
+                .map { meta, report -> [meta.id, report] }
+                .join(ch_shuffled_report.map { meta, report -> [meta.id, report] })
+                .toSortedList { entry_a, entry_b -> entry_a[0] <=> entry_b[0] }
+                .filter { entries -> entries }
+                .map { entries ->
+                    [
+                        [id: 'kraken2_shuffle'],
+                        entries.collect { entry -> entry[1] },
+                        entries.collect { entry -> entry[2] },
+                    ]
+                },
+            shuffle_settings.max_ratio,
+            shuffle_settings.min_reads,
+        )
+        ch_shuffle_drop = SHUFFLE_COMPARE.out.drop_list.map { _meta, list -> list }
+        ch_shuffle_evidence = SHUFFLE_COMPARE.out.evidence
+        ch_multiqc_files = ch_multiqc_files.mix(SHUFFLE_COMPARE.out.mqc.map { _meta, mqc -> mqc })
     }
 
     //
@@ -97,18 +206,88 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     // because prevalence is a cross-sample property and filtering a sample in
     // isolation would just be a detection threshold.
     //
-    FILTER_KRAKEN2(KRAKENTOOLS_COMBINEKREPORTS.out.txt, min_rel_abundance, min_samples)
+    //
+    // MODULE: Which taxa have no breadth behind their reads.
+    //
+    // Reads on one conserved locus look abundant, so an abundance threshold
+    // cannot see them; the distinct-minimizer columns can. The taxids it
+    // condemns are handed to the abundance filter rather than removed here, so
+    // one step owns every removal from the combined tables and one file records
+    // them all.
+    //
+    def ch_minimizer_drop = channel.empty()
+    def ch_hostkmer_drop = channel.empty()
+    def ch_hostkmer_evidence = channel.empty()
 
+    if (minimizer_filter) {
+        ABUNDANCE_MINIMIZER(
+            ch_report_classified
+                .map { _meta, report -> report }
+                .collect(sort: true)
+                .map { reports -> [[id: 'kraken2_minimizer'], reports] },
+            // The coverage denominator lives in the database directory; a
+            // tarballed database has not been unpacked to a path we can name.
+            kraken2_db.endsWith('.tar.gz') || kraken2_db.endsWith('.tgz')
+                ? []
+                : file("${kraken2_db}/inspect.txt").exists() ? file("${kraken2_db}/inspect.txt") : [],
+            minimizer_thresholds.min_reads,
+            minimizer_thresholds.min_distinct,
+            minimizer_thresholds.max_duplication,
+            minimizer_thresholds.min_coverage,
+            minimizer_thresholds.distinct_scale,
+        )
+        ch_minimizer_drop = ABUNDANCE_MINIMIZER.out.drop_list.map { _meta, list -> list }
+        ch_multiqc_files = ch_multiqc_files.mix(ABUNDANCE_MINIMIZER.out.mqc.map { _meta, mqc -> mqc })
+    }
+
+    //
+    // MODULE: Which taxa are host leakage wearing a species name.
+    //
+    // Alignment-based depletion is not exhaustive, and what it misses is a
+    // genuine read with genuine k-mers - invisible to every filter that judges
+    // a taxon by its counts. Kraken2's read-level output says which taxon each
+    // run of k-mers in a read was assigned to, so a read carrying host k-mers
+    // can be recognised whatever the read as a whole was called.
+    //
+    // Scanned per sample because that file is one line per read; merged over
+    // the cohort because "are this taxon's reads mostly host" is a question
+    // about the taxon, not about one library.
+    //
+    if (host_kmer_filter) {
+        HOSTKMER_SCAN(ch_classifiedreads, host_kmer_settings.taxid)
+        HOSTKMER_MERGE(
+            HOSTKMER_SCAN.out.table
+                .map { _meta, table -> table }
+                .collect(sort: true)
+                .map { tables -> [[id: 'kraken2_host_kmer'], tables] },
+            host_kmer_settings.taxid,
+            host_kmer_settings.max_fraction,
+            host_kmer_settings.min_reads,
+        )
+        ch_hostkmer_drop = HOSTKMER_MERGE.out.drop_list.map { _meta, list -> list }
+        ch_hostkmer_evidence = HOSTKMER_MERGE.out.evidence
+        ch_multiqc_files = ch_multiqc_files.mix(HOSTKMER_MERGE.out.mqc.map { _meta, mqc -> mqc })
+    }
+
+    // Union of the two lists: each condemns a taxon for its own reason, and
+    // surviving one is no argument against the other. `collect` gives the
+    //
+    // MODULE: Bracken, and the combined table.
+    //
+    // Combined BEFORE the filters run rather than after, because decontam is
+    // scored on that table and its verdict has to reach both filters. Bracken's
+    // flat species-level counts are the right input for it: a combined kreport
+    // is a hierarchy, so a clade's count already contains its children's and a
+    // prevalence test on it would count the same reads at every rank.
+    //
     def ch_bracken = channel.empty()
+    def ch_bracken_report = channel.empty()
     def ch_bracken_combined = channel.empty()
-    def ch_bracken_combined_filtered = channel.empty()
 
     if (!skip_bracken) {
-        //
-        // MODULE: Bracken re-estimates abundances from the Kraken2 report
-        //
         BRACKEN_BRACKEN(ch_report_classified, ch_bracken_db)
         ch_bracken = BRACKEN_BRACKEN.out.reports
+        ch_bracken_report = BRACKEN_BRACKEN.out.txt
 
         BRACKEN_COMBINEBRACKENOUTPUTS(
             BRACKEN_BRACKEN.out.reports
@@ -122,8 +301,50 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
                 }
         )
         ch_bracken_combined = BRACKEN_COMBINEBRACKENOUTPUTS.out.txt
+    }
 
-        FILTER_BRACKEN(BRACKEN_COMBINEBRACKENOUTPUTS.out.txt, min_rel_abundance, min_samples)
+    //
+    // MODULE: Which taxa came out of the kit rather than the sample.
+    //
+    // The one filter here given an external measurement of the reagents, and so
+    // the only one that can tell a contaminant from a rare organism at all. It
+    // needs blanks (or DNA concentrations) that most public datasets do not
+    // have, which is why it is opt-in and why it fails loudly rather than
+    // quietly reporting nothing when they are missing.
+    //
+    def ch_decontam_drop = channel.empty()
+    def ch_decontam_evidence = channel.empty()
+
+    if (decontam_settings && !skip_bracken) {
+        DECONTAM_FILTER(
+            ch_bracken_combined,
+            file(decontam_settings.metadata, checkIfExists: true),
+            decontam_settings.neg_column ?: '',
+            decontam_settings.neg_value,
+            decontam_settings.conc_column ?: '',
+            decontam_settings.method,
+            decontam_settings.threshold,
+            decontam_settings.batch_column ?: '',
+            decontam_settings.batch_combine,
+        )
+        ch_decontam_drop = DECONTAM_FILTER.out.drop_list.map { _meta, list -> list }
+        ch_decontam_evidence = DECONTAM_FILTER.out.evidence
+        ch_multiqc_files = ch_multiqc_files.mix(DECONTAM_FILTER.out.mqc.map { _meta, mqc -> mqc })
+    }
+
+    // Union of every list: each condemns a taxon for its own reason, and
+    // surviving one is no argument against the others. `collect` gives the
+    // filter a single list, and emits an empty one when no filter ran.
+    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || (decontam_settings && !skip_bracken)
+        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).collect(sort: true)
+        : channel.value([])
+
+    FILTER_KRAKEN2(KRAKENTOOLS_COMBINEKREPORTS.out.txt, ch_drop_list, min_rel_abundance, min_samples, min_reads)
+
+    def ch_bracken_combined_filtered = channel.empty()
+
+    if (!skip_bracken) {
+        FILTER_BRACKEN(ch_bracken_combined, ch_drop_list, min_rel_abundance, min_samples, min_reads)
         ch_bracken_combined_filtered = FILTER_BRACKEN.out.filtered
     }
 
@@ -135,7 +356,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         // because that is the abundance estimate users are meant to interpret.
         //
         // Krona copes with an all-unclassified report, so it keeps every sample.
-        def ch_for_krona = skip_bracken ? KRAKEN2_KRAKEN2.out.report : BRACKEN_BRACKEN.out.txt
+        def ch_for_krona = skip_bracken ? ch_kraken2_report : ch_bracken_report
 
         KRAKENTOOLS_KREPORT2KRONA(ch_for_krona)
         KRONA_KTIMPORTTEXT(KRAKENTOOLS_KREPORT2KRONA.out.txt)
@@ -143,25 +364,49 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     }
 
     emit:
-    report = KRAKEN2_KRAKEN2.out.report // channel: [ val(meta), path(report) ]
+    report = ch_kraken2_report // channel: [ val(meta), path(report) ]
     report_combined = KRAKENTOOLS_COMBINEKREPORTS.out.txt // channel: [ val(meta), path(txt) ]
     bracken = ch_bracken // channel: [ val(meta), path(tsv) ]
+    bracken_report = ch_bracken_report // channel: [ val(meta), path(txt) ] - Bracken's `-w` kreport
     bracken_combined = ch_bracken_combined // channel: [ val(meta), path(txt) ]
     report_combined_filtered = FILTER_KRAKEN2.out.filtered // channel: [ val(meta), path(tsv) ]
     bracken_combined_filtered = ch_bracken_combined_filtered // channel: [ val(meta), path(tsv) ]
     krona = ch_krona // channel: [ val(meta), path(html) ]
+    drop_list = ch_drop_list // channel: [ path(txt) ] - every filter's verdict, for consumers outside this subworkflow
+    minimizer_evidence = minimizer_filter ? ABUNDANCE_MINIMIZER.out.evidence : channel.empty() // channel: [ val(meta), path(tsv) ]
+    host_kmer_evidence = ch_hostkmer_evidence // channel: [ val(meta), path(tsv) ]
+    decontam_evidence = ch_decontam_evidence // channel: [ val(meta), path(tsv) ]
+    shuffle_evidence = ch_shuffle_evidence // channel: [ val(meta), path(tsv) ]
+    classifiedreads = ch_classifiedreads // channel: [ val(meta), path(txt) ]
     multiqc_files = ch_multiqc_files // channel: path(file)
 }
 
 //
-// True if a Kraken2 report contains at least one taxon, i.e. anything beyond the
-// `U` row. Matching on the rank-code column rather than a fixed index keeps this
-// working with the extra columns `--report-minimizer-data` adds. A Kraken2
-// report is one line per taxon, so even against a large database this is a few
-// MB, and `any` stops scanning at the first classified row.
+// True if a Kraken-style report contains at least one taxon, i.e. anything
+// beyond the unclassified row. Keyed on the TAXID rather than the rank code so
+// it holds for both layouts this pipeline can produce: Kraken2 ends
+// `... rank taxid name` and spells ranks as codes, KrakenUniq ends
+// `... taxid rank name` and spells them out. Taxid 0 is unclassified in both,
+// so anything else with reads means something was classified.
+//
+// A report is one line per taxon - a few MB even against a large database -
+// and `any` stops at the first classified row.
 //
 def hasClassifiedReads(report) {
     return report.readLines().any { line ->
-        line.split('\t').any { column -> column.trim() ==~ /^[RDKPCOFGS][0-9]*$/ }
+        if (line.startsWith('#') || line.startsWith('%')) {
+            return false
+        }
+        def fields = line.split('\t')
+        if (fields.size() < 5) {
+            return false
+        }
+        def clade_reads = fields[1].trim().isInteger() ? fields[1].trim() as Integer : null
+        if (!clade_reads) {
+            return false
+        }
+        def tail = fields[-2].trim()
+        def taxid = tail.isInteger() ? tail as Integer : (fields[-3].trim().isInteger() ? fields[-3].trim() as Integer : null)
+        return taxid != null && taxid != 0
     }
 }

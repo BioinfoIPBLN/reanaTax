@@ -85,9 +85,15 @@
                         "ena",
                         "sra"
                     ],
-                    "description": "Archive to try first. fastq-dl falls back to the other one automatically.",
-                    "help_text": "ENA is the default because its FASTQs are served directly, whereas SRA downloads have to be converted and recompressed.",
+                    "description": "Archive to try first.",
+                    "help_text": "ENA is the default because its FASTQs are served directly, whereas SRA downloads have to be converted and recompressed. fastq-dl falls back to the other archive when an accession is missing entirely, but NOT when an archive lists a file it cannot then serve - use `--fastqdl_sra_runs` for that.",
                     "fa_icon": "fas fa-archive"
+                },
+                "fastqdl_sra_runs": {
+                    "type": "string",
+                    "description": "Comma-separated run accessions to fetch from SRA regardless of `--fastqdl_provider`.",
+                    "help_text": "For runs whose ENA copy is broken: the index and FTP listing report the file, but every fetch fails. Naming the run here changes only that task's command, so the rest of the cohort keeps its cache entries.",
+                    "fa_icon": "fas fa-life-ring"
                 },
                 "group_runs_by": {
                     "type": "string",
@@ -130,11 +136,18 @@
             "description": "The host genome that reads are aligned against before classification.",
             "help_text": "Give exactly one of `--hisat2_index`, `--fasta`, `--host_accession` or `--host_taxid`. They are listed here in order of decreasing precedence: a prebuilt index short-circuits everything else, and a local FASTA is used in preference to downloading one.",
             "properties": {
+                "host": {
+                    "type": "string",
+                    "description": "Host reference(s): NCBI accession, taxid, genome FASTA or prebuilt HISAT2 index. Comma-separated for two.",
+                    "help_text": "One parameter for every way of naming a host reference; what each entry is is detected from the value. `GCF_*`/`GCA_*` is an assembly accession, digits alone are a taxonomy ID, a directory (or `.tar.gz`) is a prebuilt HISAT2 index, and anything else on disk is a genome FASTA. Up to four references are depleted against in the order given - a read must fail against every one of them to be called non-host - and the first is the primary one that `--gtf`, Qualimap and `--quantify_host` describe. Example: `--host GCF_000001405.40,/data/chm13.fa`.",
+                    "fa_icon": "fas fa-dna"
+                },
                 "fasta": {
                     "type": "string",
-                    "description": "Path to the host genome FASTA file (optionally gzipped).",
+                    "description": "Path to the host genome FASTA file (optionally gzipped). Superseded by --host.",
                     "fa_icon": "far fa-file-code",
-                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to two references are supported and reads are depleted against them in turn: a read must fail against both to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. "
+                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to four references are supported and reads are depleted against them in turn: a read must fail against every one of them to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. Further entries are for sequence the library genuinely contains but the primary assembly does not - a blood meal, a graft, a co-cultured cell line - or for a synthetic reference such as UniVec or PhiX. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. ",
+                    "hidden": true
                 },
                 "gtf": {
                     "type": "string",
@@ -148,21 +161,24 @@
                 },
                 "hisat2_index": {
                     "type": "string",
-                    "description": "Path to a prebuilt HISAT2 index directory, or a `.tar.gz` of one.",
+                    "description": "Path to a prebuilt HISAT2 index directory, or a `.tar.gz` of one. Superseded by --host.",
                     "fa_icon": "fas fa-bezier-curve",
-                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to two references are supported and reads are depleted against them in turn: a read must fail against both to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. "
+                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to four references are supported and reads are depleted against them in turn: a read must fail against every one of them to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. Further entries are for sequence the library genuinely contains but the primary assembly does not - a blood meal, a graft, a co-cultured cell line - or for a synthetic reference such as UniVec or PhiX. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. ",
+                    "hidden": true
                 },
                 "host_accession": {
                     "type": "string",
-                    "description": "NCBI assembly accession of the host genome to download, e.g. `GCF_000001405.40`.",
-                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to two references are supported and reads are depleted against them in turn: a read must fail against both to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. `GCF_` accessions are fetched from RefSeq and `GCA_` accessions from GenBank; the pipeline picks the right section for you. Set `--ncbi_group` to the organism's group (e.g. `vertebrate_mammalian`) to make the lookup much faster.",
-                    "fa_icon": "fas fa-barcode"
+                    "description": "NCBI assembly accession of the host genome to download, e.g. `GCF_000001405.40`. Superseded by --host.",
+                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to four references are supported and reads are depleted against them in turn: a read must fail against every one of them to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. Further entries are for sequence the library genuinely contains but the primary assembly does not - a blood meal, a graft, a co-cultured cell line - or for a synthetic reference such as UniVec or PhiX. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. `GCF_` accessions are fetched from RefSeq and `GCA_` accessions from GenBank; the pipeline picks the right section for you. Set `--ncbi_group` to the organism's group (e.g. `vertebrate_mammalian`) to make the lookup much faster.",
+                    "fa_icon": "fas fa-barcode",
+                    "hidden": true
                 },
                 "host_taxid": {
                     "type": "string",
-                    "description": "NCBI taxonomy ID of the host, e.g. `9606` for human.",
-                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to two references are supported and reads are depleted against them in turn: a read must fail against both to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. Resolves to that taxon's RefSeq reference assembly. Use `--host_accession` when you need a specific assembly version.",
-                    "fa_icon": "fas fa-sitemap"
+                    "description": "NCBI taxonomy ID of the host, e.g. `9606` for human. Superseded by --host.",
+                    "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to four references are supported and reads are depleted against them in turn: a read must fail against every one of them to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. Further entries are for sequence the library genuinely contains but the primary assembly does not - a blood meal, a graft, a co-cultured cell line - or for a synthetic reference such as UniVec or PhiX. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. Resolves to that taxon's RefSeq reference assembly. Use `--host_accession` when you need a specific assembly version.",
+                    "fa_icon": "fas fa-sitemap",
+                    "hidden": true
                 },
                 "ncbi_group": {
                     "type": "string",
@@ -189,6 +205,30 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Publish the downloaded genome and the HISAT2 index so later runs can reuse them.",
+                    "fa_icon": "fas fa-save"
+                },
+                "univec": {
+                    "type": "boolean",
+                    "description": "Deplete against UniVec (vector, adapter, linker and primer sequence) as a final pass",
+                    "help_text": "Its own pass rather than another --host entry, because a vector database needs different alignment stringency: --very-sensitive expands to `--score-min L,0,-1`, which lets a 100 bp read carry roughly 25 mismatches and still align. Against a genome that catches diverged host sequence; against a 3 kb plasmid backbone it deletes real reads. So this pass does not inherit --hisat2_args. CAVEAT: UniVec's plasmid and phage backbones contain genuine E. coli and coliphage sequence, so on a study where those organisms are the question this removes signal rather than noise. Runs last, and also works with --skip_host_removal.",
+                    "fa_icon": "fas fa-cut"
+                },
+                "univec_source": {
+                    "type": "string",
+                    "default": "https://ftp.ncbi.nlm.nih.gov/pub/UniVec/UniVec_Core",
+                    "description": "The vector database to deplete against",
+                    "help_text": "Defaults to NCBI's UniVec_Core, the reduced-redundancy subset. Point it at UniVec itself for the full set, or at a local FASTA to run offline.",
+                    "fa_icon": "fas fa-database"
+                },
+                "univec_hisat2_args": {
+                    "type": "string",
+                    "default": "--no-spliced-alignment --score-min L,0,-0.2",
+                    "description": "HISAT2 arguments for the UniVec pass; replaces --hisat2_args entirely",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "univec_save_bam": {
+                    "type": "boolean",
+                    "description": "Keep the vector alignments as a sorted BAM",
                     "fa_icon": "fas fa-save"
                 }
             }
@@ -221,6 +261,33 @@
                     "type": "boolean",
                     "description": "Publish the reads that fastp discarded.",
                     "fa_icon": "fas fa-save"
+                },
+                "remove_rrna": {
+                    "type": "boolean",
+                    "description": "Remove ribosomal RNA with SortMeRNA before host depletion.",
+                    "help_text": "For total-RNA/RiboZero libraries, where rRNA is typically 94-99% of the reads. Runs between trimming and host depletion, so HISAT2 and everything after it see a library that is already rRNA-free and the read-accounting denominators stay correct. Pointless on poly(A)-selected or DNA libraries. Requires `--sortmerna_db`.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "sortmerna_db": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "rRNA reference FASTA(s) for SortMeRNA, comma-separated.",
+                    "help_text": "The SortMeRNA distribution ships these as a separate `database.tar.gz` download (Silva 138 SSURef NR99 + RFAM 14.1), e.g. `smr_v4.3_sensitive_db.fasta`. Multiple files may be given, comma-separated. Required when `--remove_rrna` is set.",
+                    "fa_icon": "fas fa-dna"
+                },
+                "sortmerna_index": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Prebuilt SortMeRNA index directory. Built once per run if omitted.",
+                    "help_text": "SortMeRNA 6.0 replaced CMPH with BBHash in the index format, so an index built by 4.x cannot be read by 6.x/7.x. Point this at an index built with the same version the pipeline runs, or leave it unset and let the run build its own.",
+                    "fa_icon": "fas fa-folder-open"
+                },
+                "sortmerna_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed to SortMeRNA.",
+                    "help_text": "`--index 0`, `--paired_in` and `--out2` are set by the pipeline and should not be repeated here.",
+                    "fa_icon": "fas fa-terminal",
+                    "hidden": true
                 }
             }
         },
@@ -236,6 +303,22 @@
                     "description": "Arguments passed to hisat2.",
                     "help_text": "`--very-sensitive` expands to `--bowtie2-dp 2 -k 50 --score-min L,0,-1`. The `-k 50` part reports up to 50 alignments per read, which makes the host BAM large and the run slower; see `--hisat2_max_alignments`.",
                     "fa_icon": "fas fa-terminal"
+                },
+                "hisat2_chunk_size": {
+                    "type": "integer",
+                    "default": 0,
+                    "minimum": 0,
+                    "description": "Align this many read pairs per task instead of the whole library at once (0 disables).",
+                    "help_text": "HISAT2's memory grows with how much a single process has aligned, and only a fresh process resets it; with `--very-sensitive` on libraries of a few hundred million pairs it has been observed in the hundreds of GB. Chunking runs one HISAT2 process per slice, so the ceiling is set by the chunk rather than by the library.\n\nThe slices are offsets, not files. HISAT2's `-s/--skip` and `-u/--upto` count reads-or-pairs, so each chunk task opens the same FASTQ and aligns its own window - nothing is split, recompressed or written to scratch. The chunks are independent tasks, so they also run in parallel, which is usually the larger win: the longest step in the pipeline becomes as many short tasks as the executor will schedule.\n\nThe per-chunk BAM, summary and non-host FASTQs are joined back into exactly the files an unchunked run produces, so nothing downstream behaves differently. 5000000 is a reasonable starting point. See also `--hisat2_chunk_memory`.",
+                    "fa_icon": "fas fa-cut"
+                },
+                "hisat2_chunk_memory": {
+                    "type": "string",
+                    "default": "24.GB",
+                    "pattern": "^\\d+(\\.\\d+)?\\.?(K|M|G|T)?B$",
+                    "description": "Memory requested per chunk task when --hisat2_chunk_size is set.",
+                    "help_text": "The peak a chunk reaches scales with `--hisat2_chunk_size`, which the pipeline cannot infer, so it is a knob rather than a formula. The default suits chunks of a few million pairs; raise it alongside the chunk size.",
+                    "fa_icon": "fas fa-memory"
                 },
                 "hisat2_max_alignments": {
                     "type": "integer",
@@ -297,6 +380,13 @@
                     "description": "Extra arguments passed to featureCounts.",
                     "fa_icon": "fas fa-terminal",
                     "hidden": true
+                },
+                "require_both_mates_unmapped": {
+                    "type": "boolean",
+                    "description": "Release a read pair as non-host only when NEITHER mate aligned. On by default.",
+                    "help_text": "With this off, the non-host FASTQs are HISAT2's `--un-conc-gz` output: every pair that failed to align CONCORDANTLY, so a pair with one unambiguously host mate leaves whole and is then classified as host. On, a variant module drops `--no-mixed --no-discordant` and splits the alignment stream on explicit SAM flags - `-F 4 -F 8` for the host BAM, `-f 12` for the non-host FASTQ. Measured across four vulvar-swab RNA libraries this took host carry-over from 0.5-13.5% to 0.0% at a flat cost of 2.7-3.6% of non-host reads. Those costs are not equivalent: the loss is uniform across samples and leaves composition unchanged, while carry-over is sample-specific and biases comparisons between samples. It is also slower, because HISAT2 now looks for discordant and single-mate alignments it previously skipped.",
+                    "fa_icon": "fas fa-filter",
+                    "default": true
                 }
             }
         },
@@ -336,6 +426,19 @@
                     "help_text": "Drastically lowers the memory request at the cost of speed. On a machine where the database already sits in the page cache (for example a fast shared filesystem with plenty of free RAM) this is often close to free, and it is what makes many-sample runs against a large database practical.",
                     "fa_icon": "fas fa-memory"
                 },
+                "kraken2_use_daemon": {
+                    "type": "boolean",
+                    "description": "Classify via `k2 classify --use-daemon`, keeping the database resident between samples.",
+                    "help_text": "The legacy `kraken2` wrapper reloads the whole index on every invocation - about 30 minutes per sample for a 340 GB database on network storage. The daemon loads it once into a background process that outlives the task. Tasks run one at a time (the daemon's control FIFO is not concurrency-safe), which costs nothing once the index is resident. The daemon is addressed through hardcoded paths in /tmp, so it is shared with anything else using k2 on that node, and it KEEPS HOLDING THE INDEX after the run finishes: stop it with `k2 clean --stop-daemon`. Incompatible with a tarballed `--kraken2_db` and with `--kraken2_memory_mapping`.",
+                    "fa_icon": "fas fa-bolt"
+                },
+                "kraken2_daemon_timeout": {
+                    "type": "string",
+                    "default": "3h",
+                    "description": "Upper bound on one `k2 classify --use-daemon` call, as a `timeout` duration.",
+                    "help_text": "The daemon is reached through FIFOs in /tmp, and nothing in that handshake has a deadline: a client that opens them when no daemon is listening blocks in open(2) indefinitely, at 0% CPU and with an empty log, and because the daemon tasks run one at a time the rest of the cohort queues behind it. The local executor does not enforce `time`, so this is what actually bounds the wait. On timeout the task fails with a signal status and is retried, and the retry clears the stale /tmp state so a fresh daemon is started. The default covers a cold index load of a ~340 GB database plus a large library; raise it if single libraries take longer than that to classify.",
+                    "fa_icon": "fas fa-hourglass-half"
+                },
                 "kraken2_report_minimizer_data": {
                     "type": "boolean",
                     "description": "Add per-clade distinct-minimizer columns to the Kraken2 report.",
@@ -371,6 +474,31 @@
                     "help_text": "Must be at least the size of the database unless `--kraken2_memory_mapping` is used. Defaults to 72 GB (16 GB with memory mapping), which suits Standard-8/PlusPF but not core_nt.",
                     "fa_icon": "fas fa-memory"
                 },
+                "run_metaphlan": {
+                    "type": "boolean",
+                    "description": "Also profile the non-host reads with MetaPhlAn.",
+                    "help_text": "MetaPhlAn maps against clade-specific marker genes rather than classifying every read by k-mer, so it reports relative abundance over a curated set and is far more conservative than Kraken2. Additive: `--run_metaphlan --skip_kraken2` uses it instead of Kraken2, while leaving Kraken2 on runs both over the same reads - which is the only way to see where the two disagree on one library. Requires `--metaphlan_db` and `--metaphlan_index`.",
+                    "fa_icon": "fas fa-dna"
+                },
+                "metaphlan_db": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Directory holding the MetaPhlAn bowtie2 index and its .pkl.",
+                    "help_text": "On FGCZ infrastructure this is `/srv/GT/databases/metaphlan_databases`.",
+                    "fa_icon": "fas fa-database"
+                },
+                "metaphlan_index": {
+                    "type": "string",
+                    "description": "MetaPhlAn index basename inside --metaphlan_db, e.g. mpa_vJan25_CHOCOPhlAnSGB_202503.",
+                    "fa_icon": "fas fa-file"
+                },
+                "metaphlan_args": {
+                    "type": "string",
+                    "default": "-t rel_ab_w_read_stats",
+                    "description": "Extra MetaPhlAn arguments.",
+                    "help_text": "`-t rel_ab_w_read_stats` adds the estimated_number_of_reads_from_the_clade column, which count-based differential-abundance methods require. Do not set --input_type, --db_dir, --index, --nproc, --tmp_dir, --mapout or -o; the module sets those.",
+                    "fa_icon": "fas fa-terminal"
+                },
                 "bracken_db": {
                     "type": "string",
                     "format": "path",
@@ -379,8 +507,13 @@
                     "fa_icon": "fas fa-database"
                 },
                 "bracken_read_length": {
-                    "type": "string",
+                    "type": [
+                        "string",
+                        "integer"
+                    ],
                     "default": "auto",
+                    "pattern": "^(auto|[0-9]+)$",
+                    "minimum": 1,
                     "description": "Read length for Bracken (-r), or 'auto' to measure it.",
                     "help_text": "Bracken's -r must match a k-mer distribution the database was built with, not merely your reads: a mismatch does not fail, it silently returns wrong abundances. 'auto' takes the mean read length after trimming from fastp, per sample, and snaps it to the nearest `database<N>mers.kmer_distrib` present in the database, warning if the gap is large. Give a number to pin it.",
                     "fa_icon": "fas fa-ruler-horizontal"
@@ -420,6 +553,795 @@
                     "default": 1,
                     "description": "Number of samples in which --min_rel_abundance must be exceeded.",
                     "fa_icon": "fas fa-layer-group"
+                },
+                "drop_host_taxon": {
+                    "type": "boolean",
+                    "description": "Remove the host taxon from the combined tables and renormalise.",
+                    "help_text": "Reads the depletion step missed are still classified, and while the host row sits in the table every microbial abundance is a fraction of host + microbes rather than of microbes. This drops the rows for `--host_carryover_taxid` and rescales the fraction columns against what is left. Exact for the Bracken table, which is flat; for the hierarchical Kraken2 combined report only the host's own rows go, and its ancestors keep their original clade counts. Dropped rows are written to the `.removed.tsv`, and the unfiltered combined table is published either way.",
+                    "fa_icon": "fas fa-user-minus"
+                },
+                "exploremetatax_bundle": {
+                    "type": "boolean",
+                    "description": "Write a tar.gz of the taxonomic tables for the exploreMetaTax Shiny app.",
+                    "help_text": "Produces `exploremetatax/reanatax.exploreMetaTax.tar.gz`. The app (https://shiny-public.fgcz.uzh.ch/app/exploreMetaTax) has no archive upload: extract the tarball, tick 'Browse a folder' on its Upload tab, pick the extracted folder and choose the input format. The bundle is a flat directory whose filenames are rewritten to match the app's per-format filters - a plain tar of `--outdir` would skip the Bracken tables entirely and load two other files under the wrong format. Includes whichever of Kraken2, Bracken, MetaPhlAn and HUMAnN actually ran, plus `--da_metadata` if given.",
+                    "fa_icon": "fas fa-file-archive"
+                },
+                "krakenuniq_db": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "KrakenUniq database directory. Setting it enables the KrakenUniq route.",
+                    "help_text": "KrakenUniq cannot read a Kraken2 index, so this is a separate database you supply (build it with `krakenuniq-build`, or fetch a prebuilt one). The route is additive: it runs alongside Kraken2 unless you also pass `--skip_kraken2`. Its report adds per-taxon distinct-k-mer counts (`kmers`, `dup`) and reference coverage (`cov`), estimated by HyperLogLog - the discriminator Kraken2 approximates with distinct minimizers, at roughly five times the resolution. Bracken is not run on this route: Bracken's k-mer distributions belong to a Kraken2 database.",
+                    "fa_icon": "fas fa-fingerprint"
+                },
+                "krakenuniq_args": {
+                    "type": "string",
+                    "description": "Extra arguments for the KrakenUniq database preload.",
+                    "help_text": "Passed to the single `krakenuniq --preload` that runs before the batch. Setting `--preload-size` here switches the module out of whole-database preloading, which is how you classify against a database larger than the node's memory.",
+                    "fa_icon": "fas fa-terminal",
+                    "hidden": true
+                },
+                "krakenuniq_classify_args": {
+                    "type": "string",
+                    "description": "Extra arguments for each KrakenUniq classification.",
+                    "fa_icon": "fas fa-terminal",
+                    "hidden": true
+                },
+                "krakenuniq_save_reads": {
+                    "type": "boolean",
+                    "description": "Keep the classified/unclassified FASTQs from KrakenUniq.",
+                    "fa_icon": "fas fa-save"
+                },
+                "krakenuniq_save_readclassifications": {
+                    "type": "boolean",
+                    "description": "Keep KrakenUniq's per-read assignment table.",
+                    "fa_icon": "fas fa-save"
+                },
+                "minimizer_filter": {
+                    "type": "boolean",
+                    "description": "Drop taxa whose reads cover no breadth of their reference.",
+                    "help_text": "An abundance threshold asks how many reads landed on a taxon - the question a spurious call passes, since reads piled on one conserved locus look abundant. This asks how much of the reference they actually cover, using Kraken2's distinct-minimizer columns (needs `--kraken2_report_minimizer_data`) or KrakenUniq's `kmers`/`dup`/`cov`, which its reports carry already. Taxa below `--minimizer_min_reads` are never judged: too few reads to show breadth either way. Writes an evidence table so every decision is auditable, and the removals go through the same filter step, and the same `.removed.tsv`, as the abundance filter.",
+                    "fa_icon": "fas fa-fingerprint"
+                },
+                "minimizer_min_reads": {
+                    "type": "number",
+                    "default": 50,
+                    "minimum": 0,
+                    "description": "Only judge taxa holding at least this many reads.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "minimizer_min_distinct": {
+                    "type": "number",
+                    "default": 10,
+                    "minimum": 0,
+                    "description": "A taxon must cover at least this many distinct minimizers/k-mers.",
+                    "fa_icon": "fas fa-hashtag"
+                },
+                "minimizer_max_duplication": {
+                    "type": "number",
+                    "default": 100,
+                    "minimum": 0,
+                    "description": "...and its observed/distinct ratio must stay below this.",
+                    "help_text": "The average number of times each distinct minimizer was re-hit. A real organism spreads reads over its genome, so most of what it hits is new; a call from one locus re-hits the same handful repeatedly.",
+                    "fa_icon": "fas fa-clone"
+                },
+                "minimizer_min_coverage": {
+                    "type": "number",
+                    "default": 0,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "...and cover this fraction of its reference. 0 disables the test.",
+                    "help_text": "KrakenUniq reports coverage directly. For Kraken2 the denominator is read from `inspect.txt` in the database directory, whose second column is the distinct minimizers held per clade; the test is skipped if that file is absent. Coverage is confounded with sequencing depth - a genuinely rare organism also covers little - so it is off by default.",
+                    "fa_icon": "fas fa-percent"
+                },
+                "min_reads": {
+                    "type": "number",
+                    "default": 0,
+                    "minimum": 0,
+                    "description": "Absolute per-taxon read floor, applied together with --min_rel_abundance.",
+                    "help_text": "The relative threshold is computed against the MICROBIAL total, and after host depletion that total is small - Salzberg's TCGA reanalysis left a median of 2.6M non-host reads, 0.48% of the library - so 0.1% of it can be three reads on one conserved locus. Gihawi et al. (mBio 2023) filter to genus counts >=10; PRISM will not attempt confirmation below 10 reads and calls its score reliable only above ~100. Applied as AND with the relative threshold, on the count columns even when the table also carries fractions. 0 disables, which is the previous behaviour.",
+                    "fa_icon": "fas fa-hashtag"
+                },
+                "minimizer_distinct_scale": {
+                    "type": "number",
+                    "default": 0,
+                    "minimum": 0,
+                    "description": "Scale the distinct-minimizer threshold with library depth. 0 disables.",
+                    "help_text": "Effective threshold = max(--minimizer_min_distinct, scale x classified reads). Sun et al.'s F1-optimised threshold sweep found the optimal unique-k-mer cut is linearly associated with sequencing depth (p = 7e-7) at about 0.002 unique k-mers per read, refining KrakenUniq's original 'about 2000 unique k-mers per million reads'. A flat threshold across libraries differing 100-fold in depth - normal in public-data reanalysis - is wrong in both directions at once. The same work found the distinct-k-mer axis is the single best Kraken-family filter (highest F1 in all three regimes tested) and that the read-count axis is unnecessary once it is applied, and that Kraken2 MINIMIZERS need a threshold 2-3x higher than KrakenUniq k-mers for equal F1. Suggested starting point: 0.002, or 0.005 to include the Kraken2 correction.",
+                    "fa_icon": "fas fa-ruler-vertical"
+                },
+                "minimizer_correlation": {
+                    "type": "boolean",
+                    "description": "Also require a taxon's reads, k-mers and distinct k-mers to rise together across samples.",
+                    "help_text": "SAHMI's sample-level denoising (Ghaddar, Blaser & De, Nat Comput Sci 2023). The thresholds above ask whether a taxon's evidence is broad enough; this asks whether it scales. All three Spearman correlations - reads~k-mers, reads~distinct, k-mers~distinct - must be significant after BH correction, at genus or species rank, for a taxon seen in at least three samples. Catches what the thresholds cannot: a contaminant sitting at a flat low level in every library has plenty of distinct minimizers but its counts do not track. Needs at least 5 samples - with n samples the smallest attainable two-sided Spearman p is 2/n!, so at n=4 nothing can reach 0.05 and the run is refused rather than dropping everything.",
+                    "fa_icon": "fas fa-chart-line"
+                },
+                "minimizer_correlation_p": {
+                    "type": "number",
+                    "default": 0.05,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "BH-adjusted p-value each of the three correlations must clear.",
+                    "fa_icon": "fas fa-percent"
+                },
+                "host_kmer_filter": {
+                    "type": "boolean",
+                    "description": "Drop taxa whose reads mostly carry host k-mers, whatever they were classified as.",
+                    "help_text": "SAHMI's per-read host test, applied to bulk data. Alignment-based depletion is not exhaustive, and what it misses is a genuine read with genuine k-mers - invisible to any filter that judges a taxon by its counts. Kraken2's read-level output records which taxon each run of k-mers was assigned to, so a read carrying host k-mers is recognisable even when the read as a whole was called a bacterium. Requires --kraken2_save_readclassifications, and requires the host to be present in the Kraken2 database: core_nt contains Anopheles gambiae, PlusPF does not. The run fails rather than reporting a clean result if no host k-mer is seen at all.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "host_kmer_taxid": {
+                    "type": "string",
+                    "description": "Taxid(s) counted as host by --host_kmer_filter. Defaults to --host_carryover_taxid.",
+                    "help_text": "Comma-separated. The host species alone by default; adding its genus or family catches k-mers Kraken2 could only place higher up, at the cost of condemning their genuine relatives too.",
+                    "fa_icon": "fas fa-fingerprint"
+                },
+                "host_kmer_max_fraction": {
+                    "type": "number",
+                    "default": 0.5,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Drop a taxon once this fraction of its reads carry host k-mers.",
+                    "fa_icon": "fas fa-percent"
+                },
+                "host_kmer_min_reads": {
+                    "type": "integer",
+                    "default": 10,
+                    "minimum": 0,
+                    "description": "Taxa below this many reads are left to the abundance filter instead.",
+                    "fa_icon": "fas fa-hashtag"
+                },
+                "decontam": {
+                    "type": "boolean",
+                    "description": "Identify reagent contaminants with decontam, using negative controls.",
+                    "help_text": "The only filter here given an external measurement of the kit, and so the only one that can separate a reagent contaminant from a genuinely rare organism - every other filter judges a taxon by its own evidence and is blind to that distinction. Opt-in because most public datasets carry neither blanks nor DNA concentrations. Scored on the combined Bracken table (flat species-level counts; a combined kreport is a hierarchy and would count the same reads at every rank), so it cannot be combined with --skip_bracken. The taxids it calls go to the abundance filter alongside the other evidence filters.",
+                    "fa_icon": "fas fa-flask"
+                },
+                "decontam_metadata": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Sample metadata TSV for decontam. Falls back to --da_metadata.",
+                    "help_text": "First column is the sample id as the pipeline names it; remaining columns are factors. The negative controls have to have been run through the pipeline like any other sample, so they appear as columns in the combined table.",
+                    "fa_icon": "fas fa-table"
+                },
+                "decontam_neg_column": {
+                    "type": "string",
+                    "description": "Metadata column marking negative controls.",
+                    "fa_icon": "fas fa-vial"
+                },
+                "decontam_neg_value": {
+                    "type": "string",
+                    "default": "true",
+                    "description": "Value in that column which marks a negative control. Compared case-insensitively.",
+                    "fa_icon": "fas fa-check"
+                },
+                "decontam_conc_column": {
+                    "type": "string",
+                    "description": "Metadata column holding post-PCR DNA concentration, for the frequency method.",
+                    "help_text": "The frequency method needs no blanks. It tests whether a taxon's relative abundance falls as total DNA rises, which is the signature of a constant amount of contaminating template diluted by varying amounts of real sample. Values must be positive numbers.",
+                    "fa_icon": "fas fa-weight"
+                },
+                "decontam_method": {
+                    "type": "string",
+                    "default": "prevalence",
+                    "enum": [
+                        "prevalence",
+                        "frequency",
+                        "combined",
+                        "either",
+                        "minimum"
+                    ],
+                    "description": "decontam scoring method.",
+                    "help_text": "`prevalence` needs --decontam_neg_column; `frequency` needs --decontam_conc_column; the other three need both. `either` calls a contaminant if either test does, `minimum` takes the smaller p-value, `combined` fuses them into one statistic.",
+                    "fa_icon": "fas fa-code-branch"
+                },
+                "decontam_threshold": {
+                    "type": "number",
+                    "default": 0.1,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "decontam score below which a taxon is called a contaminant.",
+                    "fa_icon": "fas fa-percent"
+                },
+                "decontam_batch_column": {
+                    "type": "string",
+                    "description": "Metadata column grouping samples into batches for decontam",
+                    "help_text": "Contamination is a property of the kit, not of the study. Pooled across two sequencing runs or two extraction days, a taxon heavy in one batch and absent from the other looks like a real organism that varies between samples. Naming the column that separates the runs scores each batch against its own negative controls and combines the verdicts. Every batch must contain at least one control and two true samples, or the run fails rather than returning an unscored batch.",
+                    "fa_icon": "fas fa-layer-group"
+                },
+                "decontam_batch_combine": {
+                    "type": "string",
+                    "default": "minimum",
+                    "enum": [
+                        "minimum",
+                        "product",
+                        "fisher"
+                    ],
+                    "description": "How per-batch decontam verdicts are combined",
+                    "help_text": "Only used with --decontam_batch_column. 'minimum' (decontam's default) takes the smallest p across batches, so a taxon condemned in any one batch is condemned overall - the right stance when a contaminant was only present in one run. 'product' and 'fisher' require agreement across batches and are more conservative. The per-batch calls are written to the evidence table either way.",
+                    "fa_icon": "fas fa-object-group"
+                },
+                "shuffle_control": {
+                    "type": "boolean",
+                    "description": "Classify a shuffled copy of every library as a negative control",
+                    "help_text": "Runs Kraken2 a second time over the same reads with each read shuffled, so that its length, GC content and dinucleotide frequencies survive and none of its k-mers do. Whatever the database still reports is what it produces from base composition alone - the one number none of the other filters can supply, since they all judge a taxon's evidence on its own terms with no measurement of what that evidence is worth against noise. Taxa whose shuffled count reaches --shuffle_max_ratio of their real count are added to the drop list. Costs one extra Kraken2 pass; with --kraken2_use_daemon the database is already resident and that pass is close to free.",
+                    "fa_icon": "fas fa-random"
+                },
+                "shuffle_method": {
+                    "type": "string",
+                    "default": "dinuc",
+                    "enum": [
+                        "dinuc",
+                        "mono",
+                        "reverse"
+                    ],
+                    "description": "How reads are shuffled",
+                    "help_text": "'dinuc' is an Altschul-Erickson Euler-path shuffle preserving the exact dinucleotide frequency as well as the base composition, and is the default because most compositional bias is dinucleotide-level. 'mono' permutes the bases and preserves GC content only, so it is a weaker null. 'reverse' reads each sequence backwards - not reverse-complemented, which would still map - preserving every compositional statistic including the trinucleotide spectrum, at the cost of leaving palindromic and low-complexity stretches intact.",
+                    "fa_icon": "fas fa-dice"
+                },
+                "shuffle_seed": {
+                    "type": "integer",
+                    "default": 1,
+                    "description": "Random seed for the shuffle",
+                    "help_text": "Fixed rather than optional: a control whose result changes between runs of the same pipeline is not a control.",
+                    "fa_icon": "fas fa-seedling"
+                },
+                "shuffle_reads": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Shuffle only the first N fragments per sample (0 = all)",
+                    "help_text": "Subsampling makes the control cheap but raises its detection floor: one chance read in a subsample stands for several in the full library, so no taxon below scale/--shuffle_max_ratio real reads can be flagged. That floor is computed and printed, and taxa under it are reported as untested rather than clean.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "shuffle_max_ratio": {
+                    "type": "number",
+                    "default": 0.1,
+                    "description": "Flag a taxon once shuffled/real reads reaches this ratio",
+                    "fa_icon": "fas fa-balance-scale"
+                },
+                "shuffle_min_reads": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Below this many real reads a taxon is left untested",
+                    "fa_icon": "fas fa-sort-numeric-down"
+                },
+                "pathseq_microbe_bwa_image": {
+                    "type": "string",
+                    "description": "Microbe BWA index image for GATK PathSeq; enables the PathSeq route",
+                    "help_text": "PathSeq is the only classifier here that is not k-mer based: it ALIGNS the surviving reads to a microbe reference with BWA and divides an ambiguously mapping read between the taxa it hits, rather than pushing it up to their common ancestor. So it can place at species level what Kraken2 can only place at a genus, and it is not fooled by the composition-driven chance matches --shuffle_control measures. Additive with Kraken2; combine with --skip_kraken2 to use it alone. Needs Broad's prebuilt resource bundle - this pipeline does not build the index images, which are large, slow and specific to a reference choice.",
+                    "fa_icon": "fas fa-crosshairs"
+                },
+                "pathseq_microbe_dict": {
+                    "type": "string",
+                    "description": "Sequence dictionary (.dict) for the PathSeq microbe reference",
+                    "fa_icon": "fas fa-book"
+                },
+                "pathseq_taxonomy_db": {
+                    "type": "string",
+                    "description": "PathSeq taxonomy database (.db)",
+                    "fa_icon": "fas fa-sitemap"
+                },
+                "pathseq_host_bwa_image": {
+                    "type": "string",
+                    "description": "Optional host BWA image for PathSeq's own host filter",
+                    "help_text": "Give this together with --pathseq_host_kmers, or neither. Skipping PathSeq's host filter is reasonable here because HISAT2 has already done that job and the reads reaching PathSeq are the ones it could not place; supplying both runs it as a second, alignment-plus-k-mer pass over what was left behind.",
+                    "fa_icon": "fas fa-shield-alt"
+                },
+                "pathseq_host_kmers": {
+                    "type": "string",
+                    "description": "Host k-mer file that goes with --pathseq_host_bwa_image",
+                    "fa_icon": "fas fa-shield-alt"
+                },
+                "pathseq_save_bam": {
+                    "type": "boolean",
+                    "description": "Keep PathSeq's per-read BAM",
+                    "help_text": "It holds every read PathSeq aligned tagged with its call, and is the size of the library. Only worth keeping when the individual alignments will be looked at.",
+                    "fa_icon": "fas fa-save"
+                },
+                "pathseq_rank": {
+                    "type": "string",
+                    "default": "species",
+                    "description": "PathSeq `type` kept in the combined tables",
+                    "help_text": "PathSeq's `type` column spells the rank out (species, genus, family, ...) rather than using a Kraken rank code. Leave unset to keep every row.",
+                    "fa_icon": "fas fa-layer-group"
+                },
+                "pathseq_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed to PathSeqPipelineSpark",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "run_prism": {
+                    "type": "boolean",
+                    "description": "Run PRISM to confirm candidate taxa against independent evidence",
+                    "help_text": "PRISM (sjdlabgroup/PRISM) is not a classifier: it takes candidate taxa and tries to CONFIRM each one with full-length BLAST against nt, the GenBank annotation those alignments land on, host mapping with STAR and minimap2, and k-mer composition at every rank, then scores it with an XGBoost model over forty features. It runs on the TRIMMED reads, not the non-host ones, because it does its own host removal and several of its features are statistics of that removal. Not packaged anywhere - see --prism_path.",
+                    "fa_icon": "fas fa-gem"
+                },
+                "prism_path": {
+                    "type": "string",
+                    "description": "A prepared clone of sjdlabgroup/PRISM",
+                    "help_text": "The clone alone is not enough. It must also hold `genbank/` (the processed GenBank RDS files, distributed separately by the authors) and `sorted_accession_map.txt` (built once with blastdbcmd against the BLAST database). The run fails at validation if this is missing.",
+                    "fa_icon": "fas fa-folder-open"
+                },
+                "prism_container": {
+                    "type": "string",
+                    "description": "Container image for PRISM; required under docker/singularity",
+                    "help_text": "PRISM is an R script that shells out to Kraken2, minimap2, STAR, BLAST and SeqKit, and no public image carries that set, so there is no default. Build one from modules/local/prism/run/environment.yml, or use -profile conda which builds that environment directly.",
+                    "fa_icon": "fas fa-box"
+                },
+                "prism_kraken_db": {
+                    "type": "string",
+                    "description": "Kraken2 database for PRISM; defaults to --kraken2_db",
+                    "fa_icon": "fas fa-database"
+                },
+                "prism_blast_db": {
+                    "type": "string",
+                    "description": "BLAST nt database for PRISM's confirmation pass",
+                    "fa_icon": "fas fa-database"
+                },
+                "prism_star_genome_dir": {
+                    "type": "string",
+                    "description": "Host STAR index, for PRISM's own host depletion",
+                    "fa_icon": "fas fa-star"
+                },
+                "prism_minimap2_index": {
+                    "type": "string",
+                    "description": "Host minimap2 index, for PRISM's own host depletion",
+                    "fa_icon": "fas fa-map"
+                },
+                "prism_min_qcovs": {
+                    "type": "integer",
+                    "default": 80,
+                    "description": "PRISM's minimum BLAST query coverage",
+                    "fa_icon": "fas fa-percentage"
+                },
+                "prism_min_read_per": {
+                    "type": "integer",
+                    "default": 10000,
+                    "description": "PRISM's minimum reads per X to analyse",
+                    "fa_icon": "fas fa-sort-numeric-down"
+                },
+                "prism_min_uniq_frac": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "PRISM's minimum unique k-mer ratio",
+                    "fa_icon": "fas fa-fingerprint"
+                },
+                "prism_max_sample": {
+                    "type": "integer",
+                    "default": 100,
+                    "description": "PRISM's maximum reads to sample",
+                    "fa_icon": "fas fa-filter"
+                },
+                "prism_barcode_only": {
+                    "type": "boolean",
+                    "description": "Read 1 is barcode+UMI: drop it before PRISM sees the library",
+                    "help_text": "Required with --single_cell. On 10x chemistry read 1 carries no biological sequence, so without this PRISM classifies and BLASTs it as cDNA. This is stricter than PRISM's own --barcode_only flag, which reaches only its BLAST step while its Kraken2 pass still runs --paired over both mates; here the barcode read is discarded before PRISM starts, so every step works on the cDNA read alone. For PRISM's literal behaviour, leave this false and pass --prism_args '--barcode_only TRUE'.",
+                    "fa_icon": "fas fa-barcode"
+                },
+                "prism_score_threshold": {
+                    "type": "number",
+                    "default": 0.5,
+                    "description": "Median PRISM score below which a taxon is called a contaminant",
+                    "help_text": "Aggregated as the median across the samples that saw the taxon - not the mean, which one confidently-scored library drags either way, and not 'any sample', which on a large cohort condemns everything.",
+                    "fa_icon": "fas fa-balance-scale"
+                },
+                "prism_min_reads": {
+                    "type": "number",
+                    "default": 10,
+                    "description": "Below this many reads in every sample, leave the taxon untested",
+                    "fa_icon": "fas fa-sort-numeric-down"
+                },
+                "prism_filter": {
+                    "type": "boolean",
+                    "description": "Apply PRISM's verdict to the combined Bracken table as a second filter pass",
+                    "help_text": "Off by default: PRISM scores the whole trimmed library while Bracken profiles the non-host fraction, so the two agree on taxids but were asked about slightly different read sets. Read the evidence table before letting it remove anything.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "prism_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed to PRISM.R",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "gene_diversity_filter": {
+                    "type": "boolean",
+                    "description": "Flag taxa whose reads pile onto one locus instead of spreading over the genome",
+                    "help_text": "PRISM's argument, answered from HUMAnN's species-stratified gene-family table, so it needs --run_humann and no new reference. Every other filter counts reads or the k-mers behind them; none can see WHERE those reads landed, and a thousand reads on one conserved gene passes all of them. With --humann_regroup set it runs a second time on the regrouped table, which is the difference between many gene families and many PRODUCTS - a taxon can reach dozens of UniRef90 families that all encode the same thing.",
+                    "fa_icon": "fas fa-expand-arrows-alt"
+                },
+                "gene_diversity_min_families": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Distinct gene families a taxon must reach",
+                    "fa_icon": "fas fa-dna"
+                },
+                "gene_diversity_max_top_fraction": {
+                    "type": "number",
+                    "default": 0.5,
+                    "description": "...with no single family carrying more than this share of its abundance",
+                    "fa_icon": "fas fa-chart-pie"
+                },
+                "gene_diversity_min_abundance": {
+                    "type": "number",
+                    "default": 0,
+                    "description": "Below this pooled abundance a taxon is left untested",
+                    "fa_icon": "fas fa-sort-amount-down"
+                },
+                "run_sparcc": {
+                    "type": "boolean",
+                    "description": "Infer a taxon co-occurrence network with SparCC (FastSpar)",
+                    "help_text": "An ordinary correlation matrix on compositional data manufactures negative associations everywhere, because the counts sum to a library size with no biological meaning; SparCC works on log-ratio variances, which are invariant to it. The run is refused outright when the cohort is too small for the bootstrap p-values to reach the Benjamini-Hochberg threshold for the number of pairs tested - an empty network from such a run means 'this cohort cannot be asked', not 'there are no associations'. --sparcc_force overrides.",
+                    "fa_icon": "fas fa-project-diagram"
+                },
+                "sparcc_min_prevalence": {
+                    "type": "number",
+                    "default": 0.5,
+                    "description": "A taxon must be seen in this fraction of samples",
+                    "fa_icon": "fas fa-percentage"
+                },
+                "sparcc_min_reads": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "...with at least this many reads there",
+                    "fa_icon": "fas fa-sort-numeric-down"
+                },
+                "sparcc_top_taxa": {
+                    "type": "integer",
+                    "default": 200,
+                    "description": "Most abundant survivors kept (0 = all)",
+                    "fa_icon": "fas fa-filter"
+                },
+                "sparcc_iterations": {
+                    "type": "integer",
+                    "default": 50,
+                    "description": "SparCC iterations for the point estimate",
+                    "fa_icon": "fas fa-redo"
+                },
+                "sparcc_exclusion_iterations": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "SparCC strongly-correlated-pair exclusion rounds",
+                    "fa_icon": "fas fa-ban"
+                },
+                "sparcc_permutations": {
+                    "type": "integer",
+                    "default": 1000,
+                    "description": "Bootstrap replicates behind the p-values",
+                    "help_text": "Sets the p-value floor at 1/permutations. With many pairs that floor can sit above what Benjamini-Hochberg requires, in which case no edge could be called significant however strong its correlation - the run is refused with the number of replicates it would need.",
+                    "fa_icon": "fas fa-dice"
+                },
+                "sparcc_min_correlation": {
+                    "type": "number",
+                    "default": 0.3,
+                    "description": "|rho| an edge needs before it is reported",
+                    "fa_icon": "fas fa-balance-scale"
+                },
+                "sparcc_p_threshold": {
+                    "type": "number",
+                    "default": 0.05,
+                    "description": "Adjusted p threshold for an edge, across every pair at once",
+                    "fa_icon": "fas fa-check"
+                },
+                "sparcc_force": {
+                    "type": "boolean",
+                    "description": "Run SparCC even when the cohort cannot support it",
+                    "fa_icon": "fas fa-exclamation-triangle"
+                },
+                "run_diversity": {
+                    "type": "boolean",
+                    "description": "Alpha diversity, and how much of the between-sample variation each metadata variable explains.",
+                    "help_text": "Follows Llorens-Rico et al. (Nat Commun 2021): counts are CLR-transformed and compared by Euclidean distance (the Aitchison distance, which respects the fact that sequencing yields compositions), each metadata variable is tested on its own with a distance-based RDA for an adjusted R-squared and a permutation p-value, and a stepwise model then reports the variation each adds that the others do not - the gap between the two IS the confounding. PERMANOVA is reported alongside. Runs on the FILTERED combined Bracken table, unlike differential abundance, because diversity indices apply no filter of their own and observed richness on an unfiltered table is largely a count of database artefacts. Metadata is optional: without it you still get alpha diversity and an ordination.",
+                    "fa_icon": "fas fa-chart-pie"
+                },
+                "diversity_metadata": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Sample metadata TSV for the variance partitioning. Falls back to --da_metadata.",
+                    "fa_icon": "fas fa-table"
+                },
+                "diversity_permutations": {
+                    "type": "integer",
+                    "default": 999,
+                    "minimum": 99,
+                    "description": "Permutations for the dbRDA and PERMANOVA tests.",
+                    "fa_icon": "fas fa-random"
+                },
+                "trim_low_complexity": {
+                    "type": "boolean",
+                    "description": "Discard low-complexity reads in fastp.",
+                    "help_text": "Homopolymer and near-homopolymer reads - poly-A tails, poly-G from two-colour chemistry - classify to whatever genome happens to hold that run, which is how a low-complexity artefact becomes a confident species call. SAHMI applies the same idea at its own quantitation step. Off by default because it removes reads, and a read removed at trimming is invisible to every count downstream. Appended to --fastp_args rather than replacing it.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "low_complexity_threshold": {
+                    "type": "integer",
+                    "default": 30,
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "fastp complexity threshold, as a percentage of bases differing from the next.",
+                    "fa_icon": "fas fa-percent"
+                },
+                "single_cell": {
+                    "type": "boolean",
+                    "description": "Single-cell route: barcode-aware host alignment with STARsolo, and a cell-by-taxon matrix.",
+                    "help_text": "REPLACES HISAT2 host depletion rather than supplementing it. In bulk, host depletion discards the host reads; in single cell they are the other half of the experiment (the cell-by-gene matrix) and the cell barcode is the only thing joining them to the microbial reads, so one barcode-aware aligner has to do both jobs in one pass. The non-host reads come out as an ordinary single-end FASTQ with the corrected barcode folded into each read name, so Kraken2, Bracken, Krona, the evidence filters and the exploreMetaTax bundle all run on them unchanged - the pseudobulk profile and the cell-by-taxon matrix come from the same classification and cannot disagree. fastq_1 must be the barcode+UMI read and fastq_2 the cDNA read. Requires --gtf and --kraken2_save_readclassifications.",
+                    "fa_icon": "fas fa-th"
+                },
+                "star_index": {
+                    "type": "string",
+                    "description": "Prebuilt STAR index directory or tarball for the single-cell route.",
+                    "help_text": "It must have been built with an annotation: STARsolo assigns reads to genes at alignment time, so a --sjdbGTFfile supplied later cannot rescue a matrix from an index built without one.",
+                    "fa_icon": "fas fa-folder"
+                },
+                "sc_chemistry": {
+                    "type": "string",
+                    "default": "10xv3",
+                    "enum": [
+                        "10xv2",
+                        "10xv3",
+                        "10xv4",
+                        "custom"
+                    ],
+                    "description": "Barcode geometry preset.",
+                    "help_text": "10xv2 = CB 16 / UMI 10; 10xv3 and 10xv4 = CB 16 / UMI 12. `custom` requires --sc_cb_len, --sc_umi_start and --sc_umi_len. Getting the geometry wrong produces a run that completes with almost every barcode unmatched, which is easy to miss.",
+                    "fa_icon": "fas fa-barcode"
+                },
+                "sc_whitelist": {
+                    "type": "string",
+                    "description": "Cell barcode whitelist, or 'None' to accept every observed barcode uncorrected.",
+                    "help_text": "The whitelists ship with Cell Ranger, not with STAR, so this has to be supplied: 737K-august-2016.txt for 10xv2, 3M-february-2018.txt for 10xv3, 3M-3pgex-may-2023.txt for 10xv4. Passing 'None' disables correction, which lets a single sequencing error in a barcode manufacture a new cell.",
+                    "fa_icon": "fas fa-list"
+                },
+                "sc_cb_len": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Cell barcode length, for --sc_chemistry custom.",
+                    "fa_icon": "fas fa-ruler"
+                },
+                "sc_umi_start": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based UMI start position, for --sc_chemistry custom.",
+                    "fa_icon": "fas fa-ruler"
+                },
+                "sc_umi_len": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "UMI length, for --sc_chemistry custom.",
+                    "fa_icon": "fas fa-ruler"
+                },
+                "sc_solo_type": {
+                    "type": "string",
+                    "default": "CB_UMI_Simple",
+                    "description": "STARsolo --soloType.",
+                    "fa_icon": "fas fa-cog"
+                },
+                "sc_solo_features": {
+                    "type": "string",
+                    "default": "Gene",
+                    "description": "STARsolo --soloFeatures.",
+                    "fa_icon": "fas fa-cog"
+                },
+                "sc_cell_filter": {
+                    "type": "string",
+                    "default": "EmptyDrops_CR",
+                    "description": "STARsolo --soloCellFilter, which separates cells from empty droplets.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "sc_star_args": {
+                    "type": "string",
+                    "description": "Extra arguments appended to the STARsolo command.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "sc_min_frac": {
+                    "type": "number",
+                    "default": 0.5,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Share of a read's k-mers that must fall inside the assigned taxon's lineage.",
+                    "help_text": "SAHMI's min_frac. Guards against a read scattered across the tree being credited in full to whichever tip won the LCA.",
+                    "fa_icon": "fas fa-percent"
+                },
+                "sc_max_homopolymer": {
+                    "type": "integer",
+                    "default": 0,
+                    "minimum": 0,
+                    "description": "Drop reads with a single-nucleotide run longer than this. 0 disables.",
+                    "help_text": "SAHMI's nFilter, whose default of 130 is very permissive - on a 150 bp read it only catches sequences that are ~87% homopolymer. Reading the FASTQ is only done when this is non-zero, since the sequences are not in Kraken2's output.",
+                    "fa_icon": "fas fa-align-left"
+                },
+                "sc_ranks": {
+                    "type": "string",
+                    "default": "S,G",
+                    "description": "Ranks to tabulate the cell-by-taxon matrix at, comma-separated codes.",
+                    "fa_icon": "fas fa-sitemap"
+                },
+                "sc_host_taxid": {
+                    "type": "string",
+                    "description": "Taxid(s) whose k-mers disqualify a read. Falls back to --host_kmer_taxid, then --host_carryover_taxid.",
+                    "fa_icon": "fas fa-fingerprint"
+                },
+                "sc_kmer_denoise": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Require a taxon's total and distinct k-mers to rise together across cells.",
+                    "help_text": "SAHMI's barcode-level denoising, and the same question --minimizer_correlation asks across samples, at a much finer grain: a library has thousands of barcodes but a study has few samples, so this has real power where the sample-level test needs at least five libraries. A barcode carrying more of a real organism carries proportionally more DISTINCT k-mers too; ambient contamination smeared over every droplet, or reads piling on one conserved locus, saturates. The distinct k-mers are recovered from the reads themselves - Kraken2's per-read output run-length encodes which taxon each consecutive k-mer matched, so the k-mers assigned to a taxon can be pulled out of the sequence. A taxon whose distinct count never moves while its read count does fails outright, since Spearman is undefined there but the meaning is not.",
+                    "fa_icon": "fas fa-chart-line"
+                },
+                "sc_kmer_len": {
+                    "type": "integer",
+                    "default": 35,
+                    "minimum": 1,
+                    "description": "Kraken2's k. 35 for the standard databases.",
+                    "fa_icon": "fas fa-ruler"
+                },
+                "sc_min_barcodes": {
+                    "type": "integer",
+                    "default": 4,
+                    "minimum": 2,
+                    "description": "A taxon must be seen on at least this many barcodes to be tested (SAHMI uses >3).",
+                    "fa_icon": "fas fa-hashtag"
+                },
+                "sc_correlation_p": {
+                    "type": "number",
+                    "default": 0.05,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "BH-adjusted p the barcode-level correlation must clear.",
+                    "fa_icon": "fas fa-percent"
+                },
+                "sc_max_barcodes_per_taxon": {
+                    "type": "integer",
+                    "default": 1000,
+                    "minimum": 0,
+                    "description": "Cap on barcodes held per taxon (SAHMI's nsample). 0 removes the cap.",
+                    "help_text": "Bounds memory: without it an abundant taxon in a deep library holds a distinct-k-mer set for every droplet.",
+                    "fa_icon": "fas fa-compress"
+                },
+                "sc_min_umis": {
+                    "type": "integer",
+                    "default": 2,
+                    "minimum": 1,
+                    "description": "UMIs a taxon needs in a cell to be called present there.",
+                    "help_text": "CSI-Microbes' presence rule (Robinson et al., Sci Adv 2024). It is a hard threshold, not a test: on their positive control, requiring >=2 UMIs removed 100% of contaminant genera at single-cell level, which is a stronger result than any correlation-based filter here achieves. The authors call the cutoff arbitrary themselves (their stated limitation 2), so a sensitivity sweep over 1-5 is always written alongside the matrix and no conclusion should rest on one value. Calibrated for 10x 3'v3/5' with a strict cell filter; not validated for 3'v2 or plate data.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "sc_adjust": {
+                    "type": "string",
+                    "default": "holm",
+                    "enum": [
+                        "holm",
+                        "bh"
+                    ],
+                    "description": "Multiple-testing correction for the barcode-level correlation.",
+                    "help_text": "SAHMI calls R's p.adjust() without naming a method, so it gets R's default - holm, controlling family-wise error rate rather than FDR. Kept as the default here to match.",
+                    "fa_icon": "fas fa-calculator"
+                },
+                "sc_cell_metadata": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "TSV of barcode, sample, cell_type [, host_umis]. Enables cell-type enrichment.",
+                    "help_text": "Cell types are the one input this pipeline cannot produce - STARsolo gives a count matrix, not clusters - so bring them from Seurat/scanpy. A `sample` column is MANDATORY: enrichment is computed within each sample and combined afterwards, because pooling cells across samples with different cell-type compositions can inverting the result entirely (Simpson's paradox; CSI-Microbes devotes a methods paragraph and a counterexample to it). `host_umis` is optional but enables the doublet check that any co-occurrence claim needs.",
+                    "fa_icon": "fas fa-table"
+                },
+                "sc_apply_drop_list": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Apply the evidence filters' drop lists to the cell-by-taxon matrix, not only to the cohort tables.",
+                    "help_text": "The minimizer filter, shuffled-read control, decontam and host k-mer scan all produce drop lists. Without this they reach only the combined Kraken2 and Bracken tables, so the enrichment test keeps testing taxa the pipeline has already judged false - and pays the multiple-testing cost for every one of them. Turn it off to inspect the unfiltered matrix.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "sc_cooccurrence_min_cells": {
+                    "type": "integer",
+                    "default": 10,
+                    "minimum": 2,
+                    "description": "A taxon must infect this many cells to enter the co-occurrence test.",
+                    "fa_icon": "fas fa-hashtag"
+                },
+                "sc_enrichment_p": {
+                    "type": "number",
+                    "default": 0.05,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "BH-adjusted p for calling a cell type enriched.",
+                    "fa_icon": "fas fa-percent"
+                },
+                "sc_umi_dedup": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Count distinct UMIs per cell and taxon rather than reads.",
+                    "help_text": "On by default. SAHMI's taxa_counts.r also deduplicates (it takes unique() over barcode/umi/taxid), so its matrix is UMI counts too; what it does not do is carry that through to sckmer.r, whose k-mer statistics - and therefore the barcode-level denoising built on them - are computed over undeduplicated reads. Here the deduplication applies throughout, so the matrix and the statistics agree. Set false to count reads instead.",
+                    "fa_icon": "fas fa-compress"
+                },
+                "sc_host_de": {
+                    "type": "boolean",
+                    "description": "Compare host expression between infected and bystander cells (SAHMI's host half)",
+                    "help_text": "Wilcoxon rank-sum on log-normalised counts - Seurat's FindMarkers defaults, which is what SAHMI calls - between cells carrying a taxon and cells of the SAME TYPE that do not. Needs --sc_cell_metadata: which cell types carry a taxon is itself a result, so a pooled test recovers the difference between cell types and reports it as a response to infection.",
+                    "fa_icon": "fas fa-microscope"
+                },
+                "sc_host_de_min_cells": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Infected and bystander cells a group needs to be tested",
+                    "fa_icon": "fas fa-users"
+                },
+                "sc_host_de_min_pct": {
+                    "type": "number",
+                    "default": 0.1,
+                    "description": "A gene must be detected in this share of one side",
+                    "fa_icon": "fas fa-percentage"
+                },
+                "sc_host_de_logfc": {
+                    "type": "number",
+                    "default": 0.25,
+                    "description": "Minimum |log2 fold change| to test",
+                    "fa_icon": "fas fa-chart-line"
+                },
+                "sc_host_de_top_taxa": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "Most-infecting taxa to test (0 = all)",
+                    "fa_icon": "fas fa-list-ol"
+                },
+                "sc_host_de_force_pooled": {
+                    "type": "boolean",
+                    "description": "Run --sc_host_de without cell types, pooling every type",
+                    "help_text": "Every row of the output is then stamped ALL_POOLED, because the result is not a within-type comparison and cannot be read as one.",
+                    "fa_icon": "fas fa-exclamation-triangle"
+                },
+                "sc_plate_based": {
+                    "type": "boolean",
+                    "description": "Plate-based single cell (Smart-seq2): one library per cell",
+                    "help_text": "CSI-Microbes' second route. Every well is sequenced as its own library, so there is no barcode, no STARsolo and no --single_cell: each cell runs the ordinary bulk route and the cell-by-taxon matrix is those per-cell reports stacked. The samplesheet is then one cell per row, and --sc_cell_metadata must name the patient, plate or donor each cell came from as well as its type - without that every cell becomes its own stratum and the enrichment test collapses to the pooled one it exists to avoid.",
+                    "fa_icon": "fas fa-th"
+                },
+                "sc_plate_min_reads": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Reads of a taxon before a plate-based cell counts as carrying it",
+                    "help_text": "Deliberately not --sc_min_umis: Smart-seq2 has no UMIs, and one amplified cDNA molecule can contribute hundreds of reads and a single UMI, so a read threshold and a UMI threshold are not interchangeable and the read one has to be stricter.",
+                    "fa_icon": "fas fa-sort-numeric-down"
+                },
+                "sc_ambient": {
+                    "type": "boolean",
+                    "description": "Annotate each taxon with how strongly it is associated with cells rather than the ambient pool",
+                    "help_text": "An ANNOTATION, not a filter. An empty droplet holds reagent contaminants, ambient soup, microbes released by lysed cells AND genuine extracellular organisms from the tissue - a luminal or mucosal organism is in that pool by construction, not by artefact - and no droplet-level comparison separates them. So a taxon as common in the medium as in cells is reported as `ambient_undecided`, never as contamination; only an external measurement of the kit settles that, which is what --decontam's blanks provide. What this does answer is whether a taxon is where the cells are, which is the strongest evidence droplet data can offer for an intracellular organism. Needs STARsolo's raw/ matrix as well as filtered/, so it is incompatible with --sc_cell_filter None.",
+                    "fa_icon": "fas fa-tint"
+                },
+                "sc_ambient_min_empty_umis": {
+                    "type": "number",
+                    "default": 1,
+                    "description": "Host UMIs an empty droplet needs before it is used",
+                    "help_text": "Excludes the sea of zero-count barcodes, which would otherwise inflate the empty-droplet denominator and make every taxon look cell-associated.",
+                    "fa_icon": "fas fa-sort-numeric-down"
+                },
+                "sc_ambient_max_empty_umis": {
+                    "type": "number",
+                    "default": 0,
+                    "description": "...and at most this many (0 = no upper bound)",
+                    "help_text": "Set it to exclude near-cell barcodes just below the knee, which carry enough real content to behave like cells.",
+                    "fa_icon": "fas fa-sort-numeric-up"
+                },
+                "sc_ambient_min_droplets": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "Droplets a taxon must appear in to be tested",
+                    "fa_icon": "fas fa-filter"
+                },
+                "sc_ambient_enriched_ratio": {
+                    "type": "number",
+                    "default": 2.0,
+                    "description": "Prevalence ratio at or above which a taxon is called cell-associated",
+                    "fa_icon": "fas fa-arrow-up"
+                },
+                "sc_ambient_depleted_ratio": {
+                    "type": "number",
+                    "default": 0.5,
+                    "description": "...and at or below which it is called cell-depleted",
+                    "fa_icon": "fas fa-arrow-down"
+                },
+                "sc_ambient_drop": {
+                    "type": "boolean",
+                    "description": "Also write a drop list of the ambient and cell-depleted taxa",
+                    "help_text": "Off by default and only correct when the question is about INTRACELLULAR microbes. An extracellular organism genuinely present in the tissue is ambient by construction and would be on that list.",
+                    "fa_icon": "fas fa-exclamation-triangle"
                 }
             }
         },
@@ -433,13 +1355,14 @@
                 "run_humann": {
                     "type": "boolean",
                     "description": "Run HUMAnN 3 on the non-host reads.",
-                    "help_text": "Requires --humann_nucleotide_db and --humann_protein_db, and cannot be combined with --skip_kraken2: HUMAnN selects pangenomes from a taxonomic profile, which is built from the Kraken2 report with KrakenTools' kreport2mpa.py rather than by running MetaPhlAn as a second, disagreeing classifier. Note the consequence - HUMAnN keys on species (`s__`) lines, so clades Kraken2 could only place above species contribute nothing.",
+                    "help_text": "Requires --humann_nucleotide_db and --humann_protein_db, and cannot be combined with --skip_kraken2: HUMAnN selects pangenomes from a taxonomic profile, which is built with KrakenTools' kreport2mpa.py from Bracken's kreport (or Kraken2's under --skip_bracken) rather than by running MetaPhlAn as a second, disagreeing classifier. Note the consequence - HUMAnN keys on species (`s__`) lines, so clades left above species contribute nothing, which is also why Bracken's re-estimation is preferred as the source.",
                     "fa_icon": "fas fa-gears"
                 },
                 "humann_nucleotide_db": {
                     "type": "string",
                     "format": "directory-path",
-                    "description": "ChocoPhlAn nucleotide database directory.",
+                    "description": "ChocoPhlAn nucleotide database directory (use the species-named v201901_v31 release).",
+                    "help_text": "HUMAnN builds its per-sample nucleotide database by matching each genus/species pair in the profile against ChocoPhlAn's filenames. Those are species-named up to v201901_v31 and SGB-named (t__SGB...) from vJan21 onwards. A profile derived from Kraken2/Bracken carries NCBI species names, which can only match the former - point this at an SGB release and the lookup selects nothing, leaving HUMAnN to run translated search alone.",
                     "fa_icon": "fas fa-folder"
                 },
                 "humann_protein_db": {
@@ -832,6 +1755,221 @@
                     "description": "Display hidden parameters in the help message (only works when --help or --help_full are provided)."
                 }
             }
+        },
+        "differential_abundance_options": {
+            "title": "Differential abundance options",
+            "type": "object",
+            "fa_icon": "fas fa-chart-bar",
+            "description": "Test which taxa differ between two groups of samples.",
+            "help_text": "Modelled on FGCZ's DiffShot apps (ezRun `EzAppDiffShot`). Runs on the combined Bracken count table, because both ALDEx2 and ANCOM-BC2 model integer counts: ALDEx2 draws Monte-Carlo instances from a Dirichlet posterior, ANCOM-BC2 estimates a per-sample sampling fraction from library size. MetaPhlAn relative abundances are rejected rather than rescaled.",
+            "properties": {
+                "da_metadata": {
+                    "type": "string",
+                    "format": "file-path",
+                    "mimetype": "text/tsv",
+                    "description": "TSV of sample metadata: sample id in column 1, factor columns after it. Setting it turns differential abundance on.",
+                    "help_text": "A separate file rather than a samplesheet column, because the --input_accessions and --input_dir routes have no samplesheet; one metadata file serves all three. Sample ids must match the ids in the Bracken table (with --group_runs_by experiment those are SRX/ERX accessions, not SRR/ERR).",
+                    "fa_icon": "fas fa-table"
+                },
+                "da_method": {
+                    "type": "string",
+                    "default": "ancombc",
+                    "description": "Method(s) to run: 'ancombc', 'aldex2', or both comma-separated.",
+                    "help_text": "Each method has its own container - no biocontainer carries both - so naming both runs two processes over the same table. ANCOM-BC2 corrects for compositional bias and handles structural zeros; ALDEx2 works in centred log-ratio space with Monte-Carlo sampling. Disagreement between them is informative.",
+                    "fa_icon": "fas fa-flask"
+                },
+                "da_grouping": {
+                    "type": "string",
+                    "description": "Metadata column holding the categorical variable to test on.",
+                    "fa_icon": "fas fa-layer-group"
+                },
+                "da_sample_group": {
+                    "type": "string",
+                    "description": "Value of --da_grouping treated as the test group. Coefficients read sample-over-reference.",
+                    "fa_icon": "fas fa-vial"
+                },
+                "da_ref_group": {
+                    "type": "string",
+                    "description": "Value of --da_grouping used as the reference level.",
+                    "fa_icon": "fas fa-vial"
+                },
+                "da_covariates": {
+                    "type": "string",
+                    "description": "Additional metadata columns to adjust for, comma-separated.",
+                    "help_text": "Extends the model formula (ANCOM-BC2 fix_formula; ALDEx2 switches from the t-test path to aldex.glm). Leave unset for the unadjusted model.",
+                    "fa_icon": "fas fa-sliders-h"
+                },
+                "da_prevalence_min": {
+                    "type": "number",
+                    "default": 0.1,
+                    "description": "Keep taxa seen (>1 read) in at least this fraction of samples.",
+                    "fa_icon": "fas fa-percent"
+                },
+                "da_relabund_min": {
+                    "type": "number",
+                    "default": 0.1,
+                    "description": "Keep taxa holding at least this percentage of the pooled reads.",
+                    "fa_icon": "fas fa-percent"
+                },
+                "da_lib_cut": {
+                    "type": "integer",
+                    "default": 1000,
+                    "description": "ANCOM-BC2 minimum library size; smaller samples are dropped by the method.",
+                    "fa_icon": "fas fa-cut"
+                },
+                "da_p_threshold": {
+                    "type": "number",
+                    "default": 0.05,
+                    "description": "Adjusted p-value below which a taxon counts as significant.",
+                    "fa_icon": "fas fa-check"
+                },
+                "da_lfc_threshold": {
+                    "type": "number",
+                    "default": 1.0,
+                    "description": "Absolute log2 fold change a taxon must also reach to count as significant.",
+                    "fa_icon": "fas fa-check"
+                },
+                "target_taxid": {
+                    "type": "string",
+                    "description": "Extract this taxon's reads from the classification and follow them to differential expression of its own genes.",
+                    "help_text": "Turns a Bracken row into an experiment. Kraken2's per-read output records which read it assigned where, so the reads for a taxon can be pulled back out with KrakenTools, aligned to that organism's own genome, counted against its annotation and tested between the same two groups as everything else. Comma-separated for several taxids.\n\nRequires --kraken2_save_readclassifications (the per-read record) and --target_reference (the genome). --target_gtf adds gene counts and, with --da_metadata, the differential expression.\n\nReads reach this branch because a k-mer classifier assigned them, and a classifier's false positives look exactly like true positives. The alignment rate in `targeted/log/` is the check: reads that really came from the target align to its genome, mis-assigned reads do not.",
+                    "fa_icon": "fas fa-crosshairs"
+                },
+                "target_reference": {
+                    "type": "string",
+                    "description": "Genome for --target_taxid: NCBI accession, taxid, FASTA, or prebuilt HISAT2 index.",
+                    "help_text": "Detected from the value exactly as --host is: `GCF_*`/`GCA_*` is an assembly accession, digits alone are a taxonomy ID, a directory (or `.tar.gz`) is a prebuilt index, anything else on disk is a FASTA.",
+                    "fa_icon": "fas fa-dna"
+                },
+                "target_gtf": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Annotation for --target_reference. Without it the branch aligns and stops at the BAM.",
+                    "fa_icon": "fas fa-file-alt"
+                },
+                "target_include_children": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Also take reads Kraken2 assigned below the target taxon.",
+                    "help_text": "On by default: a read placed at a strain below the target species is evidence for that species.",
+                    "fa_icon": "fas fa-sitemap"
+                },
+                "target_include_parents": {
+                    "type": "boolean",
+                    "description": "Also take reads Kraken2 could only place above the target taxon.",
+                    "help_text": "Off by default, and it warns when enabled. A read Kraken2 could only place at the genus is consistent with the target species but is not evidence for it, and this option quantifies it as though it were.",
+                    "fa_icon": "fas fa-sitemap"
+                },
+                "target_max_reads": {
+                    "type": "integer",
+                    "default": 100000000,
+                    "minimum": 1,
+                    "description": "Cap on extracted reads per sample.",
+                    "help_text": "KrakenTools applies this cap whether or not you set it; it is exposed so that hitting it is a decision rather than a silent truncation.",
+                    "fa_icon": "fas fa-hashtag"
+                },
+                "target_de_method": {
+                    "type": "string",
+                    "default": "deseq2,edger",
+                    "description": "Gene-level DE method(s) for the targeted taxon: deseq2, edger, or both.",
+                    "fa_icon": "fas fa-chart-bar"
+                },
+                "host_transcripts": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Host transcriptome FASTA. Quantify host expression with kallisto instead of featureCounts.",
+                    "help_text": "Pseudoaligns the TRIMMED reads against the transcriptome, so it is independent of host depletion and of --quantify_host. The resulting matrix goes through the same differential expression as the featureCounts route.\n\nkallisto is offered for quantification only, never for host depletion: a transcriptome index can only remove reads that came from an annotated transcript, so intronic, intergenic, repeat and satellite reads would survive depletion and be classified as spurious microbes - which is precisely what the second host assembly exists to prevent.",
+                    "fa_icon": "fas fa-bolt"
+                },
+                "host_tx2gene": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Two-column TSV (transcript id, gene id) to sum kallisto transcript abundances to genes.",
+                    "help_text": "Without it the matrix stays at transcript level. Summing to genes is also what makes rounding kallisto's fractional est_counts for DESeq2 a small approximation rather than a real one, because the apportioning that rounding damages is mostly within a gene.",
+                    "fa_icon": "fas fa-exchange-alt"
+                },
+                "target_transcripts": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Transcriptome FASTA for --target_taxid. Quantify the extracted reads with kallisto instead of aligning them.",
+                    "help_text": "Replaces the whole align-and-count route for the targeted taxon: no genome, no index and no GTF are needed. The trade-off is that the alignment rate - the check that Kraken2's assignment was real - is no longer produced; kallisto's run_info.json p_pseudoaligned is the nearest equivalent.",
+                    "fa_icon": "fas fa-bolt"
+                },
+                "target_tx2gene": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "Two-column TSV (transcript id, gene id) for --target_transcripts.",
+                    "fa_icon": "fas fa-exchange-alt"
+                },
+                "kallisto_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed to kallisto quant.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "kallisto_fragment_length": {
+                    "type": "integer",
+                    "default": 200,
+                    "minimum": 1,
+                    "description": "Estimated fragment length, single-end input only.",
+                    "help_text": "kallisto measures the fragment-length distribution from paired reads and cannot infer it from one end, so single-end quantification needs an estimate and the abundances inherit whatever error it carries.",
+                    "fa_icon": "fas fa-ruler-horizontal"
+                },
+                "kallisto_fragment_sd": {
+                    "type": "integer",
+                    "default": 30,
+                    "minimum": 1,
+                    "description": "Standard deviation of the fragment length, single-end input only.",
+                    "fa_icon": "fas fa-ruler-horizontal"
+                },
+                "host_de_method": {
+                    "type": "string",
+                    "default": "deseq2,edger",
+                    "description": "Gene-level DE method(s) for the host counts: deseq2, edger, or both comma-separated.",
+                    "help_text": "Runs when --quantify_host and the --da_* contrast are both given, on the gene x sample matrix merged from featureCounts. Deliberately not ALDEx2/ANCOM-BC2: those model compositional data, where only proportions are meaningful, whereas gene counts have a scale that DESeq2's median-of-ratios and edgeR's TMM estimate directly. The contrast, covariates and thresholds are taken from the same --da_* parameters the microbial side uses, so one metadata file describes both halves of the library. Set to null to skip.",
+                    "fa_icon": "fas fa-dna"
+                },
+                "host_de_min_count": {
+                    "type": "integer",
+                    "default": 10,
+                    "minimum": 0,
+                    "description": "A host gene needs this many reads in at least --host_de_min_samples samples to be tested.",
+                    "help_text": "Applied before the test, not after: filtering the results afterwards would leave the adjusted p-values computed against a gene set that was never really tested.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "host_de_min_samples": {
+                    "type": "integer",
+                    "default": 2,
+                    "minimum": 1,
+                    "description": "...in at least this many samples.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "host_microbe_correlation": {
+                    "type": "boolean",
+                    "description": "Correlate host gene expression against microbial abundance across samples.",
+                    "help_text": "Monteleone et al.'s third layer, and the analysis --quantify_host exists for: both sides come from the same library, so an association between them is not confounded by sample handling the way two separate assays would be. Spearman on log-CPM host expression against relative microbial abundance, BH-adjusted.\n\nOpt-in because it is easy to run and impossible to interpret on a small cohort. With n samples the smallest attainable Spearman p-value is 2/n!, so with five samples nothing beyond three gene-taxon pairs could ever clear BH at 0.05 - and a grid of thousands returns an empty table that reads like a negative result. The step computes that arithmetic up front and refuses rather than producing one.",
+                    "fa_icon": "fas fa-project-diagram"
+                },
+                "host_microbe_top_genes": {
+                    "type": "integer",
+                    "default": 2000,
+                    "minimum": 0,
+                    "description": "Test only the N most variable host genes (0 = all).",
+                    "help_text": "Every gene added multiplies the number of tests by the number of taxa, and multiple-testing correction is what limits this analysis long before compute does.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "host_microbe_top_taxa": {
+                    "type": "integer",
+                    "default": 50,
+                    "minimum": 0,
+                    "description": "Test only the N most abundant taxa (0 = all).",
+                    "fa_icon": "fas fa-filter"
+                },
+                "da_samples_to_drop": {
+                    "type": "string",
+                    "description": "Sample ids to exclude entirely before any analysis, comma-separated.",
+                    "fa_icon": "fas fa-user-slash"
+                }
+            }
         }
     },
     "allOf": [
@@ -873,6 +2011,9 @@
         },
         {
             "$ref": "#/$defs/generic_options"
+        },
+        {
+            "$ref": "#/$defs/differential_abundance_options"
         }
     ]
 }

@@ -14,8 +14,10 @@ process ABUNDANCE_FILTER {
 
     input:
     tuple val(meta), path(table, stageAs: 'input/*')
+    path drop_list
     val min_rel_abundance
     val min_samples
+    val min_reads
 
     output:
     tuple val(meta), path("*.filtered.tsv"), emit: filtered
@@ -28,14 +30,20 @@ process ABUNDANCE_FILTER {
     script:
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
+    // A collection, because the minimizer and host-k-mer filters each write
+    // their own list and a taxon condemned by either is removed.
+    def drop_files = (drop_list instanceof List ? drop_list : [drop_list]).findAll { entry -> entry }
+    def drop_arg = drop_files ? "--drop-taxids ${drop_files.join(' ')}" : ''
     """
     filter_abundance.py \\
         ${args} \\
+        ${drop_arg} \\
         --input ${table} \\
         --output ${prefix}.filtered.tsv \\
         --removed ${prefix}.removed.tsv \\
         --min-rel-abundance ${min_rel_abundance} \\
-        --min-samples ${min_samples}
+        --min-samples ${min_samples} \\
+        --min-reads ${min_reads}
     """
 
     stub:

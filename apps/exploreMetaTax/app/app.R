@@ -193,38 +193,31 @@ detect_format <- function(filepath) {
     return("krakenuniq")
   }
 
-  # MetaPhlAn detection: comment lines with #mpa or #clade_name, or
-  # header/data containing pipe-separated taxonomy (k__|p__)
-  if (any(grepl("#mpa_v|#clade_name|#SampleID", comment_lines, ignore.case = TRUE))) {
-    # Check if merged (multiple sample columns) or single
-    header_line <- data_lines[1]
-    if (!is.null(header_line)) {
-      header_fields <- strsplit(header_line, "\t")[[1]]
-      # Merged MetaPhlAn: clade_name + NCBI_tax_id + multiple sample cols
-      # Single MetaPhlAn: clade_name + NCBI_tax_id + relative_abundance [+ additional_species]
-      if (length(header_fields) > 4 &&
-          !any(grepl("relative_abundance|additional_species", header_fields, ignore.case = TRUE))) {
+  # MetaPhlAn detection: comment lines with #mpa or #clade_name or #SampleID,
+  # or data containing pipe-separated taxonomy (k__|p__)
+  is_mpa_comment <- any(grepl("#mpa_v|#clade_name|^#SampleID", comment_lines, ignore.case = TRUE))
+  is_mpa_data    <- length(data_lines) >= 1 && any(grepl("^[a-z]__|\\|[a-z]__", data_lines[1:min(5, length(data_lines))]))
+
+  if (is_mpa_comment || is_mpa_data) {
+    # Check if this is a merged multi-sample MetaPhlAn table or a single-sample profile
+    # Prefer #clade_name over #SampleID (since single-sample files often contain a comment #SampleID before #clade_name)
+    header_idx <- which(grepl("^#?clade_name", first_lines, ignore.case = TRUE))[1]
+    if (is.na(header_idx)) {
+      header_idx <- which(grepl("^#SampleID", first_lines, ignore.case = TRUE))[1]
+    }
+    if (!is.na(header_idx)) {
+      header_fields <- strsplit(sub("^#", "", first_lines[header_idx]), "\t")[[1]]
+      # Single-sample profiles have relative_abundance or coverage or estimated read stats
+      if (any(grepl("relative_abundance|coverage|estimated_number", header_fields, ignore.case = TRUE))) {
+        return("metaphlan")
+      }
+      meta_cols <- c("sampleid", "clade_name", "clade_taxid", "ncbi_tax_id", "tax_id", "taxid", "additional_species")
+      sample_cols <- setdiff(tolower(header_fields), meta_cols)
+      if (length(sample_cols) > 1) {
         return("merged_metaphlan")
       }
     }
     return("metaphlan")
-  }
-
-  # Also detect by data pattern: MetaPhlAn pipe-separated lineage, e.g.
-  # "k__Bacteria|p__Firmicutes|c__Clostridia". We must require the PIPE here,
-  # not just a bare "p__"/"s__" prefix: GTDB-based Kraken/Bracken databases
-  # (e.g. HRGM) carry those same rank prefixes in single, non-piped taxon
-  # names like "p__Firmicutes_A", and a prefix-only match misclassified those
-  # Kraken2 reports as merged_metaphlan — which then parsed to nothing.
-  if (length(data_lines) >= 2) {
-    if (any(grepl("\\|[a-z]__", data_lines[1:min(3, length(data_lines))]))) {
-      header_fields <- strsplit(data_lines[1], "\t")[[1]]
-      if (length(header_fields) > 4 &&
-          !any(grepl("relative_abundance|additional_species", header_fields, ignore.case = TRUE))) {
-        return("merged_metaphlan")
-      }
-      return("metaphlan")
-    }
   }
 
   first_line <- if (length(data_lines) > 0) data_lines[1] else first_lines[1]
@@ -622,19 +615,27 @@ parse_metaphlan_output <- function(filepath, sample_name = NULL, merged = FALSE)
     as.integer(parts[length(parts)])
   }
 
-  # Determine if this is a merged table (multiple sample columns)
-  known_meta_cols <- c(clade_col, taxid_col, "additional_species")
+  # Determine if this is a single profile or merged table
+  known_meta_cols <- c(
+    clade_col, taxid_col, "additional_species", "coverage",
+    "relative_abundance", "estimated_number_of_reads_from_the_clade",
+    "clade_taxid", "NCBI_tax_id", "tax_id", "taxid"
+  )
   known_meta_cols <- known_meta_cols[!is.na(known_meta_cols)]
   abundance_col <- grep("relative_abundance", colnames(df), ignore.case = TRUE, value = TRUE)[1]
+  reads_col <- grep("estimated_number_of_reads|reads|count", colnames(df), ignore.case = TRUE, value = TRUE)[1]
 
-  if (!merged && !is.na(abundance_col)) {
+  if (!merged || !is.na(abundance_col)) {
     # ── Single-sample MetaPhlAn profile ──
     taxon_info <- lapply(df[[clade_col]], extract_taxon_info)
+    reads_clade_val <- if (!is.na(reads_col)) suppressWarnings(as.numeric(df[[reads_col]])) else 0
+    reads_clade_val[is.na(reads_clade_val)] <- 0
+
     result <- data.frame(
       name = sapply(taxon_info, `[[`, "name"),
       taxid = if (!is.na(taxid_col)) sapply(df[[taxid_col]], extract_last_taxid) else NA_integer_,
       rank = sapply(taxon_info, `[[`, "rank"),
-      reads_clade = 0,
+      reads_clade = reads_clade_val,
       reads_taxon = 0,
       percent = as.numeric(df[[abundance_col]]),
       Sample = sample_name,

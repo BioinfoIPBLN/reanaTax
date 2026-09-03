@@ -9,12 +9,21 @@
 // only reads MetaPhlAn's format. Rather than run MetaPhlAn as a second
 // classifier - a second database to install, and a second set of abundances
 // that would quietly disagree with the Bracken tables in the same report - the
-// Kraken2 report is translated with KrakenTools' kreport2mpa.py.
+// report we already have is translated with KrakenTools' kreport2mpa.py.
 //
-// The consequence to be aware of: HUMAnN keys on `s__` species lines, so any
-// clade Kraken2 could only resolve above species contributes nothing here. A
-// profile dominated by genus-level assignments will produce a thin functional
-// table, and that is a property of the classification, not a bug.
+// HUMAnN keys on `s__` species lines and ignores everything above them, which
+// is why the caller hands this Bracken's kreport rather than Kraken2's when
+// Bracken ran: a read Kraken2 could only place at a genus contributes nothing
+// until Bracken redistributes it to species. What no re-estimation can rescue
+// is a clade Bracken itself leaves above species, so a profile dominated by
+// higher-rank assignments still produces a thin functional table - a property
+// of the classification, not a bug.
+//
+// Two databases have to agree for the nucleotide search to do anything. The
+// profile names species the NCBI way, so --humann_nucleotide_db must be the
+// species-named ChocoPhlAn (v201901_v31); against the SGB-named releases the
+// lookup matches nothing and HUMAnN falls back to translated search alone. See
+// modules/local/krakentools/kreport2mpa for the version line that encodes this.
 //
 
 include { KRAKENTOOLS_KREPORT2MPA } from '../../../modules/local/krakentools/kreport2mpa/main'
@@ -26,7 +35,7 @@ workflow FUNCTIONAL_HUMANN {
 
     take:
     ch_reads // channel: [ val(meta), [ path(fastq) ] ] - the non-host fraction
-    ch_kraken2_report // channel: [ val(meta), path(report) ]
+    ch_taxonomic_report // channel: [ val(meta), path(report) ] - Bracken's kreport, or Kraken2's
     nucleotide_db // string: ChocoPhlAn directory
     protein_db // string: UniRef (translated search) directory
     utility_db // string: HUMAnN utility mapping directory, or null
@@ -38,9 +47,9 @@ workflow FUNCTIONAL_HUMANN {
     def ch_versions = channel.empty()
 
     //
-    // MODULE: Kraken2 report -> MetaPhlAn-style lineage profile
+    // MODULE: Kraken-style report -> MetaPhlAn-style lineage profile
     //
-    KRAKENTOOLS_KREPORT2MPA(ch_kraken2_report)
+    KRAKENTOOLS_KREPORT2MPA(ch_taxonomic_report)
 
     //
     // HUMAnN takes a single sequence file. Paired-end input is concatenated

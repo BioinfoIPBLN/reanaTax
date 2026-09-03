@@ -1,12 +1,22 @@
 //
-// Make a HISAT2 index of the host genome available, building or downloading it
-// only when the user has not supplied one.
+// Make an index of the host genome available, building or downloading it only
+// when the user has not supplied one.
+//
+// Two aligners, because the two routes need different things from the host.
+// The bulk route depletes with HISAT2 and throws the host reads away. The
+// single-cell route aligns with STARsolo, which has to produce the cell-by-gene
+// matrix as well as the unmapped reads, and needs its own index. Everything
+// before the index build - resolving --host to a FASTA, downloading from NCBI,
+// gunzipping - is identical, which is why this is one subworkflow with a switch
+// rather than two that would drift apart.
 //
 
 include { NCBIGENOMEDOWNLOAD } from '../../../modules/nf-core/ncbigenomedownload/main'
 include { GUNZIP             } from '../../../modules/nf-core/gunzip/main'
 include { UNTAR              } from '../../../modules/nf-core/untar/main'
 include { HISAT2_BUILD       } from '../../../modules/nf-core/hisat2/build/main'
+include { HISAT2_EXTRACTSPLICESITES } from '../../../modules/nf-core/hisat2/extractsplicesites/main'
+include { STAR_GENOMEGENERATE       } from '../../../modules/nf-core/star/genomegenerate/main'
 
 workflow PREPARE_HOST_REFERENCE {
 
@@ -17,8 +27,12 @@ workflow PREPARE_HOST_REFERENCE {
     host_taxid // string: NCBI taxonomy ID, or null
     ncbi_group // string: ncbi-genome-download taxonomic group to search
     gtf // string: path to a GTF for splice-aware index building, or null
+    aligner // string: 'hisat2' or 'star' - which index to make available
+    star_index // string: path to a prebuilt STAR index directory or tarball, or null
 
     main:
+
+    def prebuilt = aligner == 'star' ? star_index : hisat2_index
 
     def ch_gtf = gtf
         ? channel.value([[id: file(gtf).baseName], file(gtf, checkIfExists: true)])
@@ -27,16 +41,16 @@ workflow PREPARE_HOST_REFERENCE {
     def ch_index = channel.empty()
     def ch_fasta = channel.empty()
 
-    if (hisat2_index) {
+    if (prebuilt) {
         //
         // A prebuilt index short-circuits everything else.
         //
-        if (hisat2_index.endsWith('.tar.gz') || hisat2_index.endsWith('.tgz')) {
-            UNTAR(channel.value([[id: 'hisat2_index'], file(hisat2_index, checkIfExists: true)]))
+        if (prebuilt.endsWith('.tar.gz') || prebuilt.endsWith('.tgz')) {
+            UNTAR(channel.value([[id: "${aligner}_index"], file(prebuilt, checkIfExists: true)]))
             ch_index = UNTAR.out.untar
         }
         else {
-            ch_index = channel.value([[id: 'hisat2_index'], file(hisat2_index, checkIfExists: true)])
+            ch_index = channel.value([[id: "${aligner}_index"], file(prebuilt, checkIfExists: true)])
         }
         ch_fasta = fasta
             ? channel.value([[id: file(fasta).baseName], file(fasta, checkIfExists: true)])
@@ -90,8 +104,27 @@ workflow PREPARE_HOST_REFERENCE {
         GUNZIP(ch_branched.gz)
         ch_fasta = ch_branched.plain.mix(GUNZIP.out.gunzip)
 
-        HISAT2_BUILD(ch_fasta, ch_gtf, channel.value([[:], []]))
-        ch_index = HISAT2_BUILD.out.index
+        if (aligner == 'star') {
+            // STARsolo needs the annotation in the index: it assigns reads to
+            // genes at alignment time, so a --sjdbGTFfile given later cannot
+            // recover a matrix built without one.
+            STAR_GENOMEGENERATE(ch_fasta, ch_gtf)
+            ch_index = STAR_GENOMEGENERATE.out.index
+        }
+        else {
+            // hisat2-build rejects --exon without --ss ('Nongraph exception'), and
+            // the build module derives --exon from the GTF but takes --ss as a
+            // separate file it does not produce itself. So whenever a GTF is given,
+            // the splice sites have to be extracted first.
+            def ch_splicesites = channel.value([[:], []])
+            if (gtf) {
+                HISAT2_EXTRACTSPLICESITES(ch_gtf)
+                ch_splicesites = HISAT2_EXTRACTSPLICESITES.out.txt
+            }
+
+            HISAT2_BUILD(ch_fasta, ch_gtf, ch_splicesites)
+            ch_index = HISAT2_BUILD.out.index
+        }
     }
 
     emit:

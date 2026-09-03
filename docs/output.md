@@ -157,6 +157,148 @@ Read the percentages as *read* abundance, not organism abundance — that is wha
 
 A sample in which Kraken2 classified nothing (its report holds only the `unclassified` row) is still published and still reaches MultiQC, but is excluded from Bracken and from the combined tables, with a warning naming the sample. Both `combine_kreports.py` and Bracken fail outright on such reports, and one empty sample should not take down the run.
 
+### Evidence filters
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `minimizer_filter/` (with `--minimizer_filter`)
+  - `*.minimizer_evidence.tsv`: every taxon with its reads, distinct minimizers, duplication, coverage and verdict. With `--minimizer_correlation` it also carries the three Spearman coefficients and the largest of their BH-adjusted p-values.
+  - `*.minimizer_drop.txt`: the taxids that failed.
+- `host_kmer_filter/` (with `--host_kmer_filter`)
+  - `*.host_kmer_evidence.tsv`: per taxon, its reads, how many of them carried host k-mers, and the resulting fraction.
+  - `*.host_kmer_drop.txt`: the taxids that failed.
+
+</details>
+
+Neither filter removes anything itself. Both write a taxid list that the abundance filter consumes, so one step owns every removal from the combined tables and one `.removed.tsv` records them all — and a taxon condemned by either is removed, since surviving one test is no argument against the other.
+
+- `decontam/` (with `--decontam`)
+  - `reanatax.decontam_evidence.tsv`: every taxon with its decontam score, the prevalence/frequency sub-scores, and whether it was called a contaminant.
+  - `reanatax.decontam_drop.txt`: the taxids that were.
+
+`--decontam` is the only one of these given an external measurement of the kit, and so the only one that can separate a reagent contaminant from a genuinely rare organism. With `--decontam_batch_column` the evidence table also carries `n_batches_flagged` and `batches_flagged`: under the default `minimum` rule a taxon condemned in one batch of six and one condemned in all six get the same verdict, and they are not the same claim.
+
+- `shuffle_control/` (with `--shuffle_control`)
+  - `reanatax.shuffle_evidence.tsv`: per taxon, its real reads, the reads it collected from the shuffled copy, that count scaled to the real library size, the ratio, and a verdict — `clean`, `composition_only`, or one of the two `untested_*` states.
+  - `reanatax.shuffle_drop.txt`: the taxids reported from shuffled sequence.
+  - `kraken2/`: the shuffled classification itself, named after the same samples but kept out of MultiQC so it is not read as a second cohort.
+  - `reads/<sample>.shuffle_stats.tsv`: how many fragments were shuffled, by which method, at what GC. The shuffled FASTQs themselves are not published — they are the size of the library and are a means, not a result.
+
+- `gene_diversity/` (with `--gene_diversity_filter`)
+  - `reanatax.gene_diversity.tsv` and, with `--humann_regroup`, `reanatax.product_diversity.tsv`: per taxon, how many distinct gene families (or products) its reads reached, what share of its abundance the largest one carries, and the Shannon evenness across them.
+  - `reanatax.*_diversity_drop.txt`: the taxids with no breadth.
+  - `bracken_combined_<level>_genediv.tsv`: the Bracken table with those taxa removed. It lives here rather than in `bracken/` because the judgement was HUMAnN's, made downstream of everything in that directory.
+
+Each filter asks a different question of the same reports. `--minimizer_filter` asks whether a taxon's reads cover enough of its reference; `--host_kmer_filter` asks whether they are host sequence the aligner missed; `--shuffle_control` asks how much of the signal the database would have produced from composition alone; `--gene_diversity_filter` asks whether the reads spread over the genome or pile onto one locus. Surviving one is no argument against the others. See [usage](usage.md#filtering-on-evidence-not-abundance---minimizer_filter).
+
+`--shuffle_control` is blind to host carry-over — carry-over reads are real sequence, and shuffling removes them — so a carried-over taxon passes it perfectly. Read it beside `host_kmer_filter/`, never instead of it.
+
+### Single cell
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `starsolo/` (with `--single_cell`)
+  - `<sample>_Solo.out/`: STARsolo's cell-by-gene matrices — raw and filtered, plus its barcode/UMI statistics. This is the host half of the experiment.
+  - `<sample>.barcode_stats.tsv`: how many non-host reads carried a corrected barcode, and how many distinct barcodes they came from.
+  - `log/<sample>.Log.final.out`: STAR's alignment summary, also in MultiQC.
+- `cell_taxa/`
+  - `<sample>.cell_taxa.tsv`: the cell-by-taxon matrix, long format — `sample, barcode, taxid, rank, name, count`.
+  - `<sample>.cell_taxa_summary.tsv`: how many reads were counted and why each dropped read was dropped (no barcode, host k-mer, below min-frac, low complexity, wrong rank).
+  - `<sample>.sc_kmer_evidence.tsv`, `<sample>.sc_kmer_drop.txt` (with `--sc_kmer_denoise`): per taxon, the Spearman correlation between its total and distinct k-mers across barcodes, and the verdict. `saturated_distinct` means the distinct count never moved while the read count did.
+
+</details>
+
+  - `reanatax.cell_type_enrichment.tsv` (with `--sc_cell_metadata`): per taxon and cell type — observed and expected infected cells, log2FC, Stouffer-combined p and BH-adjusted q.
+  - `reanatax.cooccurrence.tsv`, `reanatax.doublet_check.tsv`: taxon pairs found together in single cells more often than chance, and the doublet control that says whether to believe it.
+  - `<sample>.cell_taxa_sweep.tsv`: the same matrix at `--sc_min_umis` 1 through 5. Check your conclusion survives the sweep before reporting it.
+
+Join `cell_taxa.tsv` to the Solo matrix **on the barcode** — that is the whole point of the branch, and the two are guaranteed to use the same barcode vocabulary because both come from STARsolo's corrected `CB`.
+
+The barcode-level verdicts are **per sample and are not applied** to the combined tables — barcodes only mean anything within their own library. They are published for you to apply.
+
+- `singlecell/ambient/` (with `--sc_ambient`)
+  - `<sample>.sc_ambient.tsv`: per taxon, how many cells and how many empty droplets carry it, the UMIs in each pool, the prevalence and rate ratios, and a verdict. `ambient_undecided` is **not** a contamination call — it means the taxon is as common in the medium as in the cells, which a reagent contaminant and a genuine extracellular organism both look like. Cross-reference `decontam/` to separate them.
+  - `<sample>.sc_ambient_drop.txt` (with `--sc_ambient_drop`): the ambient and cell-depleted taxa. Only meaningful if the question is about intracellular microbes.
+- `singlecell/host_de/` (with `--sc_host_de`)
+  - `<sample>.sc_host_de.tsv`: per taxon, cell type and gene — detection rates and mean expression on both sides, log2 fold change, Wilcoxon p and the q adjusted within that taxon x cell type.
+  - `<sample>.sc_host_de_groups.tsv`: which taxon x cell-type groups were testable at all, with the number of infected and bystander cells behind each. Read this first: a group missing from it had too few cells on one side, which is a different statement from finding nothing.
+- `singlecell/reanatax.cell_taxa.tsv` (with `--sc_plate_based`): the same long-format matrix, built from the per-cell Kraken2 reports instead of from barcodes. `barcode` holds the cell id and `sample` holds the patient.
+
+A `cell_type` of `ALL_POOLED` in `sc_host_de.tsv` means `--sc_host_de_force_pooled` was used and the comparison is **not** within cell type — the difference between the cell types that carry the taxon is inseparable from the response to carrying it.
+
+Read `cell_taxa_summary.tsv` before the matrix. A large `no_barcode` count means the chemistry or whitelist is wrong; a large `host_kmer` count means real carry-over; a large `below_min_frac` count means reads are scattering across the taxonomy rather than landing coherently.
+
+### PRISM
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `prism/<sample>/prism_out/` (with `--run_prism`)
+  - `<sample>-counts.csv`: PRISM's per-species summary — reads confirmed and the model's score.
+  - `<sample>-results.csv`: the per-read table after all filtering and scoring.
+  - `<sample>_1.fa`, `<sample>_2.fa`: the retained microbial reads.
+  - `data/<sample>-xgmat.csv`: the full forty-feature matrix the model was given. This is the file to read when a score surprises you.
+- `prism/`
+  - `reanatax.prism_reads.tsv`, `reanatax.prism_score.tsv`: taxa by sample. A taxon absent from a sample is `0` in the reads matrix and **`NA`** in the score matrix — a zero score would read as "PRISM was confident this is a contaminant", which is the opposite of "PRISM never saw it".
+  - `reanatax.prism_evidence.tsv`: per taxon, how many samples saw it, its read totals, and the median/min/max score behind the verdict.
+  - `reanatax.prism_drop.txt`, `bracken_combined_<level>_prism.tsv` (with `--prism_filter`): the taxa called contaminants, and the Bracken table without them.
+
+</details>
+
+`verdict` has four values, and `untested_low_depth` is not a pass: below `--prism_min_reads` there is nothing to confirm either way, which is PRISM's own position.
+
+### PathSeq
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `pathseq/` (with `--pathseq_microbe_bwa_image`)
+  - `<sample>.pathseq.scores.txt`: PathSeq's own per-sample table.
+  - `<sample>.filter_metrics.txt`, `<sample>.score_metrics.txt`: how many reads survived each stage.
+  - `pathseq_reads.tsv`, `pathseq_unambiguous.tsv`, `pathseq_score.tsv`, `pathseq_score_normalized.tsv`: taxa by sample, one matrix per quantity.
+  - `pathseq_lineage.tsv`: the taxonomy string for each taxon.
+  - `bam/` (with `--pathseq_save_bam`): every read PathSeq aligned, tagged with its call.
+
+</details>
+
+`unambiguous` is the column to set beside a Kraken2 species count: it holds the reads that aligned to that taxon and nowhere else. `reads` includes reads shared with other taxa, because PathSeq divides an ambiguous read between the taxa it hits rather than pushing it to their common ancestor — so the `reads` column does **not** sum to the library. `score` is length-normalised and is comparable between taxa within a sample in a way `reads` is not.
+
+Nothing here is converted into a Kraken report. Where PathSeq and Kraken2 disagree about a taxon, that disagreement is the interesting part and is left visible.
+
+### Co-occurrence
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `sparcc/` (with `--run_sparcc`)
+  - `reanatax.sparcc_otu.tsv`, `reanatax.sparcc_taxa.tsv`: what went into the network, after the prevalence filter, and the id-to-name map.
+  - `reanatax.sparcc_correlation.tsv`, `reanatax.sparcc_covariance.tsv`, `reanatax.sparcc_pvalues.tsv`: FastSpar's square matrices.
+  - `reanatax.sparcc_edges_all.tsv`: every pair as a row, with rho, the bootstrap p, and the BH q adjusted across all pairs at once.
+  - `reanatax.sparcc_edges_significant.tsv`: the subset clearing both `--sparcc_p_threshold` and `--sparcc_min_correlation`.
+
+</details>
+
+Use the adjusted `q`, not `p`. A 200-taxon network is 19,900 pairs, so at an unadjusted 0.05 roughly a thousand edges are expected from nothing at all — which is how co-occurrence networks acquired their reputation.
+
+### Diversity
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `diversity/` (with `--run_diversity`)
+  - `reanatax.alpha_diversity.tsv`: per sample — reads, observed taxa, Shannon, Simpson, inverse Simpson, Pielou's evenness.
+  - `reanatax.beta_variance.tsv`: per metadata variable — adjusted R², F, permutation p, BH-adjusted p, PERMANOVA R² and p, and the cumulative non-redundant R² from forward selection.
+  - `reanatax.aitchison_distance.tsv`, `reanatax.ordination.tsv`: the sample-by-sample distance matrix and PCoA coordinates.
+  - `reanatax.alpha_diversity.png`, `reanatax.ordination.png`.
+
+</details>
+
+Read `beta_variance.tsv` **before** any per-taxon test. A variable that explains more of the community variation than the one you care about is either a confounder or the actual story. The gap between a variable's `r2_adj` and its `cumulative_r2_adj` is how much of its apparent effect is shared with variables already in the model. `r2_adj` is adjusted, so it is comparable between variables with different numbers of levels and goes negative when a variable explains less than chance.
+
+See [usage](usage.md#diversity-and-what-explains-it---run_diversity) for the caveats on small cohorts and on the CLR zero replacement.
+
 ### Bracken
 
 <details markdown="1">
@@ -204,7 +346,7 @@ A sample in which Kraken2 classified nothing (its report holds only the `unclass
 
 - `humann/`
   - `<sample>_genefamilies.tsv.gz`, `<sample>_pathabundance.tsv.gz`: HUMAnN output.
-  - `taxonomic_profile/<sample>.mpa.txt`: the Kraken2 report translated into MetaPhlAn format, which is what HUMAnN used to choose pangenomes.
+  - `taxonomic_profile/<sample>.mpa.txt`: Bracken's kreport (or Kraken2's under `--skip_bracken`) translated into MetaPhlAn format, which is what HUMAnN used to choose pangenomes. The leading `#mpa_v30_CHOCOPhlAn_201901` line is the database declaration HUMAnN 3.6 refuses to run without; it also states which ChocoPhlAn the profile can be matched against — see [usage](usage.md#functional-profiling-optional).
 - `humann/regrouped/`, `humann/normalised/`: gene families regrouped (default: KEGG orthologs) and renormalised (default: CPM).
 
 </details>
@@ -215,6 +357,15 @@ Only written with `--run_humann`. These are the files the bundled [exploreMetaTa
 
 <details markdown="1">
 <summary>Output files</summary>
+
+- `metaphlan/` (with `--run_metaphlan`)
+  - `<sample>_metaphlan.txt`: per-sample marker-gene profile.
+  - `metaphlan_combined.tsv`: all samples in one table.
+  - `log/<sample>.metaphlan.log`: the run log, including the marker-mapping rate.
+
+- `differential_abundance/` (with `--da_metadata`)
+  - `<comparison>.<method>.results.tsv`: one row per taxon tested - `lfc`, `pvalue`, `qvalue`, `significant`.
+  - `<comparison>.<method>.volcano.png`: log2 fold change against -log10(p), significant taxa labelled.
 
 - `read_accounting/`
   - `reanatax.read_accounting.tsv`: one row per sample, raw reads through to classified reads.

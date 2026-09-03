@@ -66,6 +66,66 @@
 
   > Ewels P, Magnusson M, Lundin S, Käller M. MultiQC: summarize analysis results for multiple tools and samples in a single report. Bioinformatics. 2016 Oct 1;32(19):3047-8. doi: 10.1093/bioinformatics/btw354. Epub 2016 Jun 16. PubMed PMID: 27312411; PubMed Central PMCID: PMC5039924.
 
+- [STAR / STARsolo](https://pubmed.ncbi.nlm.nih.gov/23104886/)
+
+  > Dobin A, Davis CA, Schlesinger F, Drenkow J, Zaleski C, Jha S, Batut P, Chaisson M, Gingeras TR. STAR: ultrafast universal RNA-seq aligner. Bioinformatics. 2013 Jan 1;29(1):15-21. doi: 10.1093/bioinformatics/bts635. PubMed PMID: 23104886; PubMed Central PMCID: PMC3530905.
+
+  > Kaminow B, Yunusov D, Dobin A. STARsolo: accurate, fast and versatile mapping/quantification of single-cell and single-nucleus RNA-seq data. bioRxiv. 2021. doi: 10.1101/2021.05.05.442755.
+
+- [SortMeRNA](https://pubmed.ncbi.nlm.nih.gov/23071270/)
+
+  > Kopylova E, Noé L, Touzet H. SortMeRNA: fast and accurate filtering of ribosomal RNAs in metatranscriptomic data. Bioinformatics. 2012 Dec 15;28(24):3211-7. doi: 10.1093/bioinformatics/bts611. PubMed PMID: 23071270.
+
+- [KrakenUniq](https://pubmed.ncbi.nlm.nih.gov/30445993/)
+
+  > Breitwieser FP, Baker DN, Salzberg SL. KrakenUniq: confident and fast metagenomics classification using unique k-mer counts. Genome Biol. 2018 Nov 16;19(1):198. doi: 10.1186/s13059-018-1568-0. PubMed PMID: 30445993; PubMed Central PMCID: PMC6237283.
+
+- [MetaPhlAn 4](https://pubmed.ncbi.nlm.nih.gov/36823356/)
+
+  > Blanco-Míguez A, Beghini F, Cumbo F, McIver LJ, Thompson KN, Zolfo M, et al. Extending and improving metagenomic taxonomic profiling with uncharacterized species using MetaPhlAn 4. Nat Biotechnol. 2023 Nov;41(11):1633-1644. doi: 10.1038/s41587-023-01688-w. PubMed PMID: 36823356; PubMed Central PMCID: PMC10635830.
+
+- [GATK PathSeq](https://pubmed.ncbi.nlm.nih.gov/29855304/)
+
+  > Walker MA, Pedamallu CS, Ojesina AI, Bullman S, Sharpe T, Whelan CW, Meyerson M. GATK PathSeq: a customizable computational tool for the discovery and identification of microbial sequences in libraries from eukaryotic hosts. Bioinformatics. 2018 Dec 15;34(24):4287-4289. doi: 10.1093/bioinformatics/bty501. PubMed PMID: 29855304; PubMed Central PMCID: PMC6289124.
+
+  The only classifier here that aligns rather than matching k-mers, which is the reason to run it alongside Kraken2 rather than instead of it.
+
+- [kallisto](https://pubmed.ncbi.nlm.nih.gov/27043002/)
+
+  > Bray NL, Pimentel H, Melsted P, Pachter L. Near-optimal probabilistic RNA-seq quantification. Nat Biotechnol. 2016 May;34(5):525-7. doi: 10.1038/nbt.3519. PubMed PMID: 27043002.
+
+- [DESeq2](https://pubmed.ncbi.nlm.nih.gov/25516281/)
+
+  > Love MI, Huber W, Anders S. Moderated estimation of fold change and dispersion for RNA-seq data with DESeq2. Genome Biol. 2014;15(12):550. doi: 10.1186/s13059-014-0550-8. PubMed PMID: 25516281; PubMed Central PMCID: PMC4302049.
+
+- [edgeR](https://pubmed.ncbi.nlm.nih.gov/19910308/)
+
+  > Robinson MD, McCarthy DJ, Smyth GK. edgeR: a Bioconductor package for differential expression analysis of digital gene expression data. Bioinformatics. 2010 Jan 1;26(1):139-40. doi: 10.1093/bioinformatics/btp616. PubMed PMID: 19910308; PubMed Central PMCID: PMC2796818.
+
+- [ANCOM-BC2](https://pubmed.ncbi.nlm.nih.gov/32665548/)
+
+  > Lin H, Peddada SD. Analysis of compositions of microbiomes with bias correction. Nat Commun. 2020 Jul 14;11(1):3514. doi: 10.1038/s41467-020-17041-8. PubMed PMID: 32665548; PubMed Central PMCID: PMC7360769.
+
+- [ALDEx2](https://pubmed.ncbi.nlm.nih.gov/24910773/)
+
+  > Fernandes AD, Reid JN, Macklaim JM, McMurrough TA, Edgell DR, Gloor GB. Unifying the analysis of high-throughput sequencing datasets: characterizing RNA-seq, 16S rRNA gene sequencing and selective growth experiments by compositional data analysis. Microbiome. 2014 May 5;2:15. doi: 10.1186/2049-2618-2-15. PubMed PMID: 24910773; PubMed Central PMCID: PMC4030730.
+
+- [decontam](https://pubmed.ncbi.nlm.nih.gov/30558668/)
+
+  > Davis NM, Proctor DM, Holmes SP, Relman DA, Callahan BJ. Simple statistical identification and removal of contaminant sequences in marker-gene and metagenomics data. Microbiome. 2018 Dec 17;6(1):226. doi: 10.1186/s40168-018-0605-2. PubMed PMID: 30558668; PubMed Central PMCID: PMC6298009.
+
+  `--decontam_batch_column` exposes the package's own `batch` argument: contamination is a property of the kit, so a taxon is scored against the blanks that were processed alongside it rather than against the pooled cohort.
+
+- [vegan](https://cran.r-project.org/package=vegan)
+
+  > Oksanen J, Simpson GL, Blanchet FG, Kindt R, Legendre P, Minchin PR, et al. vegan: Community Ecology Package.
+
+- [SparCC / FastSpar](https://pubmed.ncbi.nlm.nih.gov/23028285/)
+
+  > Friedman J, Alm EJ. Inferring correlation networks from genomic survey data. PLoS Comput Biol. 2012;8(9):e1002687. doi: 10.1371/journal.pcbi.1002687. PubMed PMID: 23028285; PubMed Central PMCID: PMC3447976.
+
+  > Watts SC, Ritchie SC, Inouye M, Holt KE. FastSpar: rapid and scalable correlation estimation for compositional data. Bioinformatics. 2019 Mar 15;35(6):1064-1066. doi: 10.1093/bioinformatics/bty734. PubMed PMID: 30169561; PubMed Central PMCID: PMC6419895.
+
 ## Methods this pipeline follows
 
 - [Monteleone et al. 2026](https://pubmed.ncbi.nlm.nih.gov/42098796/)
@@ -73,6 +133,44 @@
   > Monteleone E, Amato Cianci M, Albano A, Loperfido F, Griffante G, Brasi L, et al. Unleashing the potential of mRNA-seq to uncover the microbiome structure and their crosstalk with host cells: the vulvar ecosystem. Microbiome. 2026. doi: 10.1186/s40168-026-02420-x. PubMed PMID: 42098796.
 
   Source of several defaults and options here: depletion against two host assemblies, keeping the host in the Kraken2 database as a carry-over check, `--minimum-hit-groups 3` for host-dominated libraries, the >0.1%-in-≥1-sample sparse-taxon filter, and the poly(A) carry-over diagnostic.
+
+- [SAHMI (Ghaddar et al. 2023)](https://pubmed.ncbi.nlm.nih.gov/36658279/)
+
+  > Ghaddar B, Blaser MJ, De S. Denoising sparse microbial signals from single-cell sequencing of mammalian host tissues. Nat Comput Sci. 2023 Sep;3(9):741-747. doi: 10.1038/s43588-023-00507-1. PubMed PMID: 36658279.
+
+  Source of the single-cell microbial route: barcode-aware host alignment, the per-read host-k-mer exclusion, the `min_frac` lineage-coherence rule, the sample- and barcode-level correlation denoising, and the host half - infected against bystander cells of the same type, which is what the matrix exists to make possible.
+
+- [CSI-Microbes (Robinson et al. 2024)](https://pubmed.ncbi.nlm.nih.gov/38536911/)
+
+  > Robinson W, Schischlik F, Gertz EM, Schäffer AA, Ruppin E. Identifying the landscape of intratumoral microbes via a single cell transcriptomics analysis. Sci Adv. 2024. doi: 10.1126/sciadv.adj7402.
+
+  Source of the cell-type enrichment statistics - Fisher rather than chi-square on sparse tables, per-sample then combined by weighted Stouffer rather than pooled - the ">=2 UMIs" presence rule, and the separate plate-based route in which every well is its own library.
+
+- [Lloréns-Rico et al. 2021](https://pubmed.ncbi.nlm.nih.gov/34489404/)
+
+  > Lloréns-Rico V, Vieira-Silva S, Gonçalves PJ, Falony G, Raes J. Benchmarking microbiome transformations favors experimental quantitative approaches to address compositionality and sparsity in 16S rRNA gene sequencing data. Nat Commun. 2021 Sep 6;12(1):3562. doi: 10.1038/s41467-021-23821-6. PubMed PMID: 34489404; PubMed Central PMCID: PMC8421424.
+
+  Source of the Aitchison-distance and dbRDA variance-partitioning step, and of the general stance that a compositional transform is chosen before a test is run, not after.
+
+- [PRISM](https://pubmed.ncbi.nlm.nih.gov/41650974/)
+
+  > Ghaddar B, Blaser MJ, De S. Reliable detection of Host-Microbe Signatures in cancer using PRISM. Cancer Cell. 2026;44. doi: 10.1016/j.ccell.2026.01.007. PubMed PMID: 41650974.
+
+  Same group as SAHMI. Benchmarked on 230 independent datasets with known true-positive and contaminant taxa, then applied to 25 cancer types from TCGA and CPTAC.
+
+  Wrapped directly by `--run_prism`. Two of its forty model features, `gene_div` and `prod_div` (plus `fprod`, `fugene`, `fuprod`), are also computed independently by `--gene_diversity_filter` from HUMAnN's species-stratified table, under PRISM's own names and definitions; PRISM's XGBoost score itself needs the other thirty-five and is not reproduced.
+
+- [UniVec](https://ftp.ncbi.nlm.nih.gov/pub/UniVec/)
+
+  > NCBI. UniVec Database.
+
+  The vector, adapter, linker and primer database used by the `--univec` depletion pass.
+
+- [Gihawi et al. 2023](https://pubmed.ncbi.nlm.nih.gov/37811944/)
+
+  > Gihawi A, Ge Y, Lu J, Puiu D, Xu A, Cooper CS, Brewer DS, Pertea M, Salzberg SL. Major data analysis errors invalidate cancer microbiome findings. mBio. 2023 Oct 31;14(5):e0160723. doi: 10.1128/mbio.01607-23. PubMed PMID: 37811944; PubMed Central PMCID: PMC10653788.
+
+  Source of the absolute read floor alongside the relative one (`--min_reads`), and of the general insistence that host carry-over and low-complexity artefacts are measured rather than assumed away.
 
 ## Software packaging/containerisation tools
 

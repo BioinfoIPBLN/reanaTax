@@ -46,10 +46,12 @@ def read_fastp(path):
     except (OSError, ValueError) as exc:
         print(f"[read_accounting] cannot parse {path}: {exc}", file=sys.stderr)
         return {}
+    after = data.get("summary", {}).get("after_filtering", {}) or {}
     return {
         "raw_reads": (data.get("summary", {}).get("before_filtering", {}) or {}).get("total_reads", 0),
-        "trimmed_reads": (data.get("summary", {}).get("after_filtering", {}) or {}).get("total_reads", 0),
-        "trimmed_mean_length": (data.get("summary", {}).get("after_filtering", {}) or {}).get("read1_mean_length", 0),
+        "trimmed_reads": after.get("total_reads", 0),
+        "trimmed_mean_length": after.get("read1_mean_length", 0),
+        "per_fragment": 2 if after.get("read2_mean_length") else 1,
     }
 
 
@@ -86,38 +88,81 @@ def read_hisat2(path):
         "unaligned_reads": unaligned * per_fragment,
         "aligned_reads": (fragments - unaligned) * per_fragment,
         "alignment_rate": float(rate.group(1)) if rate else 0.0,
+        "per_fragment": per_fragment,
+    }
+
+
+def read_sortmerna(path):
+    """SortMeRNA's log. `Total reads passing E-value threshold` are the reads
+    that ALIGNED to the rRNA references, i.e. the rRNA; the ones `failing` are
+    what survives. (Same reading as MultiQC's sortmerna module.) These are
+    per-read counts of the E-value test, so with `--paired_in` they do not equal
+    the number of reads actually written out - a pair is dropped whole when
+    either mate is rRNA. They are reported for information only; no percentage
+    downstream is derived from them, because SortMeRNA runs BEFORE host
+    depletion and HISAT2's own input count is the exact figure."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError as exc:
+        print(f"[read_accounting] cannot read {path}: {exc}", file=sys.stderr)
+        return {}
+
+    total = re.search(r"Total reads\s*=\s*(\d+)", text)
+    rrna = re.search(r"Total reads passing[^=]*=\s*(\d+)", text)
+    if not total or not rrna:
+        return {}
+    return {
+        "rrna_input_reads": int(total.group(1)),
+        "rrna_reads": int(rrna.group(1)),
     }
 
 
 def read_kraken2(path, host_taxid):
-    """Kraken2 report: column 2 is reads covered by the clade rooted at that
-    taxon, column 3 reads assigned directly to it, column 5 the taxid.
-    `--report-minimizer-data` inserts two extra columns, so index from the
-    rank-code column rather than assuming a fixed layout."""
+    """A Kraken-style report, from either Kraken2 or KrakenUniq.
+
+    Column 2 is the count covered by the clade rooted at that taxon in BOTH
+    formats. What differs is where the taxid sits: Kraken2 ends `... rank taxid
+    name`, KrakenUniq ends `... taxid rank name` (and spells its ranks out as
+    'species' rather than 'S'). So the taxid is found by trying the second-to-
+    last field and falling back to the third-to-last - the same dual-branch
+    trick Bracken and KrakenTools use - and the three numbers wanted here are
+    keyed on TAXID rather than on a rank code, which is identical across the
+    two: 0 is unclassified, 1 is the root, i.e. everything classified.
+
+    That also survives `--report-minimizer-data`, which inserts two columns in
+    the middle and leaves both ends alone.
+
+    Those counts are FRAGMENTS: in paired mode a pair is classified once and
+    reported once. Every other source in this table counts mates, so derive()
+    scales them by per_fragment; leaving them unscaled halves both
+    classified_pct and host_carryover_pct on paired data.
+    """
     classified = unclassified = host = 0
     try:
-        with open(path, encoding="utf-8") as handle:
+        with open(path, encoding="utf-8", errors="replace") as handle:
             for line in handle:
+                if line.startswith("#") or line.startswith("%"):
+                    continue
                 fields = line.rstrip("\n").split("\t")
                 if len(fields) < 5:
                     continue
-                # Locate the rank-code column; taxid is the one after it.
-                rank_idx = next(
-                    (i for i, f in enumerate(fields) if re.fullmatch(r"[URDKPCOFGS][0-9]*", f.strip())),
-                    None,
-                )
-                if rank_idx is None or rank_idx + 1 >= len(fields):
-                    continue
                 try:
                     clade_reads = int(fields[1])
-                    taxid = int(fields[rank_idx + 1])
                 except ValueError:
-                    continue
-                rank = fields[rank_idx].strip()
-                if rank == "U":
-                    unclassified = clade_reads
-                elif rank == "R":
-                    classified = clade_reads
+                    continue  # header or preamble
+                try:
+                    taxid = int(fields[-2])          # Kraken2: rank, taxid, name
+                except ValueError:
+                    try:
+                        taxid = int(fields[-3])      # KrakenUniq: taxid, rank, name
+                    except ValueError:
+                        continue
+
+                if taxid == 0:
+                    unclassified = max(unclassified, clade_reads)
+                elif taxid == 1:
+                    classified = max(classified, clade_reads)
                 if taxid == host_taxid:
                     host = max(host, clade_reads)
     except OSError as exc:
@@ -154,6 +199,9 @@ def collect(args):
         for key, value in stats.items():
             entry[f"{label}_{key}"] = value
 
+    for path in args.sortmerna:
+        slot(sample_name(path, [".sortmerna.log"])).update(read_sortmerna(path))
+
     for path in args.kraken2:
         slot(sample_name(path, [".kraken2.report.txt", ".kraken2.report", ".report.txt"])).update(
             read_kraken2(path, args.host_taxid)
@@ -164,11 +212,16 @@ def collect(args):
 
 def pass_order(label):
     """Depletion passes in the order they ran. Intermediate passes are labelled
-    `host1`, `host2`, ...; the FINAL pass is always plain `host`, because that
-    is the one whose leftovers get classified. Sorting alphabetically would put
-    `host` before `host1` and silently report the wrong pass as final."""
+    `host1`, `host2`, ...; the last host pass is always plain `host`; and
+    `univec`, when --univec is on, runs after every host pass. Sorting
+    alphabetically would put `host` before `host1` and silently report the
+    wrong pass as final, and would put `host` after `univec` only by luck.
+    `nonhost_reads` is read from the LAST entry of this ordering, so getting it
+    wrong misreports the size of the fraction everything downstream sees."""
     match = re.fullmatch(r"host(\d+)", label)
-    return (0, int(match.group(1))) if match else (1, 0)
+    if match:
+        return (0, int(match.group(1)))
+    return (2, 0) if label == "univec" else (1, 0)
 
 
 def derive(row):
@@ -183,6 +236,38 @@ def derive(row):
         row["nonhost_reads"] = row.get(f"{host_labels[-1]}_unaligned_reads", 0)
     else:
         row["nonhost_reads"] = row.get("trimmed_reads", 0)
+
+    # Kraken2 counted fragments; everything above counts mates. fastp knows the
+    # library layout, and the HISAT2 summary is the fallback when trimming was
+    # skipped (its key is prefixed with the pass label).
+    per_fragment = row.get("per_fragment") or next(
+        (row[key] for key in row if key.endswith("_per_fragment")), 1
+    )
+    for key in ("classified_reads", "unclassified_reads", "host_carryover_reads"):
+        if key in row:
+            row[key] *= per_fragment
+    # Keep one column saying what the layout was; drop the per-pass duplicates.
+    for key in [k for k in list(row) if k.endswith("_per_fragment")]:
+        del row[key]
+    row["per_fragment"] = per_fragment
+
+    # How many reads rRNA depletion actually removed. Taken as trimmed minus
+    # what the FIRST host pass received, not from the SortMeRNA log: with
+    # `--paired_in` a pair is dropped whole when either mate is rRNA, so the
+    # log's per-read E-value counts overstate what left the step. The
+    # subtraction is exact whenever both numbers exist, and the log is only the
+    # fallback for a run with no host depletion at all.
+    if "rrna_input_reads" in row:
+        trimmed = row.get("trimmed_reads", 0)
+        first_pass = row.get(f"{host_labels[0]}_input_reads") if host_labels else None
+        if trimmed and first_pass is not None:
+            row["rrna_removed_reads"] = max(trimmed - first_pass, 0)
+        else:
+            row["rrna_removed_reads"] = row.get("rrna_reads", 0)
+        denominator = trimmed or row.get("rrna_input_reads", 0)
+        row["rrna_pct"] = round(100.0 * row["rrna_removed_reads"] / denominator, 2) if denominator else 0.0
+    for key in ("rrna_input_reads", "rrna_reads"):
+        row.pop(key, None)
 
     nonhost = row["nonhost_reads"] or 0
     classified = row.get("classified_reads", 0)
@@ -199,6 +284,8 @@ COLUMNS = [
     "raw_reads",
     "trimmed_reads",
     "trimmed_mean_length",
+    "rrna_removed_reads",
+    "rrna_pct",
     "host_removed_reads",
     "nonhost_reads",
     "nonhost_pct_of_raw",
@@ -226,9 +313,9 @@ def write_mqc_bargraph(path, rows):
         handle.write(
             "# id: 'reanatax_read_fate'\n"
             "# section_name: 'Read fate'\n"
-            "# description: 'What happened to every raw read: removed by fastp, aligned to a host\n"
-            "#     reference, or carried through to classification. Categories are disjoint, so the\n"
-            "#     bar length is the raw library size.'\n"
+            "# description: 'What happened to every raw read: removed by fastp, removed as rRNA,\n"
+            "#     aligned to a host reference, or carried through to classification. Categories are\n"
+            "#     disjoint, so the bar length is the raw library size.'\n"
             "# plot_type: 'bargraph'\n"
             "# pconfig:\n"
             "#     id: 'reanatax_read_fate_plot'\n"
@@ -236,18 +323,22 @@ def write_mqc_bargraph(path, rows):
             "#     ylab: 'Reads'\n"
             "# section_href: 'https://github.com/BioinfoIPBLN/reanatax'\n"
         )
-        handle.write("Sample\tFiltered by fastp\tAligned to host\tNon-host, classified\tNon-host, unclassified\n")
+        handle.write(
+            "Sample\tFiltered by fastp\tRemoved as rRNA\tAligned to host"
+            "\tNon-host, classified\tNon-host, unclassified\n"
+        )
         for row in rows:
             raw = row.get("raw_reads", 0)
             trimmed = row.get("trimmed_reads", 0)
             filtered = max(raw - trimmed, 0)
+            rrna = row.get("rrna_removed_reads", 0)
             host = row.get("host_removed_reads", 0)
             classified = row.get("classified_reads", 0)
             unclassified = row.get("unclassified_reads", 0)
             # If Kraken2 did not run, everything non-host lands in one bucket.
             if not classified and not unclassified:
                 unclassified = row.get("nonhost_reads", 0)
-            handle.write(f"{row['sample']}\t{filtered}\t{host}\t{classified}\t{unclassified}\n")
+            handle.write(f"{row['sample']}\t{filtered}\t{rrna}\t{host}\t{classified}\t{unclassified}\n")
 
 
 def write_mqc_generalstats(path, rows):
@@ -282,6 +373,7 @@ def main():
     parser = argparse.ArgumentParser(description="Per-sample read accounting across the pipeline.")
     parser.add_argument("--fastp", nargs="*", default=[], help="fastp *.fastp.json files")
     parser.add_argument("--hisat2", nargs="*", default=[], help="HISAT2 *.hisat2.summary.log files")
+    parser.add_argument("--sortmerna", nargs="*", default=[], help="SortMeRNA *.sortmerna.log files")
     parser.add_argument("--kraken2", nargs="*", default=[], help="Kraken2 *.report.txt files")
     parser.add_argument("--host-taxid", type=int, default=HOST_DEFAULT_TAXID,
                         help="taxid counted as host carry-over (default: 9606, Homo sapiens)")

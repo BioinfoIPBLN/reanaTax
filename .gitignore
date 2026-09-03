@@ -2,6 +2,15 @@
 work/
 data/
 results/
+results_*/
+unchunked_backup/
+
+# Downloaded genome references and packaged result bundles: large binaries that
+# git would keep a copy of for every version they ever had.
+refs/
+*.tar.gz
+work_*/
+analyses/work/
 .DS_Store
 testing/
 testing*
@@ -14,3 +23,22 @@ null/
 # it -- git keeps every version of a binary blob forever. Remove this line if
 # you want to publish the bundle straight from the repo, e.g. via GitHub Pages.
 apps/*/site/
+
+# The benchmark work is deliberately NOT part of this repository. It reanalyses
+# named published studies and records verdicts against them, it carries 219 GB
+# of results, and its lifecycle is nothing like the pipeline's. This repo is the
+# pipeline; the benchmarks live and are versioned separately. benchmark/ was
+# never committed, so this pins an existing boundary rather than removing
+# anything from history.
+benchmark/
+bin/benchmark_*.py
+bin/benchmark_diff.py
+bin/polya_carryover.py
+
+# Same boundary: reanalysis runs, not pipeline. Eight SRA accessions with their
+# differential-abundance metadata and ready-to-launch commands.
+analyses/
+
+# Launcher logs from local runs.
+plate_study2.out
+*.out
