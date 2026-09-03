@@ -18,9 +18,18 @@ survive BH across 10,901 tests, almost all of them contaminants. Filtering the
 matrix does not merely tidy the output; it decides whether a real signal can be
 detected at all.
 
-Only whole taxa are removed, never individual cells: a drop list is a statement
-about a taxon's evidence across the cohort, and applying it per cell would
-invent a per-cell verdict that nothing computed.
+A drop list removes whole taxa and nothing less, because that is the only kind
+of claim it makes: a statement about a taxon's evidence across the cohort.
+Applying one per cell would invent a verdict nothing computed.
+
+--drop-cells is the exception that proves the rule. The negative-control filter
+DOES compute a per-library verdict - it measures how much of each taxon arrives
+without a sample, so the same taxon can be signal in one library and carryover
+in the next - and hands that verdict over explicitly rather than having it
+inferred here. Matched on the barcode first and on the sample second, which is
+the same distinction the two single-cell modes draw: in plate mode a library is
+a well and the two are the same string, while in droplet mode a library holds
+many cells and the control measurement applies to all of them.
 """
 import argparse
 import csv
@@ -42,20 +51,40 @@ def read_drop_lists(paths):
     return drop
 
 
+def read_drop_cells(paths):
+    """{(taxid, sample)} from the negative-control filter's per-cell verdicts."""
+    cells = set()
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as handle:
+                for line in handle:
+                    fields = [f.strip() for f in line.rstrip("\n").split("\t")]
+                    if len(fields) < 2 or fields[0] in ("", "taxid") or fields[0].startswith("#"):
+                        continue
+                    cells.add((fields[0], fields[1]))
+        except OSError as exc:
+            print(f"[sc_filter_taxa] cannot read {path}: {exc}", file=sys.stderr)
+    return cells
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--counts", nargs="+", required=True, help="cell x taxon TSV(s)")
     parser.add_argument("--drop", nargs="*", default=[], help="drop list(s), one taxid per line")
+    parser.add_argument("--drop-cells", nargs="*", default=[],
+                        help="taxid<TAB>sample verdicts from the negative-control filter")
     parser.add_argument("--prefix", default="reanatax")
     args = parser.parse_args()
 
     drop = read_drop_lists(args.drop)
+    drop_cells = read_drop_cells(args.drop_cells)
 
     header, kept_rows = None, []
     removed_reads, kept_reads = 0.0, 0.0
     removed_taxa, kept_taxa = set(), set()
     removed_names = {}
+    removed_cells = 0
 
     for path in sorted(args.counts):
         with open(path, encoding="utf-8") as handle:
@@ -76,7 +105,14 @@ def main():
                     count = float(record.get("count") or 0)
                 except ValueError:
                     count = 0.0
-                if taxid in drop:
+                cell = (
+                    taxid,
+                    (record.get("barcode") or "").strip(),
+                    (record.get("sample") or "").strip(),
+                )
+                if taxid in drop or (cell[0], cell[1]) in drop_cells or (cell[0], cell[2]) in drop_cells:
+                    if taxid not in drop:
+                        removed_cells += 1
                     removed_taxa.add(taxid)
                     removed_names[taxid] = (record.get("name") or "").strip()
                     removed_reads += count
@@ -121,7 +157,10 @@ def main():
     print(
         f"[sc_filter_taxa] {len(kept_taxa)} taxa kept, {len(removed_taxa)} removed "
         f"({100.0 * removed_reads / total_reads if total_reads else 0:.3f}% of assigned reads); "
-        f"drop lists held {len(drop)} taxid(s).",
+        f"drop lists held {len(drop)} taxid(s)"
+        + (f", and {len(drop_cells)} per-library verdict(s) removed {removed_cells} further cell(s)"
+           if drop_cells else "")
+        + ".",
         file=sys.stderr,
     )
     return 0

@@ -147,7 +147,10 @@ process KRAKEN2_DAEMON {
     // k2 evidently resolves reads client-side, but relying on that distinction
     // is not worth a silently mis-paired classification.
     def reads_abs = [reads].flatten().collect { "\$PWD/${it}" }.join(' ')
-    def compress_reads_command = save_output_fastqs ? "pigz -p ${task.cpus} *.fastq" : ""
+    // --compression_level. These FASTQs are only written with
+    // --kraken2_save_reads, and they are the size of the non-host library.
+    def level = task.ext.compression != null ? task.ext.compression : 6
+    def compress_reads_command = save_output_fastqs ? "pigz -${level} -p ${task.cpus} *.fastq" : ""
 
     // No --gzip-compressed: `k2 classify` detects gzip/bz2/xz from the file
     // itself and rejects the flag the legacy wrapper needs.

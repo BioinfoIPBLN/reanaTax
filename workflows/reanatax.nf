@@ -4,6 +4,7 @@
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 include { FASTQ_DOWNLOAD_FASTQDL    } from '../subworkflows/local/fastq_download_fastqdl'
+include { CLEANUP_INTERMEDIATES     } from '../modules/local/cleanup/main'
 include { PREPARE_HOST_REFERENCE    } from '../subworkflows/local/prepare_host_reference'
 include { FASTQ_QC_TRIM             } from '../subworkflows/local/fastq_qc_trim'
 include { PREPARE_HOST_REFERENCE as PREPARE_HOST_REFERENCE_FIRST } from '../subworkflows/local/prepare_host_reference'
@@ -61,6 +62,7 @@ include { minimizerThresholds      } from '../subworkflows/local/utils_nfcore_re
 include { hostKmerSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { decontamSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { shuffleSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { controlSettings          } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { scChemistry              } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { meanReadLength            } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { brackenDistributions      } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
@@ -115,6 +117,24 @@ workflow REANATAX {
         params.save_trimmed_fail,
     )
     ch_multiqc_files = ch_multiqc_files.mix(FASTQ_QC_TRIM.out.multiqc_files)
+
+    //
+    // --cleanup_intermediates: drop the downloaded FASTQ once trimming and raw
+    // FastQC have both read it.
+    //
+    // Only the DOWNLOADED reads, never the samplesheet's. A downloaded FASTQ is
+    // a copy of something still in the archive and the pipeline can fetch it
+    // again; a samplesheet's FASTQ is the user's own file, and the module
+    // refuses to touch anything outside the work directory in any case. The
+    // join on `raw_finished` is what makes the deletion wait, and that channel
+    // is empty when trimming is skipped - the raw reads are then the working
+    // read set, and nothing here is finished with them.
+    //
+    if (params.cleanup_intermediates) {
+        CLEANUP_INTERMEDIATES(
+            FASTQ_DOWNLOAD_FASTQDL.out.reads.join(FASTQ_QC_TRIM.out.raw_finished)
+        )
+    }
 
     //
     // SUBWORKFLOW: Strip rRNA before host depletion.
@@ -229,6 +249,8 @@ workflow REANATAX {
                 params.quantify_host ? params.gtf : null,
                 params.require_both_mates_unmapped,
                 params.hisat2_chunk_size,
+                params.alignment_output_format,
+                params.cleanup_intermediates,
             )
             ch_nonhost_reads = HOST_DEPLETION_FIRST.out.reads
             ch_qualimap = HOST_DEPLETION_FIRST.out.qualimap
@@ -262,6 +284,8 @@ workflow REANATAX {
                 null,
                 params.require_both_mates_unmapped,
                 params.hisat2_chunk_size,
+                params.alignment_output_format,
+                params.cleanup_intermediates,
             )
             ch_nonhost_reads = HOST_DEPLETION_EXTRA1.out.reads
             ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_EXTRA1.out.summary)
@@ -290,6 +314,8 @@ workflow REANATAX {
                 null,
                 params.require_both_mates_unmapped,
                 params.hisat2_chunk_size,
+                params.alignment_output_format,
+                params.cleanup_intermediates,
             )
             ch_nonhost_reads = HOST_DEPLETION_EXTRA2.out.reads
             ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_EXTRA2.out.summary)
@@ -323,6 +349,8 @@ workflow REANATAX {
             multi_pass ? null : (params.quantify_host ? params.gtf : null),
             params.require_both_mates_unmapped,
             params.hisat2_chunk_size,
+            params.alignment_output_format,
+            params.cleanup_intermediates,
         )
         ch_nonhost_reads = HOST_DEPLETION_FINAL.out.reads
         ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_FINAL.out.summary)
@@ -370,6 +398,8 @@ workflow REANATAX {
             null,
             params.require_both_mates_unmapped,
             params.hisat2_chunk_size,
+            params.alignment_output_format,
+            params.cleanup_intermediates,
         )
         ch_nonhost_reads = HOST_DEPLETION_UNIVEC.out.reads
         ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_UNIVEC.out.summary)
@@ -434,6 +464,7 @@ workflow REANATAX {
             hostKmerSettings(),
             decontamSettings(),
             shuffleSettings(),
+            controlSettings(),
             params.kraken2_use_daemon,
             params.min_rel_abundance,
             params.min_samples,
@@ -587,6 +618,12 @@ workflow REANATAX {
         SCTAXA_FILTER(
             ch_cell_taxa,
             TAXONOMY_KRAKEN2_BRACKEN.out.drop_list,
+            // --negative_controls reaches the matrix here or nowhere: the
+            // cell-by-taxon table is built from the per-read assignments, not
+            // from the combined tables the filter rewrote, so without this the
+            // cohort profile and the single-cell profile would disagree about
+            // every cell it zeroed. Empty on a run without controls.
+            TAXONOMY_KRAKEN2_BRACKEN.out.control_cells,
         )
         ch_cell_taxa = SCTAXA_FILTER.out.counts
         ch_multiqc_files = ch_multiqc_files.mix(SCTAXA_FILTER.out.mqc.map { _meta, mqc -> mqc })

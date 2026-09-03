@@ -9,7 +9,8 @@ include { HISAT2_ALIGN as HISAT2_ALIGN_CHUNK             } from '../../../module
 include { HISAT2_ALIGN_SPLIT as HISAT2_ALIGN_SPLIT_CHUNK } from '../../../modules/local/hisat2/alignsplit/main'
 include { HISAT2_CHUNKPLAN         } from '../../../modules/local/hisat2/chunkplan/main'
 include { HISAT2_MERGECHUNKS       } from '../../../modules/local/hisat2/mergechunks/main'
-include { BAM_SORT_STATS_SAMTOOLS  } from '../../../subworkflows/nf-core/bam_sort_stats_samtools/main'
+include { SAMTOOLS_FAIDX           } from '../../../modules/local/samtools/faidx/main'
+include { BAM_SORT_STATS_SAMTOOLS  } from '../../../subworkflows/local/bam_sort_stats_samtools/main'
 include { QUALIMAP_BAMQC           } from '../../../modules/nf-core/qualimap/bamqc/main'
 include { SUBREAD_FEATURECOUNTS    } from '../../../modules/nf-core/subread/featurecounts/main'
 
@@ -25,6 +26,8 @@ workflow HOST_DEPLETION_HISAT2 {
     quantify_gtf // string: GTF to count host reads against, or null to skip
     require_both_mates_unmapped // boolean: release a pair only if NEITHER mate aligned
     chunk_size // integer: align this many read pairs per task, or 0 to align the library in one
+    output_format // string: 'bam' or 'cram' for the sorted host alignment
+    cleanup_intermediates // boolean: delete each chunk BAM once its merge has succeeded
 
     main:
 
@@ -125,6 +128,7 @@ workflow HOST_DEPLETION_HISAT2 {
         HISAT2_MERGECHUNKS(
             ch_merged_bam.join(ch_merged_summary).join(ch_merged_fastq),
             true,
+            cleanup_intermediates,
         )
 
         ch_aligned = HISAT2_MERGECHUNKS.out.bam
@@ -155,9 +159,19 @@ workflow HOST_DEPLETION_HISAT2 {
         // SUBWORKFLOW: Sort + index + stats, so the host BAM is directly usable
         // (and its mapping rate lands in MultiQC).
         //
+        // CRAM stores differences from a reference, so the writer, the reader
+        // and samtools stats all need it indexed. Built once here rather than
+        // left to htslib, which would otherwise rebuild it inside every task.
+        // A BAM run needs none of it and pays for none of it.
+        def ch_fasta_fai = ch_fasta.map { meta, fasta -> [meta, fasta, []] }.first()
+        if (output_format == 'cram') {
+            SAMTOOLS_FAIDX(ch_fasta)
+            ch_fasta_fai = ch_fasta.join(SAMTOOLS_FAIDX.out.fai).first()
+        }
+
         BAM_SORT_STATS_SAMTOOLS(
             ch_aligned,
-            ch_fasta.map { meta, fasta -> [meta, fasta, []] }.first(),
+            ch_fasta_fai,
         )
         ch_bam = BAM_SORT_STATS_SAMTOOLS.out.bam
         ch_bai = BAM_SORT_STATS_SAMTOOLS.out.index

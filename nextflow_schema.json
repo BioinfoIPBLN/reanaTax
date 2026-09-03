@@ -1342,6 +1342,64 @@
                     "description": "Also write a drop list of the ambient and cell-depleted taxa",
                     "help_text": "Off by default and only correct when the question is about INTRACELLULAR microbes. An extracellular organism genuinely present in the tissue is ambient by construction and would be on that list.",
                     "fa_icon": "fas fa-exclamation-triangle"
+                },
+                "negative_controls": {
+                    "type": "string",
+                    "description": "Negative-control libraries (blanks, empty wells, no-template controls) to judge every other library against.",
+                    "help_text": "Four accepted forms: a comma-separated list of sample IDs; a file of one ID per line; `metadata.tsv:column` (rows whose column is true/yes/1/control/blank/negative); or `metadata.tsv:column:value` (rows whose column equals value exactly). The ID is the first column, as for `--da_metadata`.\n\nThis is the only filter in the pipeline whose verdict is per LIBRARY rather than per taxon, and the only one that can address index hopping or well-to-well carryover at all: those put genuine reads of a genuine organism into the wrong library, so no evidence filter can find fault with the reads, and the same taxon is then signal in one library and carryover in the next. A taxon is kept in a library only where it exceeds `--control_ratio` times its level in the controls, measured in counts per million classified reads; cells that fail are zeroed, and taxa that fail everywhere are removed outright. It costs recall - see docs/usage.md for the measured trade-off - and it is complementary to `--decontam`, not a replacement.",
+                    "fa_icon": "fas fa-vial"
+                },
+                "control_ratio": {
+                    "type": "number",
+                    "default": 10,
+                    "minimum": 0,
+                    "description": "Multiple of the negative-control level a taxon must reach to be kept in a library.",
+                    "help_text": "Compared in counts per million classified reads, so it means the same thing in a shallow library and a deep one. It is not the only lever and on its own it is the wrong one: pushing it alone does reach full specificity on the CSI-Microbes plate, but by applying the same multiple to every taxon, and past about 50x it empties whole libraries of everything. Set `--control_min_reads` first and this second. 20 with a read floor of 30 is what turned that benchmark from 1 FAIL / 3 PASS into 0 FAIL / 4 PASS.",
+                    "fa_icon": "fas fa-times"
+                },
+                "control_statistic": {
+                    "type": "string",
+                    "default": "mean",
+                    "enum": [
+                        "mean",
+                        "median",
+                        "max"
+                    ],
+                    "description": "Which level to take from the controls: their mean, median or maximum.",
+                    "help_text": "`max` is the strict reading - clear the worst blank, not the average one - and reaches the same specificity at roughly a fifth of the `--control_ratio`. Prefer it when there are few controls, since one unusually clean blank cannot then set the threshold low.",
+                    "fa_icon": "fas fa-calculator"
+                },
+                "control_min_reads": {
+                    "type": "number",
+                    "default": 2,
+                    "minimum": 0,
+                    "description": "Reads a taxon needs in a library before the control ratio is consulted.",
+                    "help_text": "Two jobs. A taxon absent from every control has a control level of the detection limit alone, which the ratio test would clear on very few reads; and carryover is small in absolute terms whatever the library depth - the four false positives on the CSI-Microbes plate carried 11 to 72 reads - so an absolute floor removes them at a fraction of the collateral damage a higher `--control_ratio` would cost.",
+                    "fa_icon": "fas fa-ruler-horizontal"
+                },
+                "control_floor_reads": {
+                    "type": "number",
+                    "default": 1,
+                    "minimum": 0,
+                    "description": "The negative-control level never falls below what this many reads in a typical control library would be.",
+                    "help_text": "Absence from the blanks is a bound, not a measurement: it says a taxon is under one read in each of them, not that it is at zero. Without this floor the ratio test collapses to `any reads at all` for every taxon the controls happened to miss - on the CSI-Microbes plate that left specificity flat at 86.4% however high `--control_ratio` went, because the species leaking into the uninfected wells appeared in one blank out of twelve. Setting it to 0 restores that behaviour.",
+                    "fa_icon": "fas fa-ruler-horizontal"
+                },
+                "prevalence_filter": {
+                    "type": "number",
+                    "default": 0,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Drop any taxon present in at least this FRACTION of libraries (1.0 = every one). 0 disables.",
+                    "help_text": "The fallback for cohorts with no controls, and a much cruder question: a reagent contaminant introduced at extraction is in every library, a biological signal usually is not. On the CSI-Microbes plate, dropping taxa present in all 180 libraries removed 87 taxa and 77.5% of all microbial reads without touching the spiked organism.\n\nOnly sound where a universally present taxon CANNOT be real. It is wrong for a mono-culture, wrong for a dominant gut commensal, and wrong for anything with an expected core microbiome. Off by default, and it reports what it removed.",
+                    "fa_icon": "fas fa-globe"
+                },
+                "prevalence_min_reads": {
+                    "type": "number",
+                    "default": 1,
+                    "minimum": 0,
+                    "description": "Reads in a library for `--prevalence_filter` to count the taxon as present there.",
+                    "fa_icon": "fas fa-ruler-horizontal"
                 }
             }
         },
@@ -1593,6 +1651,33 @@
                     "minimum": 1,
                     "description": "Maximum number of jobs Nextflow keeps queued in SLURM at once.",
                     "fa_icon": "fas fa-list-ol"
+                },
+                "compression_level": {
+                    "type": "integer",
+                    "default": 6,
+                    "minimum": 0,
+                    "maximum": 9,
+                    "description": "Compression level for every BGZF/gzip stream the pipeline writes.",
+                    "help_text": "Applied to `samtools sort -l`, `samtools view -l`, `samtools fastq -c`, `fastp -z` (clamped to 1, which fastp requires) and the `pigz`/`gzip` calls in the local modules. 6 is the zlib and samtools default. 9 buys roughly 5-10% on BAM for 2-3x the CPU, which is rarely the right trade on a large cohort; 1 is worth considering when the intermediates are deleted anyway. The vendored nf-core `HISAT2_ALIGN` writes its intermediate BAM at its own default and is not covered - its output is re-encoded by the sort, which is.",
+                    "fa_icon": "fas fa-file-archive"
+                },
+                "alignment_output_format": {
+                    "type": "string",
+                    "default": "bam",
+                    "enum": [
+                        "bam",
+                        "cram"
+                    ],
+                    "description": "Format for the sorted host alignments: BAM, or CRAM at roughly 40-60% of the size.",
+                    "help_text": "CRAM stores differences from the reference instead of the sequence, so it needs `--host` and the run stops without it. It is also refused alongside Qualimap (`qualimap bamqc` takes `-bam` and cannot open a CRAM) and alongside `--quantify_host` (featureCounts reads SAM/BAM only); both are checked at startup rather than allowed to fail per sample at the end of a run. samtools stats, flagstat and idxstats all read CRAM and still run. The reference is indexed once per pass rather than rebuilt inside every task. Targeted alignments stay BAM regardless.",
+                    "fa_icon": "fas fa-compress-alt"
+                },
+                "cleanup_intermediates": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Delete intermediates as soon as the pipeline knows nothing else reads them.",
+                    "help_text": "Two things: the per-chunk HISAT2 BAMs, removed from inside the merge task once `samtools cat` has succeeded, and the downloaded FASTQs, removed once trimming and raw FastQC have both read them. Only files inside the work directory are ever removed, so a samplesheet's own FASTQs are skipped and reported rather than deleted; and the downloads are left alone under `--skip_trimming`, where they are still the working read set.\n\nOff by default because a deleted intermediate cannot be resumed: Nextflow will re-run the task that produced it, which for the downloads means fetching them again.",
+                    "fa_icon": "fas fa-trash"
                 }
             }
         },

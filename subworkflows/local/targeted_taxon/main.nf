@@ -113,6 +113,12 @@ workflow TARGETED_TAXON {
         gtf,
         true,
         0,
+        // Always BAM here, never CRAM: this is one taxon's reads, so the
+        // saving would be negligible, and it is aligned against the target
+        // genome rather than against --host. Chunking is off (0 above), so
+        // there are no chunk BAMs for the cleanup flag to delete either.
+        'bam',
+        false,
     )
     ch_multiqc_files = ch_multiqc_files.mix(TARGET_ALIGNMENT.out.multiqc_files)
     ch_bam = TARGET_ALIGNMENT.out.bam

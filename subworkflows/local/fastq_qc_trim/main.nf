@@ -18,9 +18,11 @@ workflow FASTQ_QC_TRIM {
     main:
 
     def ch_multiqc_files = channel.empty()
+    def ch_raw_qc = channel.empty()
 
     if (!skip_fastqc) {
         FASTQC_RAW(ch_reads)
+        ch_raw_qc = FASTQC_RAW.out.zip
         ch_multiqc_files = ch_multiqc_files.mix(FASTQC_RAW.out.zip.map { _meta, zip -> zip })
     }
 
@@ -47,8 +49,24 @@ workflow FASTQ_QC_TRIM {
         }
     }
 
+    //
+    // "Nothing here will read the raw FASTQ again."
+    //
+    // Emitted as the OUTPUTS of the tasks that had to finish first rather than
+    // as a flag, so a consumer can make the deletion wait on them by data
+    // dependency. It is deliberately empty when trimming is skipped: the raw
+    // reads are then the working read set, and everything downstream is still
+    // holding them.
+    def ch_raw_finished = channel.empty()
+    if (!skip_trimming) {
+        ch_raw_finished = skip_fastqc
+            ? ch_trimmed.map { meta, reads -> [meta, reads] }
+            : ch_trimmed.join(ch_raw_qc).map { meta, reads, zip -> [meta, [reads, zip].flatten()] }
+    }
+
     emit:
     reads = ch_trimmed // channel: [ val(meta), [ path(fastq) ] ]
+    raw_finished = ch_raw_finished // channel: [ val(meta), [ path(sentinel) ] ] - see above
     fastp_json = ch_fastp_json // channel: [ val(meta), path(json) ]
     multiqc_files = ch_multiqc_files // channel: path(file)
 }

@@ -173,11 +173,27 @@ A sample in which Kraken2 classified nothing (its report holds only the `unclass
 
 Neither filter removes anything itself. Both write a taxid list that the abundance filter consumes, so one step owns every removal from the combined tables and one `.removed.tsv` records them all — and a taxon condemned by either is removed, since surviving one test is no argument against the other.
 
+- `cleanup/` (with `--cleanup_intermediates`)
+  - `<sample>.cleanup.log`: one line per intermediate, saying whether it was removed and how large it was, or kept because it lay outside the work directory. The kept lines are the audit trail for a samplesheet's own FASTQs, which are never touched.
+
 - `decontam/` (with `--decontam`)
   - `reanatax.decontam_evidence.tsv`: every taxon with its decontam score, the prevalence/frequency sub-scores, and whether it was called a contaminant.
   - `reanatax.decontam_drop.txt`: the taxids that were.
 
 `--decontam` is the only one of these given an external measurement of the kit, and so the only one that can separate a reagent contaminant from a genuinely rare organism. With `--decontam_batch_column` the evidence table also carries `n_batches_flagged` and `batches_flagged`: under the default `minimum` rule a taxon condemned in one batch of six and one condemned in all six get the same verdict, and they are not the same claim.
+
+- `control_filter/` (with `--negative_controls` or `--prevalence_filter`)
+  - `kraken2_combined_report.control_evidence.tsv` and `bracken_combined_<level>.control_evidence.tsv`: per taxon, its total reads, how many libraries carry it and at what prevalence, the control level and the threshold that follows from it (both counts per million classified reads), how many libraries it survived in and how many it was zeroed in, and a verdict — `kept`, `control_level_somewhere`, `control_level_everywhere` or `ubiquitous`.
+  - `*.control_drop.txt`: the taxids condemned outright, being those that failed in *every* library plus those `--prevalence_filter` removed.
+  - `*.control_cells.tsv`: `taxid<TAB>sample` for every cell that was zeroed. This is the per-library half of the verdict, written out because objects built from the per-read assignments rather than from the combined tables — the cell-by-taxon matrix above all — cannot see the zeroing otherwise. `--sc_apply_drop_list` feeds it to the single-cell filter, so the cohort profile and the single-cell profile cannot disagree about a cell one of them removed. The kreport's list is the one used there: Bracken's table is species-only, and the matrix carries whatever rank Kraken2 assigned.
+
+This is the only step whose verdict is **per library rather than per taxon**, and the only one that addresses index hopping and well-to-well carryover at all: those put genuine reads of a genuine organism into the wrong library, so no evidence filter can find fault with the reads, and the same taxon is then signal in one library and carryover in the next. It therefore rewrites the table — the failing cells are zeroed — rather than only naming taxids, and it runs *before* the abundance filter so the surviving fractions are recomputed against what is left. `control_level_somewhere` is the verdict a per-taxon filter cannot produce.
+
+The rewritten tables themselves are not published: they are intermediates that the abundance filter reads, and two tables in one directory differing only in which cells are zero would be a trap. `kraken2/` and `bracken/` hold the published before-and-after as usual, and the evidence table says which cells went.
+
+Exact on the Bracken table, which is flat and holds each read once. On the `combine_kreports` hierarchy a zeroed clade leaves its ancestors' clade counts stale — the same limitation `--drop_host_taxon` carries, with the same answer: take Bracken downstream.
+
+The control libraries are never filtered — a control cannot be judged against itself — and stay in the table as columns. Exclude them downstream, or with `--da_samples_to_drop`.
 
 - `shuffle_control/` (with `--shuffle_control`)
   - `reanatax.shuffle_evidence.tsv`: per taxon, its real reads, the reads it collected from the shuffled copy, that count scaled to the real library size, the ratio, and a verdict — `clean`, `composition_only`, or one of the two `untested_*` states.
@@ -190,7 +206,9 @@ Neither filter removes anything itself. Both write a taxid list that the abundan
   - `reanatax.*_diversity_drop.txt`: the taxids with no breadth.
   - `bracken_combined_<level>_genediv.tsv`: the Bracken table with those taxa removed. It lives here rather than in `bracken/` because the judgement was HUMAnN's, made downstream of everything in that directory.
 
-Each filter asks a different question of the same reports. `--minimizer_filter` asks whether a taxon's reads cover enough of its reference; `--host_kmer_filter` asks whether they are host sequence the aligner missed; `--shuffle_control` asks how much of the signal the database would have produced from composition alone; `--gene_diversity_filter` asks whether the reads spread over the genome or pile onto one locus. Surviving one is no argument against the others. See [usage](usage.md#filtering-on-evidence-not-abundance---minimizer_filter).
+Each filter asks a different question of the same reports. `--minimizer_filter` asks whether a taxon's reads cover enough of its reference; `--host_kmer_filter` asks whether they are host sequence the aligner missed; `--shuffle_control` asks how much of the signal the database would have produced from composition alone; `--gene_diversity_filter` asks whether the reads spread over the genome or pile onto one locus; `--negative_controls` asks whether there is more of it here than arrives without a sample. Surviving one is no argument against the others. See [usage](usage.md#filtering-on-evidence-not-abundance---minimizer_filter).
+
+The first four are all blind to carryover and index hopping, and measurably so: on the CSI-Microbes plate the distinct-minimizers-per-read ratio ranks the carryover calls *above* the true positives (AUC 0.415). Hopped reads are the same reads that the neighbouring well produced correctly, so there is nothing in them for an evidence filter to find. Only `--negative_controls` speaks to that.
 
 `--shuffle_control` is blind to host carry-over — carry-over reads are real sequence, and shuffling removes them — so a carried-over taxon passes it perfectly. Read it beside `host_kmer_filter/`, never instead of it.
 

@@ -282,6 +282,71 @@ gains a `univec_*` block and its `nonhost_reads` is taken from this pass. It
 also works with `--skip_host_removal`, which screens vectors with no host
 genome at all.
 
+### Disk (`--compression_level`, `--alignment_output_format`, `--cleanup_intermediates`)
+
+A reanalysis run is large on disk in a way the classification step gets blamed
+for and is not responsible for. One CSI-Microbes plate cohort — 180 wells,
+110 Gbp — left **1.2 TB** in `work/`: roughly 496 GB of alignments and 413 GB of
+FASTQ. Three knobs address that, and they are independent.
+
+| Parameter | Default | What it does |
+|---|---|---|
+| `--compression_level` | 6 | level for every BGZF/gzip stream the pipeline writes |
+| `--alignment_output_format` | `bam` | `cram` for the sorted host alignments |
+| `--cleanup_intermediates` | `false` | delete intermediates once nothing reads them |
+
+**`--compression_level`** reaches `samtools sort -l`, `samtools view -l`,
+`samtools fastq -c`, `fastp -z` and the `pigz`/`gzip` calls in the local
+modules. 6 is the zlib and samtools default; 9 buys roughly 5–10% on BAM for
+2–3× the CPU, which is rarely the right trade on a large cohort, and 1 is worth
+considering for a run whose intermediates are deleted anyway. fastp refuses 0,
+so it is clamped to 1 there. The vendored nf-core `HISAT2_ALIGN` writes its
+intermediate at its own default and is the one gap — its output is re-encoded by
+the sort, which does honour the setting. The **split** aligner, which is what a
+chunked run uses, honours it throughout.
+
+**`--alignment_output_format cram`** typically halves the host alignments. It
+comes with three hard requirements, all checked at startup rather than left to
+fail per sample at the end of a run:
+
+- **`--host` is required.** CRAM stores differences from a reference, so the
+  file is unreadable without one.
+- **Qualimap is refused.** `qualimap bamqc` takes `-bam` and cannot open a CRAM.
+  Add `--skip_qualimap`; samtools stats, flagstat and idxstats all read CRAM and
+  still run.
+- **`--quantify_host` is refused.** featureCounts (Subread) reads SAM and BAM
+  only.
+
+The reference is indexed once per depletion pass rather than rebuilt inside
+every task, which is what htslib would otherwise do — several gigabytes, per
+sample. Targeted alignments stay BAM whatever this is set to: they hold one
+taxon's reads, so the saving would be negligible, and they are encoded against
+the target genome rather than against `--host`.
+
+**`--cleanup_intermediates`** removes two things, each as soon as the pipeline
+can prove nothing else reads it:
+
+- **The per-chunk HISAT2 BAMs**, from inside the merge task once `samtools cat`
+  has returned. Done there rather than in a cleanup process of its own, because
+  "the merge succeeded" is then a property of the script rather than of a
+  channel join — `set -e` is in effect, so a failed merge never reaches those
+  lines. Only with `--hisat2_chunk_size`, since otherwise there are no chunks.
+- **The downloaded FASTQs**, once trimming and raw FastQC have both read them.
+  Ordering is enforced by data: the cleanup task takes those tasks' *outputs* as
+  inputs, so it cannot be scheduled before them.
+
+**Nothing outside the work directory is ever deleted.** A staged filename is a
+symlink, so it is the link target that would have to go, and a target is removed
+only when it lies under `workDir`. A FASTQ named in a samplesheet is your file,
+wherever you put it; it is skipped, recorded in the cleanup log, and left alone.
+Under `--skip_trimming` the downloads are the working read set and are likewise
+left alone — the pipeline says so rather than silently doing half the job.
+
+**Off by default, because a deleted intermediate cannot be resumed.** Nextflow
+will re-run whatever produced it, and for the downloads that means fetching them
+from the archive again. Turn it on for a run you are confident about, not for
+one you are still debugging.
+
 ### Chunked alignment (`--hisat2_chunk_size`)
 
 HISAT2's memory grows with how much a single process has aligned, and only a fresh process resets it. With `--very-sensitive` on libraries of a few hundred million pairs this is not a small effect — a single alignment has been measured at 68 GB peak RSS, and larger libraries have been reported in the hundreds of GB. `--hisat2_chunk_size` aligns the library in slices, one HISAT2 process each, so the ceiling is set by the chunk rather than by the library:
@@ -1003,6 +1068,162 @@ Three things worth knowing about the numbers:
 - **Single-end input needs `-l` and `-s`.** kallisto measures the fragment-length distribution from paired reads and cannot infer it from one end, so single-end abundances inherit whatever error your estimate carries.
 - **The targeted route loses its sanity check.** On the alignment route, the HISAT2 alignment rate is what distinguishes real assignments from Kraken2's false positives. Pseudoalignment gives `p_pseudoaligned` in `run_info.json` instead, which is the nearest equivalent but is against a transcriptome rather than a genome.
 
+### Carryover and index hopping (`--negative_controls`)
+
+Every filter above, `--decontam` included, reaches **one verdict per taxon**:
+the organism is real, or it is not. There is a failure mode that shape of answer
+cannot describe, and on a multiplexed plate it is the dominant one.
+
+Index hopping, well-to-well carryover and ambient template put **genuine reads
+of a genuine organism into the wrong library**. Nothing about those reads is
+wrong — they are the same reads, with the same k-mers, that the neighbouring
+well produced correctly. And the taxon is then *signal* in one library and
+*carryover* in the next, so no single verdict about the taxon can be right for
+both.
+
+This was measured, not assumed. On the CSI-Microbes plate (Robinson et al.
+2024) — 124 wells deliberately infected with *Fusobacterium nucleatum*, 22
+uninfected, 12 empty — the organism turns up in uninfected wells at 1–78 reads,
+and:
+
+- **Evidence filters cannot see it.** The distinct-minimizers-per-read ratio
+  that Kraken2's manual and the exploreMetaTax app both recommend has **AUC
+  0.415** on those calls. Below 0.5: it ranks the false positives *above* the
+  true positives, because the ratio is inversely tied to read count and every
+  false positive sits at a handful of reads. Duplication reaches 0.656, raw
+  distinct minimizers 0.854 — statistically indistinguishable from raw reads
+  (0.858), which is to say it carries no information depth does not.
+- **`--decontam`'s prevalence method cannot settle it either**, and no threshold
+  makes it. *Fusobacterium* is in 6 of the 12 blanks **and** is the organism the
+  experiment is about. A per-taxon call has to either delete it (recall 54.8% →
+  0) or spare it (specificity unchanged). Both are wrong.
+
+What works is a per-library test against an external reference level. A control
+library measures how much of each taxon arrives *without a sample* — reagent
+contamination, ambient template, and, on a plate, the hopping rate. A taxon is
+kept in a library only where it exceeds that level by a stated margin.
+
+```bash
+--negative_controls 'metadata.tsv:condition:Empty Well' --control_ratio 20 --control_min_reads 30
+```
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `--negative_controls` | — | which libraries are the controls; four forms below |
+| `--control_ratio` | 10 | multiple of the control level a taxon must reach |
+| `--control_statistic` | `mean` | `mean`/`median`/`max` of the controls |
+| `--control_min_reads` | 2 | reads needed before the ratio is consulted |
+| `--control_floor_reads` | 1 | the control level never falls below this many reads |
+| `--prevalence_filter` | 0 | drop taxa in this fraction of libraries; 0 = off |
+| `--prevalence_min_reads` | 1 | reads for `--prevalence_filter` to count a library |
+
+`--negative_controls` takes any of four forms, so a cohort that already declares
+its blanks for `--decontam` does not declare them twice:
+
+| Form | Meaning |
+|---|---|
+| `SRX1,SRX2` | the sample IDs |
+| `controls.txt` | a file of one ID per line |
+| `meta.tsv:column` | rows whose column is `true`/`yes`/`1`/`control`/`blank`/`negative` |
+| `meta.tsv:column:value` | rows whose column equals `value` exactly |
+
+**Levels are counts per million classified reads, never raw reads.** Depth
+normalisation is on its own the single largest improvement available on that
+plate — reads-per-million reaches 73.5% specificity at full recall where raw
+reads reaches 61.8% — and without it the threshold would mean a different thing
+in every library.
+
+Measured on the plate, against `benchmark/csi_microbes`'s own scorecard — 124
+infected wells, 22 uninfected, 12 empty as the controls:
+
+| Setting | Specificity | Detected | Wells with any taxon | Scorecard |
+|---|---|---|---|---|
+| off | 30/34 (88.2%) | 62/124 | 180/180 | **1 FAIL**, 3 PASS |
+| `--control_ratio 10` | 32/34 (94.1%) | 62/124 | 180/180 | 1 FAIL, 3 PASS |
+| **`--control_ratio 20 --control_min_reads 30`** | **33/34 (97.1%)** | 58/124 | 165/180 | **0 FAIL, 4 PASS** |
+| `--control_ratio 60` | 34/34 (100%) | 58/124 | 161/180 | 1 FAIL, 4 PASS |
+
+Two things that table is really saying.
+
+**The ratio is not the only lever, and on its own it is the wrong one.**
+Pushing `--control_ratio` alone does reach 100% specificity, but it gets there by
+applying the same multiple to *every* taxon, and past about 50× it empties whole
+libraries of everything — the run then fails a different check. The four false
+positives are all small in absolute terms (11–72 reads), so
+`--control_min_reads` removes them at a fraction of the collateral damage. Reach
+for the read floor first and the ratio second.
+
+**The recall cost is real and it is not a threshold artefact.** Detection falls
+62/124 → 58/124. The worst false positive sits at 4,209 reads per million and
+only 4 of the 62 detected wells sit below it, so those four are the price. They
+are wells whose entire evidence is a handful of reads, indistinguishable by
+construction from the carryover in the well beside them. The filter does not
+resolve that ambiguity; it declines to call it.
+
+**The verdicts are computed on the combined Kraken2 report, not on Bracken**,
+and on a single-cell run that distinction decides whether the filter works at
+all. Bracken's table is species-only; the cell-by-taxon matrix carries whatever
+rank Kraken2 assigned each read. On this plate every false positive sat at
+*genus* Fusobacterium, absent from the Bracken table — so Bracken-derived
+verdicts reached none of them and specificity did not move. The whole-taxon drop
+list still comes from Bracken, whose flat table counts each read once.
+
+With `--sc_apply_drop_list` (on by default for single-cell runs) the per-library
+verdicts reach the cell matrix too, so the cohort profile and the single-cell
+profile cannot disagree about a cell one of them zeroed.
+
+**`--control_floor_reads` is what makes the ratio mean anything.** Absence from
+the blanks is a *bound*, not a measurement: it says a taxon is under one read in
+each of them, not that it is at zero. Without a floor the test collapses to "any
+reads at all" for every taxon the controls happened to miss — which on a
+species-level table is most of them. Left at 0, the table above stays flat at
+86.4% specificity however high `--control_ratio` goes, because the species that
+leaked into the uninfected wells appeared in one blank out of twelve.
+
+Note that **only the failing cells are zeroed**; a taxon that fails in *every*
+library leaves by the usual route, as a taxid the abundance filter removes. The
+control libraries themselves are never filtered — you cannot judge a control
+against itself — and stay in the table as columns.
+
+#### When there are no controls (`--prevalence_filter`)
+
+A much cruder question, for the cohorts that have no blanks at all: is this
+taxon in **every** library? A reagent contaminant introduced at extraction is; a
+biological signal usually is not.
+
+On the same plate, `--prevalence_filter 1.0` removes **six taxa holding 62.6% of
+all microbial reads**, and does not touch *Fusobacterium*:
+
+| Reads | Taxon |
+|---|---|
+| 1,976,110 | synthetic construct |
+| 439,008 | *Escherichia coli* |
+| 258,164 | *Malassezia restricta* |
+| 56,113 | *Microbacterium foliorum* |
+| 17,191 | *Dietzia psychralcaliphila* |
+| 16,182 | *Microbacterium maritypicum* |
+
+Every one is on Salter et al.'s (BMC Biol 2014) list of reagent contaminants, or
+is a cloning-vector artefact. That is a large effect from a crude rule.
+
+**It is only sound where a universally present taxon cannot be real.** It is
+wrong for a mono-culture, wrong for a dominant gut commensal, wrong for anything
+with an expected core microbiome. It is off by default, it warns below 0.5, and
+it names what it removed in `control_filter/`.
+
+**It is a background remover, not a false-positive remover, and the distinction
+is worth being clear about.** On this plate it strips 62.6% of the reads and
+leaves the specificity failure exactly where it was — 30/34, unchanged at every
+threshold from 1.0 down to 0.9. That is not a defect: *Fusobacterium* is in 101
+of 180 libraries, so no prevalence rule can touch it without also deleting it
+from the wells where it is real. Reach for it to clear the floor, and for
+`--negative_controls` to fix a specificity problem.
+
+**Both are complementary to `--decontam`, not replacements.** decontam is given
+a measurement of the *kit* and asks whether a taxon is reagent; this is given
+control *libraries* and asks whether there is more of a taxon here than turns up
+on its own. Where both are available, run both.
+
 ### Reagent contaminants (`--decontam`)
 
 Every filter above judges a taxon by its own evidence — how abundant it is, how
@@ -1466,8 +1687,18 @@ timeout for droplet-scale libraries.
 If a run does stall, the check is one line:
 
 ```bash
-cat /tmp/classify.pid            # then: ps -p <pid> -o cmd=
+cat /tmp/classify.pid            # then: ps -p <pid> -o comm=,cmd=
 ```
+
+**The daemon is stopped for you.** It runs outside a PID namespace so that it
+survives the task that started it - that is what lets the whole cohort share one
+resident index - so nothing would otherwise reap it, and a finished run was
+measured still holding 316 GB ninety minutes later. The pipeline stops it in
+`workflow.onComplete` and `workflow.onError`, and the benchmark launch scripts
+also trap `EXIT INT TERM` for the case where Nextflow itself is killed and no
+handler runs. Both only ever signal a PID that is currently a `classify` process
+**and** owned by the owner of the pid file, so a stale pid file naming a recycled
+PID cannot cause the wrong process to be killed.
 
 `--kraken2_use_daemon` and `--kraken2_memory_mapping` are contradictory - one
 exists to hold the index in RAM, the other to avoid doing so - and the pipeline

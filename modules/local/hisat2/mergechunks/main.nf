@@ -23,6 +23,7 @@ process HISAT2_MERGECHUNKS {
     input:
     tuple val(meta), path(bams, stageAs: 'chunk_bam/*'), path(summaries, stageAs: 'chunk_log/*'), path(fastqs, stageAs: 'chunk_fastq/*')
     val save_unaligned
+    val cleanup_intermediates
 
     output:
     tuple val(meta), path("*.bam")                   , emit: bam
@@ -35,6 +36,31 @@ process HISAT2_MERGECHUNKS {
 
     script:
     def prefix = task.ext.prefix ?: "${meta.id}"
+    // --cleanup_intermediates. The chunk BAMs exist only to be concatenated
+    // here, and for a chunked run they are the single largest thing on disk:
+    // one full copy of every host alignment, in pieces, kept for the lifetime
+    // of the run beside the merged copy.
+    //
+    // Deleted from this task rather than from a cleanup process of its own,
+    // because the ordering that matters - "the merge succeeded" - is then a
+    // property of the script rather than of a channel join. `set -e` is in
+    // effect, so a failed `samtools cat` never reaches these lines.
+    //
+    // Two guards. The staged names are symlinks, so it is the link TARGET that
+    // has to go; and that target is only removed when it is inside the work
+    // directory, so a staging mode that hard-links or copies real inputs -
+    // or a future caller that hands this module something it does not own -
+    // cannot lose data.
+    def cleanup = cleanup_intermediates
+        ? """
+    for chunk in chunk_bam/*.bam; do
+        target=\$(readlink -f "\$chunk" || true)
+        case "\$target" in
+            ${workflow.workDir}/*) rm -f "\$target" ;;
+        esac
+    done
+    """
+        : ''
     def merge_fastq = ''
     if (save_unaligned) {
         // gzip members concatenate: `cat a.gz b.gz` is itself a valid gzip
@@ -57,6 +83,7 @@ process HISAT2_MERGECHUNKS {
     merge_hisat2_summary.py chunk_log/*.hisat2.summary.log --output ${prefix}.hisat2.summary.log
 
     ${merge_fastq}
+    ${cleanup}
     """
 
     stub:

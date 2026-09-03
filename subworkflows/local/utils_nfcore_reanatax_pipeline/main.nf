@@ -154,6 +154,16 @@ workflow PIPELINE_COMPLETION {
         //
         redactPipelineInfo(outdir)
 
+        //
+        // Stop the Kraken2 daemon. It runs outside a PID namespace so that it
+        // survives the task that started it - that is what lets every later
+        // task reuse the resident index instead of reloading 344 GB per sample
+        // - and the flip side is that nothing reaps it when the run ends. Left
+        // alone it sits on the node holding the entire index; a completed run
+        // was measured still holding 316 GB an hour and a half later.
+        //
+        stopKraken2Daemon()
+
         if (email || email_on_fail) {
             completionEmail(
                 summary_params,
@@ -171,6 +181,9 @@ workflow PIPELINE_COMPLETION {
     }
 
     workflow.onError {
+        // A failed run strands the daemon exactly as effectively as a
+        // successful one, so this runs on both paths.
+        stopKraken2Daemon()
         log.error "Pipeline failed. Please refer to troubleshooting docs for common issues: https://nf-co.re/docs/running/troubleshooting"
     }
 }
@@ -502,6 +515,54 @@ def validateInputParameters() {
     if (ai_options.contains('taxonomy') && params.skip_kraken2) {
         log.warn("--ai_insights includes 'taxonomy' but classification is disabled with --skip_kraken2, so there is nothing to summarise.")
     }
+
+    if (!(params.alignment_output_format in ['bam', 'cram'])) {
+        error("--alignment_output_format must be 'bam' or 'cram', not '${params.alignment_output_format}'.")
+    }
+    if (params.alignment_output_format == 'cram' && params.save_host_bam && !params.skip_qualimap) {
+        error("--alignment_output_format cram cannot run with Qualimap: qualimap bamqc takes -bam and cannot open a CRAM. Add --skip_qualimap to keep CRAM - samtools stats, flagstat and idxstats all read CRAM and still run - or leave the format as bam.")
+    }
+    if (params.alignment_output_format == 'cram' && !params.host) {
+        error("--alignment_output_format cram needs the reference it is encoded against: CRAM stores differences from a reference rather than the sequence itself, so the file is unreadable without it. Pass --host, or use bam.")
+    }
+    // Subread reads SAM and BAM. featureCounts on a CRAM fails per sample, at
+    // the very end of a run, having already paid for the alignment.
+    if (params.alignment_output_format == 'cram' && params.quantify_host) {
+        error("--alignment_output_format cram cannot run with --quantify_host: featureCounts (Subread) reads SAM and BAM only. Drop --quantify_host to keep CRAM, or leave the format as bam.")
+    }
+    // The chunk BAMs are deleted from inside HISAT2_MERGECHUNKS, which only
+    // runs when the library was chunked. Saying so is better than leaving the
+    // user to infer that half the flag did nothing.
+    if (params.cleanup_intermediates && !params.hisat2_chunk_size && !params.input_accessions) {
+        log.warn("--cleanup_intermediates has nothing to delete on this run: the chunk BAMs it removes only exist with --hisat2_chunk_size, and the raw FASTQs it removes only exist for a downloaded cohort. A samplesheet's own FASTQs are never touched.")
+    }
+    if (params.cleanup_intermediates && params.skip_trimming) {
+        log.warn("--cleanup_intermediates will not remove the downloaded FASTQs with --skip_trimming: they are then the working read set, and everything downstream is still reading them. The chunk BAMs are still removed.")
+    }
+    if (!(params.compression_level instanceof Integer) || params.compression_level < 0 || params.compression_level > 9) {
+        error("--compression_level must be an integer from 0 to 9, not '${params.compression_level}'.")
+    }
+
+    // The negative-control filter. Its settings are validated in
+    // controlSettings(); what belongs here is the interaction with the rest of
+    // the run, which that function cannot see.
+    if (params.negative_controls && params.skip_kraken2) {
+        error("--negative_controls has nothing to filter with --skip_kraken2: the control levels are read off the combined Kraken2 and Bracken tables.")
+    }
+    if (params.negative_controls && (params.control_ratio as double) <= 0) {
+        error("--control_ratio must be greater than 0. A ratio of 0 keeps every cell that has any reads at all, which is the same as not running the filter.")
+    }
+    // A control level is an average of the blanks, and an average of one blank
+    // is that blank. Salter et al. (BMC Biol 2014) is the standard warning:
+    // contamination varies substantially between extractions, so a single
+    // control measures one draw from that variation and calling it the
+    // background sets the threshold wherever that draw happened to land.
+    if (params.negative_controls && resolveNegativeControls(params.negative_controls).split(',').size() < 3) {
+        log.warn("--negative_controls names fewer than 3 libraries. The control level is then an estimate from almost no data, and contamination varies enough between extractions that one blank can be several-fold off in either direction. Consider --control_statistic max, which at least fails in the conservative direction.")
+    }
+    if ((params.prevalence_filter as double) > 0 && (params.prevalence_filter as double) < 0.5) {
+        log.warn("--prevalence_filter ${params.prevalence_filter} removes any taxon present in ${(100 * (params.prevalence_filter as double)) as int}% of libraries. That is a statement that nothing real is shared by that many samples, which is false for most cohorts. It is meant to be used near 1.0.")
+    }
 }
 
 //
@@ -636,6 +697,97 @@ def shuffleSettings() {
         max_ratio: params.shuffle_max_ratio,
         min_reads: params.shuffle_min_reads,
     ]
+}
+
+//
+// The negative-control filter's settings, or null when neither half is on.
+//
+// --negative_controls is resolved to a plain comma-separated list of sample IDs
+// here rather than in the module, because the four accepted forms are a
+// usability affordance and not something a container should have to know about:
+//
+//   SRX1,SRX2          the IDs themselves
+//   controls.txt       a file of one ID per line
+//   meta.tsv:column    every row whose `column` is truthy - true/yes/1/control
+//   meta.tsv:column:x  every row whose `column` equals x exactly
+//
+// The metadata forms exist so a cohort that already declares its blanks for
+// --decontam does not have to declare them twice. The ID column is the first
+// one, matching --da_metadata and bin/decontam_filter.R.
+//
+def controlSettings() {
+    def prevalence = params.prevalence_filter as double
+    if (!params.negative_controls && prevalence <= 0) {
+        return null
+    }
+    def known = ['mean', 'median', 'max']
+    if (!known.contains(params.control_statistic)) {
+        error("--control_statistic: '${params.control_statistic}' is not one of ${known.join(', ')}.")
+    }
+    if (prevalence < 0 || prevalence > 1) {
+        error("--prevalence_filter is a FRACTION of libraries: ${params.prevalence_filter} is outside 0-1. 1.0 means 'present in every library'.")
+    }
+    return [
+        controls: resolveNegativeControls(params.negative_controls),
+        ratio: params.control_ratio,
+        statistic: params.control_statistic,
+        min_reads: params.control_min_reads,
+        floor_reads: params.control_floor_reads,
+        prevalence: prevalence,
+        prevalence_min_reads: params.prevalence_min_reads,
+    ]
+}
+
+//
+// The four forms above, collapsed to one comma-separated string.
+//
+def resolveNegativeControls(spec) {
+    if (!spec) {
+        return ''
+    }
+    def text = spec.toString().trim()
+
+    // The metadata forms, recognised by the part before the first ':' being a
+    // file that exists. Tested that way round so a path is never mistaken for
+    // a column separator, and a list of IDs never for a path.
+    def parts = text.split(':') as List
+    if (parts.size() >= 2 && file(parts[0]).exists()) {
+        def wanted = parts.size() >= 3 ? parts[2] : null
+        def truthy = ['true', 'yes', 'y', '1', 'control', 'blank', 'negative']
+        def lines = file(parts[0]).readLines().findAll { line -> line.trim() && !line.startsWith('#') }
+        if (lines.size() < 2) {
+            error("--negative_controls: ${parts[0]} has no data rows.")
+        }
+        def header = lines[0].split('\t') as List
+        def column = header.findIndexOf { field -> field.trim() == parts[1] }
+        if (column < 0) {
+            error("--negative_controls: ${parts[0]} has no column '${parts[1]}'. It has: ${header.join(', ')}")
+        }
+        def ids = lines.drop(1).collect { line -> line.split('\t') as List }
+            .findAll { fields ->
+                def value = column < fields.size() ? fields[column].trim() : ''
+                wanted != null ? value == wanted : truthy.contains(value.toLowerCase())
+            }
+            .collect { fields -> fields[0].trim() }
+        if (!ids) {
+            error("--negative_controls: no row of ${parts[0]} has ${parts[1]}" + (wanted != null ? " = ${wanted}" : " set") + ".")
+        }
+        return ids.join(',')
+    }
+
+    if (file(text).exists()) {
+        def ids = file(text).readLines().collect { line -> line.trim() }.findAll { line -> line && !line.startsWith('#') }
+        if (!ids) {
+            error("--negative_controls: ${text} is empty.")
+        }
+        return ids.join(',')
+    }
+
+    def ids = text.split(',').collect { entry -> entry.trim() }.findAll { entry -> entry }
+    if (!ids) {
+        error("--negative_controls: '${text}' named no samples, and is neither a file nor 'metadata.tsv:column'.")
+    }
+    return ids.join(',')
 }
 
 //
@@ -1016,4 +1168,75 @@ def methodsDescriptionText(mqc_methods_yaml) {
     def description_html = engine.createTemplate(methods_text).make(meta)
 
     return description_html.toString()
+}
+
+
+//
+// Stop the resident `k2 classify --use-daemon` process at the end of a run.
+//
+// Two things this is careful about. It kills only a PID that is currently a
+// `classify` process AND owned by whoever owns the pid file, because /tmp is
+// shared node-wide and a stale pid file can name a PID the kernel has since
+// handed to something else - that exact confusion is what wedged earlier runs,
+// where /tmp/classify.pid named a live kernel thread. And it never throws:
+// failing to tidy up must not turn a successful run into a failed one.
+//
+def stopKraken2Daemon() {
+    if (!params.kraken2_use_daemon) {
+        return
+    }
+    try {
+        def pidFile = new File('/tmp/classify.pid')
+        if (!pidFile.exists()) {
+            return
+        }
+        def pid = pidFile.text.replaceAll(/\D/, '')
+        if (!pid) {
+            return
+        }
+        def comm = new File("/proc/${pid}/comm")
+        if (!comm.exists() || comm.text.trim() != 'classify') {
+            log.debug("Kraken2 daemon: /tmp/classify.pid names PID ${pid}, which is not a running classify process. Leaving it alone.")
+            return
+        }
+        def us = fileOwner('/tmp/classify.pid')
+        if (us == null || fileOwner("/proc/${pid}") != us) {
+            log.warn("Kraken2 daemon: PID ${pid} is not owned by ${us}, so it belongs to another user's run. Not stopping it.")
+            return
+        }
+        log.info("Stopping the Kraken2 daemon (PID ${pid}) so it does not hold the index after this run.")
+        ["kill", "-TERM", pid].execute().waitFor()
+        // A flat wait rather than a poll loop: Nextflow's strict syntax has
+        // removed `while`, and the increment operator crashes 25.10.4's parser
+        // outright with an internal index error rather than a syntax message.
+        // Five seconds is ample for a process whose only job on SIGTERM is to
+        // close two FIFOs and exit.
+        Thread.sleep(5000)
+        if (new File("/proc/${pid}").exists()) {
+            log.warn("Kraken2 daemon (PID ${pid}) ignored SIGTERM; sending SIGKILL.")
+            ["kill", "-KILL", pid].execute().waitFor()
+            Thread.sleep(2000)
+        }
+        // File.delete() returns false for a path that is already gone, so
+        // nothing here needs guarding.
+        ['/tmp/classify.pid', '/tmp/classify_stdin', '/tmp/classify_stdout'].each { f ->
+            new File(f).delete()
+        }
+    }
+    catch (Exception e) {
+        log.warn("Could not stop the Kraken2 daemon: ${e.message}. Stop it by hand with `k2 clean --stop-daemon` on the execution node.")
+    }
+}
+
+//
+// Owner of a path, or null if it cannot be read. Used to check that a daemon
+// belongs to us before signalling it.
+//
+def fileOwner(String path) {
+    try {
+        return java.nio.file.Files.getOwner(java.nio.file.Paths.get(path)).getName()
+    }
+    catch (Exception ignored) {
+        return null
+    }
 }

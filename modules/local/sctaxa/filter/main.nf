@@ -23,6 +23,7 @@ process SCTAXA_FILTER {
     input:
     tuple val(meta), path(counts, stageAs: 'counts/*')
     path drop_lists, stageAs: 'drop/*'
+    path drop_cells, stageAs: 'cells/*'
 
     output:
     tuple val(meta), path("*.cell_taxa.tsv"), emit: counts
@@ -37,11 +38,16 @@ process SCTAXA_FILTER {
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
     def drop = drop_lists ? "--drop drop/*" : ''
+    // The negative-control filter's per-library verdicts. Kept separate from
+    // the drop lists because they are a different kind of claim: a drop list
+    // condemns a taxon everywhere, these condemn it in named libraries only.
+    def cells = drop_cells ? "--drop-cells cells/*" : ''
     """
     sc_filter_taxa.py \\
         ${args} \\
         --counts counts/* \\
         ${drop} \\
+        ${cells} \\
         --prefix ${prefix}
     """
 

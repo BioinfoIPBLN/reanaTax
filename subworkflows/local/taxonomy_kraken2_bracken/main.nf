@@ -19,6 +19,8 @@ include { SHUFFLE_READS                     } from '../../../modules/local/shuff
 include { SHUFFLE_COMPARE                   } from '../../../modules/local/shuffle/compare/main'
 include { KRAKEN2_KRAKEN2 as KRAKEN2_SHUFFLED } from '../../../modules/nf-core/kraken2/kraken2/main'
 include { KRAKEN2_DAEMON as KRAKEN2_DAEMON_SHUFFLED } from '../../../modules/local/kraken2/daemon/main'
+include { ABUNDANCE_CONTROL as CONTROL_KRAKEN2 } from '../../../modules/local/abundance/control/main'
+include { ABUNDANCE_CONTROL as CONTROL_BRACKEN } from '../../../modules/local/abundance/control/main'
 include { ABUNDANCE_FILTER as FILTER_KRAKEN2 } from '../../../modules/local/abundance/filter/main'
 include { ABUNDANCE_FILTER as FILTER_BRACKEN } from '../../../modules/local/abundance/filter/main'
 
@@ -38,6 +40,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     host_kmer_settings // map: taxid, max_fraction, min_reads
     decontam_settings // map: metadata, neg_column, neg_value, conc_column, method, threshold, batch_column, batch_combine - or null
     shuffle_settings // map: method, seed, max_reads, max_ratio, min_reads - or null
+    control_settings // map: controls, ratio, statistic, min_reads, floor_reads, prevalence, prevalence_min_reads - or null
     use_daemon // boolean: classify through `k2 classify --use-daemon`
     min_rel_abundance // float: relative abundance a taxon must exceed...
     min_samples // integer: ...in at least this many samples
@@ -332,19 +335,93 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         ch_multiqc_files = ch_multiqc_files.mix(DECONTAM_FILTER.out.mqc.map { _meta, mqc -> mqc })
     }
 
+    //
+    // MODULE: How much of this taxon arrives without a sample?
+    //
+    // The only step here that rewrites the table rather than naming taxids,
+    // because its verdict is per LIBRARY: a taxon can be signal in one and
+    // carryover in the next, and index hopping puts genuine reads of a genuine
+    // organism into the wrong library, where nothing about the reads is wrong
+    // for any evidence filter to find. It therefore runs BEFORE the abundance
+    // filter, so the fractions that survive are recomputed against what is
+    // left; the taxa it condemns everywhere still leave by the usual list.
+    //
+    // Exact on a Bracken table, which is flat and holds each read once. On the
+    // combine_kreports hierarchy a zeroed clade leaves its ancestors' clade
+    // counts stale - the same limitation drop_taxa() already documents, and
+    // the same answer: docs/output.md says to take Bracken downstream.
+    //
+    def ch_control_drop = channel.empty()
+    def ch_control_cells = channel.empty()
+    def ch_control_evidence = channel.empty()
+    def ch_kraken2_for_filter = KRAKENTOOLS_COMBINEKREPORTS.out.txt
+    def ch_bracken_for_filter = ch_bracken_combined
+
+    if (control_settings) {
+        CONTROL_KRAKEN2(
+            KRAKENTOOLS_COMBINEKREPORTS.out.txt,
+            control_settings.controls ?: '',
+            control_settings.ratio,
+            control_settings.statistic,
+            control_settings.min_reads,
+            control_settings.floor_reads,
+            control_settings.prevalence,
+            control_settings.prevalence_min_reads,
+        )
+        ch_kraken2_for_filter = CONTROL_KRAKEN2.out.filtered
+        ch_multiqc_files = ch_multiqc_files.mix(CONTROL_KRAKEN2.out.mqc.map { _meta, mqc -> mqc })
+
+        // The per-library verdicts come from the KREPORT, never from Bracken,
+        // and the difference is not cosmetic. Bracken's table is species-only;
+        // the cell-by-taxon matrix carries whatever rank Kraken2 assigned each
+        // read, and a great deal of it is genus. Measured on the CSI-Microbes
+        // plate, every false positive the filter exists to remove sat at genus
+        // Fusobacterium (848), which is absent from the Bracken table - so
+        // Bracken-derived verdicts reached none of them and the specificity
+        // was unchanged. The kreport holds both ranks and reaches both.
+        ch_control_cells = CONTROL_KRAKEN2.out.drop_cells.map { _meta, list -> list }
+
+        // Only Bracken's verdict joins the drop list. Both tables are scored,
+        // but a taxid condemned twice would be no more removed than once, and
+        // the flat table is the one whose "failed in every library" is a
+        // statement about reads rather than about a clade sum.
+        if (!skip_bracken) {
+            CONTROL_BRACKEN(
+                ch_bracken_combined,
+                control_settings.controls ?: '',
+                control_settings.ratio,
+                control_settings.statistic,
+                control_settings.min_reads,
+                control_settings.floor_reads,
+                control_settings.prevalence,
+                control_settings.prevalence_min_reads,
+            )
+            ch_bracken_for_filter = CONTROL_BRACKEN.out.filtered
+            // The whole-taxon verdict still comes from Bracken: that table is
+            // flat and holds each read once, so "failed in every library" is a
+            // statement about reads rather than about a clade sum.
+            ch_control_drop = CONTROL_BRACKEN.out.drop_list.map { _meta, list -> list }
+            ch_control_evidence = CONTROL_BRACKEN.out.evidence
+        }
+        else {
+            ch_control_drop = CONTROL_KRAKEN2.out.drop_list.map { _meta, list -> list }
+            ch_control_evidence = CONTROL_KRAKEN2.out.evidence
+        }
+    }
+
     // Union of every list: each condemns a taxon for its own reason, and
     // surviving one is no argument against the others. `collect` gives the
     // filter a single list, and emits an empty one when no filter ran.
-    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || (decontam_settings && !skip_bracken)
-        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).collect(sort: true)
+    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || control_settings || (decontam_settings && !skip_bracken)
+        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).collect(sort: true)
         : channel.value([])
 
-    FILTER_KRAKEN2(KRAKENTOOLS_COMBINEKREPORTS.out.txt, ch_drop_list, min_rel_abundance, min_samples, min_reads)
+    FILTER_KRAKEN2(ch_kraken2_for_filter, ch_drop_list, min_rel_abundance, min_samples, min_reads)
 
     def ch_bracken_combined_filtered = channel.empty()
 
     if (!skip_bracken) {
-        FILTER_BRACKEN(ch_bracken_combined, ch_drop_list, min_rel_abundance, min_samples, min_reads)
+        FILTER_BRACKEN(ch_bracken_for_filter, ch_drop_list, min_rel_abundance, min_samples, min_reads)
         ch_bracken_combined_filtered = FILTER_BRACKEN.out.filtered
     }
 
@@ -377,6 +454,11 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     host_kmer_evidence = ch_hostkmer_evidence // channel: [ val(meta), path(tsv) ]
     decontam_evidence = ch_decontam_evidence // channel: [ val(meta), path(tsv) ]
     shuffle_evidence = ch_shuffle_evidence // channel: [ val(meta), path(tsv) ]
+    control_evidence = ch_control_evidence // channel: [ val(meta), path(tsv) ]
+    // Per-library verdicts, for the objects the combined tables do not cover -
+    // the cell-by-taxon matrix is built from the per-read assignments, so the
+    // cells zeroed here would otherwise survive there.
+    control_cells = ch_control_cells.collect(sort: true).ifEmpty([]) // channel: [ path(tsv) ]
     classifiedreads = ch_classifiedreads // channel: [ val(meta), path(txt) ]
     multiqc_files = ch_multiqc_files // channel: path(file)
 }

@@ -48,6 +48,11 @@ process HISAT2_ALIGN_SPLIT {
     script:
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
+    // --compression_level, for every BGZF/gzip stream written below. Applied to
+    // the throwaway tmp/*.all.bam too, so the setting means one thing across
+    // the module rather than being quietly ignored on the largest file it
+    // writes. `samtools view` spells it -l, `samtools fastq` spells it -c.
+    def level = task.ext.compression != null ? task.ext.compression : 6
 
     def strandedness = ''
     if (meta.strandedness == 'forward') {
@@ -60,7 +65,7 @@ process HISAT2_ALIGN_SPLIT {
 
     if (meta.single_end) {
         def unaligned = save_unaligned
-            ? "samtools view -u -f 4 tmp/${prefix}.all.bam | samtools fastq -0 ${prefix}.unmapped.fastq.gz -n -"
+            ? "samtools view -u -f 4 tmp/${prefix}.all.bam | samtools fastq -c ${level} -0 ${prefix}.unmapped.fastq.gz -n -"
             : ''
         """
         INDEX=`find -L ./ -name "*.1.ht2*" | sed 's/\\.1.ht2.*\$//'`
@@ -74,15 +79,15 @@ process HISAT2_ALIGN_SPLIT {
             --threads $task.cpus \\
             $rg \\
             $args \\
-            | samtools view -bS -F 256 - > tmp/${prefix}.all.bam
+            | samtools view -bS -l ${level} -F 256 - > tmp/${prefix}.all.bam
 
-        samtools view -b -F 4 tmp/${prefix}.all.bam > ${prefix}.bam
+        samtools view -b -l ${level} -F 4 tmp/${prefix}.all.bam > ${prefix}.bam
         ${unaligned}
         """
     } else {
         def unaligned = save_unaligned
             ? """samtools view -u -f 12 tmp/${prefix}.all.bam \\
-            | samtools fastq -1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n -"""
+            | samtools fastq -c ${level} -1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n -"""
             : ''
         """
         INDEX=`find -L ./ -name "*.1.ht2*" | sed 's/\\.1.ht2.*\$//'`
@@ -97,9 +102,9 @@ process HISAT2_ALIGN_SPLIT {
             --threads $task.cpus \\
             $rg \\
             $args \\
-            | samtools view -bS -F 256 - > tmp/${prefix}.all.bam
+            | samtools view -bS -l ${level} -F 256 - > tmp/${prefix}.all.bam
 
-        samtools view -b -F 4 -F 8 tmp/${prefix}.all.bam > ${prefix}.bam
+        samtools view -b -l ${level} -F 4 -F 8 tmp/${prefix}.all.bam > ${prefix}.bam
         ${unaligned}
         """
     }

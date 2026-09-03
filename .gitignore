@@ -42,3 +42,7 @@ analyses/
 # Launcher logs from local runs.
 plate_study2.out
 *.out
+
+# Compiled Python from the bin/ helpers, which import each other
+__pycache__/
+*.pyc
