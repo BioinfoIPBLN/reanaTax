@@ -72,6 +72,10 @@ def main():
     parser.add_argument("--min-cells", type=int, default=10,
                         help="a taxon must infect this many cells to enter the co-occurrence test")
     parser.add_argument("--p-threshold", type=float, default=0.05)
+    parser.add_argument("--exclude-samples", default="",
+                        help="comma-separated libraries to leave out of the test entirely - "
+                             "the negative controls. See below for why this is not optional "
+                             "once --negative_controls has run.")
     args = parser.parse_args()
 
     # ---- host cells -------------------------------------------------------
@@ -109,18 +113,33 @@ def main():
             f"annotation). Columns present: {', '.join(present)}"
         )
 
+    # Negative controls are not a biological group, and after --negative_controls
+    # they are the one group that was NOT filtered - a control cannot be judged
+    # against itself. Leave them in and every reagent contaminant is enormously
+    # "enriched" in the blanks, because every other library just lost it and
+    # they did not. Measured on the CSI-Microbes plate: 41 of 43 significant
+    # results were exactly that, at log2fc 3.9 and adjusted p of 0.
+    excluded = {entry.strip() for entry in args.exclude_samples.split(",") if entry.strip()}
+
     cells = {}
+    skipped = 0
     for row in rows:
         barcode = column(row, barcode_key)
         sample = column(row, sample_key)
         cell_type = column(row, type_key)
         if not barcode or not cell_type or not sample:
             continue
+        if sample in excluded or barcode in excluded:
+            skipped += 1
+            continue
         host_umis = column(row, "host_umis", "numi", "n_umi", "ncount_rna")
         cells[(sample, barcode)] = {
             "cell_type": cell_type,
             "host_umis": float(host_umis) if host_umis and host_umis.replace(".", "", 1).isdigit() else None,
         }
+    if excluded:
+        print(f"[sc_enrichment] excluded {skipped} cell(s) in {len(excluded)} negative-control "
+              "library/libraries; a blank is not a cell type.", file=sys.stderr)
     if not cells:
         raise SystemExit(f"sc_enrichment: no usable rows in {args.cells}.")
 

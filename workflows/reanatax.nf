@@ -638,6 +638,13 @@ workflow REANATAX {
             file(params.sc_cell_metadata, checkIfExists: true),
             params.sc_cooccurrence_min_cells,
             params.sc_enrichment_p,
+            // The negative controls, kept out of the test entirely. They are
+            // not a cell type, and after --negative_controls they are the one
+            // group that was not filtered - a control cannot be judged against
+            // itself - so leaving them in makes every reagent contaminant look
+            // hugely enriched in the blanks. Measured on the CSI-Microbes
+            // plate: 41 of 43 significant results were exactly that.
+            controlSettings()?.controls ?: '',
         )
         ch_multiqc_files = ch_multiqc_files.mix(SCTAXA_ENRICHMENT.out.mqc.map { _meta, mqc -> mqc })
     }

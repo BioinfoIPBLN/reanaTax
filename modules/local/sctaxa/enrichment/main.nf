@@ -25,6 +25,7 @@ process SCTAXA_ENRICHMENT {
     path cell_metadata
     val min_cells
     val p_threshold
+    val exclude_samples
 
     output:
     tuple val(meta), path("*.cell_type_enrichment.tsv"), emit: enrichment
@@ -46,6 +47,7 @@ process SCTAXA_ENRICHMENT {
         --cells ${cell_metadata} \\
         --min-cells ${min_cells} \\
         --p-threshold ${p_threshold} \\
+        --exclude-samples '${exclude_samples}' \\
         --enrichment ${prefix}.cell_type_enrichment.tsv \\
         --cooccurrence ${prefix}.cooccurrence.tsv \\
         --doublet-test ${prefix}.doublet_check.tsv \\

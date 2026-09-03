@@ -1192,6 +1192,22 @@ library leaves by the usual route, as a taxid the abundance filter removes. The
 control libraries themselves are never filtered — you cannot judge a control
 against itself — and stay in the table as columns.
 
+**That asymmetry is a trap downstream, and one step now handles it for you.**
+After the filter runs, the controls are the only libraries that still carry
+their full background, so any test that treats them as a group finds every
+reagent contaminant hugely "enriched" in the blanks. On the CSI-Microbes plate
+that produced **41 of 43 significant enrichment results**, at log2fc 3.9 and
+adjusted p of 0 — none of them real. `sc_enrichment` is therefore given the
+control list and leaves those libraries out entirely: a blank is not a cell
+type. For differential abundance, do the same with `--da_samples_to_drop`.
+
+Excluding them also makes the remaining results *more* conservative, not less,
+which is worth knowing before comparing runs. Blanks carry no cells of any real
+type, so counting them dilutes the expected-cell pool and inflates every
+observed/expected ratio computed against it. On that plate *F. nucleatum* in
+infected epithelium moved from log2fc 0.64 (raw p 0.0031) to 0.54 (raw p 0.018)
+once the twelve blanks stopped padding the denominator.
+
 #### When there are no controls (`--prevalence_filter`)
 
 A much cruder question, for the cohorts that have no blanks at all: is this
