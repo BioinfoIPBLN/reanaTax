@@ -147,6 +147,10 @@ class SequenceReader:
                 return None
             if current_id == read_id:
                 return sequence
+        # Past the lookahead the reader has consumed reads it cannot give
+        # back, so every later lookup is behind the stream and misses too.
+        # Counted rather than raised here because one miss is recoverable;
+        # main() decides, with the total in hand, whether the run is sound.
         self.misses += 1
         return None
 
@@ -176,6 +180,14 @@ def main():
     args = parser.parse_args()
 
     host_taxids = {int(part) for part in args.host_taxid.split(",") if part.strip()}
+    # The same substring test host_kmer_filter.py uses, for the same reason it
+    # is exact: runs are written `taxid:count` separated by single spaces, with
+    # ` |:| ` between mates, so a host taxid can only appear at the start of the
+    # string or after a space. A count cannot be mistaken for it and 7165 cannot
+    # match inside 17165. Applied BEFORE kmer_runs() so the reads it discards -
+    # 1.9 M of them on a droplet library - are never parsed at all.
+    host_prefixes = tuple(f"{taxid}:" for taxid in sorted(host_taxids))
+    host_needles = tuple(f" {taxid}:" for taxid in sorted(host_taxids))
     sequences = SequenceReader(args.fastq)
 
     # (taxid, barcode) -> [total k-mers, {distinct encoded k-mers}]
@@ -198,10 +210,12 @@ def main():
                 continue
             barcode = match.group("cb")
 
-            runs = kmer_runs(fields[4])
-            if host_taxids and any(run_taxid in host_taxids for run_taxid, _count in runs):
+            kmers = fields[4]
+            if host_taxids and (kmers.startswith(host_prefixes)
+                                or any(needle in kmers for needle in host_needles)):
                 dropped_host += 1
                 continue
+            runs = kmer_runs(kmers)
 
             sequence = sequences.get(read_id)
             if not sequence:
@@ -314,6 +328,15 @@ def main():
                 "Sample\tkept\tno_barcode_correlation\n"
                 f"{args.sample}\t{len(tested) + len(saturated) - len(dropped)}\t{len(dropped)}\n"
             )
+
+    if sequences.misses:
+        print(
+            f"[sc_kmer_denoise] {args.sample}: {sequences.misses} read(s) had no sequence "
+            f"within {sequences.lookahead} of the reader's position. The Kraken2 output and "
+            "the FASTQ are expected to hold the same reads in the same order; past the "
+            "lookahead the reader cannot recover, so the counts below are incomplete.",
+            file=sys.stderr,
+        )
 
     print(
         f"[sc_kmer_denoise] {args.sample}: {len(by_taxon)} taxa over "
