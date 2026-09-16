@@ -29,6 +29,7 @@ include { SPADES_META                       } from '../../../modules/local/spade
 include { KRAKEN2_KRAKEN2 as KRAKEN2_CONTIGS } from '../../../modules/nf-core/kraken2/kraken2/main'
 include { KRAKEN2_DAEMON as KRAKEN2_DAEMON_CONTIGS } from '../../../modules/local/kraken2/daemon/main'
 include { CONTIG_EVIDENCE                   } from '../../../modules/local/contig/evidence/main'
+include { HOSTCLADE_EXPAND                  } from '../../../modules/local/hostclade/main'
 
 workflow TAXONOMY_KRAKEN2_BRACKEN {
 
@@ -48,6 +49,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     shuffle_settings // map: method, seed, max_reads, max_ratio, min_reads - or null
     control_settings // map: controls, ratio, statistic, min_reads, floor_reads, prevalence, prevalence_min_reads - or null
     assembly_settings // map: assembler, pool, groups, min_reads, min_length, min_contigs, filter - or null
+    host_clade // map: taxid, rank - or null
     use_daemon // boolean: classify through `k2 classify --use-daemon`
     min_rel_abundance // float: relative abundance a taxon must exceed...
     min_samples // integer: ...in at least this many samples
@@ -380,6 +382,29 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     // RNA-seq - see modules/local/megahit for why the microbial fraction is the
     // wrong shape for an isoform model.
     //
+    //
+    // MODULE: the host's relatives, which are host reads under another name.
+    //
+    // Scored on the per-sample reports rather than the combined table because
+    // the LINEAGE is what is needed, and the combined table flattens it away.
+    //
+    def ch_hostclade_drop = channel.empty()
+    def ch_hostclade_evidence = channel.empty()
+
+    if (host_clade) {
+        HOSTCLADE_EXPAND(
+            ch_report_classified
+                .map { _meta, report -> report }
+                .collect(sort: true)
+                .map { reports -> [[id: 'kraken2_host_clade'], reports] },
+            host_clade.taxid,
+            host_clade.rank,
+        )
+        ch_hostclade_drop = HOSTCLADE_EXPAND.out.drop_list.map { _meta, list -> list }
+        ch_hostclade_evidence = HOSTCLADE_EXPAND.out.evidence
+        ch_multiqc_files = ch_multiqc_files.mix(HOSTCLADE_EXPAND.out.mqc.map { _meta, mqc -> mqc })
+    }
+
     def ch_contig_drop = channel.empty()
     def ch_contig_evidence = channel.empty()
     def ch_contigs = channel.empty()
@@ -527,8 +552,8 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     // Union of every list: each condemns a taxon for its own reason, and
     // surviving one is no argument against the others. `collect` gives the
     // filter a single list, and emits an empty one when no filter ran.
-    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || control_settings || (assembly_settings && assembly_settings.filter) || (decontam_settings && !skip_bracken)
-        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).mix(ch_contig_drop).collect(sort: true)
+    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || control_settings || host_clade || (assembly_settings && assembly_settings.filter) || (decontam_settings && !skip_bracken)
+        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).mix(ch_contig_drop).mix(ch_hostclade_drop).collect(sort: true)
         : channel.value([])
 
     FILTER_KRAKEN2(ch_kraken2_for_filter, ch_drop_list, min_rel_abundance, min_samples, min_reads)
@@ -602,6 +627,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     biom = ch_biom // channel: [ val(meta), path(biom) ]
     contigs = ch_contigs // channel: [ val(meta), path(fa.gz) ]
     contig_evidence = ch_contig_evidence // channel: [ val(meta), path(tsv) ]
+    host_clade_evidence = ch_hostclade_evidence // channel: [ val(meta), path(tsv) ]
     drop_list = ch_drop_list // channel: [ path(txt) ] - every filter's verdict, for consumers outside this subworkflow
     minimizer_evidence = minimizer_filter ? ABUNDANCE_MINIMIZER.out.evidence : channel.empty() // channel: [ val(meta), path(tsv) ]
     host_kmer_evidence = ch_hostkmer_evidence // channel: [ val(meta), path(tsv) ]

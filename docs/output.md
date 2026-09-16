@@ -345,6 +345,21 @@ See [usage](usage.md#diversity-and-what-explains-it---run_diversity) for the cav
 
 [Krona](https://github.com/marbl/Krona) renders the composition as a zoomable hierarchy. Built from the Bracken-corrected report when Bracken ran, otherwise from the Kraken2 report. Open the HTML directly in a browser — no server needed.
 
+### Host clade
+
+Only produced with `--drop_host_clade`.
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `host_clade/`
+  - `reanatax.host_clade_evidence.tsv`: every taxon removed as the host under another name — taxid, name, rank, reads, and the clade anchor.
+  - `reanatax.host_clade_drop.txt`: the taxids, as handed to the abundance filter.
+
+</details>
+
+A host read that misses the host genome is assigned to the nearest relative the database holds, so `--drop_host_taxon` alone leaves most of the leakage behind. Read the evidence table before trusting a wide rank: it is the list of what was deleted, and at `class` or `phylum` it is long.
+
 ### Assembly
 
 Only produced with `--assembly`.

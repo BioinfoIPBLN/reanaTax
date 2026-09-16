@@ -672,6 +672,41 @@ The idea is PRISM's — that read count without breadth is not evidence, and tha
 below about ten reads there is nothing to confirm either way. The metric is this
 pipeline's own; PRISM's score is not reproduced.
 
+### The host's relatives are host reads (`--drop_host_clade`)
+
+`--drop_host_taxon` removes one taxid. That is not where host leakage ends up. A host read that misses the host genome does not disappear — it gets assigned to the nearest thing in the database that it *does* match, and the nearest thing is a relative.
+
+Measured on the CSI-Microbes 10x cohort, with *Homo sapiens* already dropped, as a share of everything the pipeline was still calling microbial:
+
+| Clade | uninfected | heat-killed | infected | infected (5′) |
+| ----- | ---------- | ----------- | -------- | ------------- |
+| genus — *Homo* | 0.1% | 0.1% | 0.0% | 0.0% |
+| family — Hominidae | 65.7% | 60.8% | 58.1% | 52.4% |
+| order — Primates | 78.8% | 74.3% | 72.1% | 67.7% |
+| class — Mammalia | 88.3% | 88.5% | 84.4% | 71.0% |
+| phylum — Chordata | 93.4% | 92.8% | 88.6% | 71.2% |
+
+*Pan*, *Pongo*, *Gorilla*, *Macaca*, *Tupaia*. The **genus rank catches almost nothing** — most databases hold one species per host genus, so the clade is the host taxon over again. Family is where it starts.
+
+```bash
+nextflow run BioinfoIPBLN/reanaTax \
+    --input samplesheet.csv \
+    --kraken2_db /path/to/db \
+    --drop_host_taxon --host_carryover_taxid 9606 \
+    --drop_host_clade family \
+    -profile singularity
+```
+
+The lineage is read from the run's own Kraken2 reports, so the ranks are the ones the database actually uses and there is no external taxonomy to keep in step. The taxa removed are listed in `host_clade/reanatax.host_clade_evidence.tsv`.
+
+It also reaches further than `--drop_host_taxon` does. That flag is an argument to the abundance filter, so it never touched the single-cell matrix — which is why *Homo sapiens* rows outlived it in `cell_taxa`. `--drop_host_clade` travels on the shared drop list, so the cohort tables and the cell matrix agree.
+
+#### What it cannot do, and where the risk is
+
+It is a prediction from the **taxonomy**, not a measurement of the **reads**. The same cohort also carries turbot, grouper, spruce and *Naegleria* — conserved or low-complexity matches that no rank of the host lineage contains. [`--host_kmer_filter`](#host-leakage-at-k-mer-level---host_kmer_filter) is the filter that catches those, by asking whether a taxon's reads are mostly host k-mers. The two are complements: this one is free and deterministic, that one is evidence-based and costs a pass over the read-level output. On a cohort like this, run both.
+
+The risk is real above order. Dropping class Mammalia is harmless when the sample is human tissue and the question is bacterial. It is **destructive on a xenograft**, where mouse reads are biology rather than noise, and on any cohort where a second vertebrate is part of the experiment. Nothing in the pipeline can tell those cases apart, which is why there is no default rank and why `class` and `phylum` emit a warning.
+
 ### De novo assembly of the non-host fraction (`--assembly`)
 
 Every filter above judges a taxon by counting things about its reads — how many, how many distinct minimizers, how they behave under shuffling, how they compare to a blank. Not one of them ever produces a longer sequence. That is the gap this fills: a 1 kb contig that classifies to a taxon is categorically stronger evidence than fifty 100 bp reads that do, because reads placed by index hopping, or piled on one conserved locus, do not assemble into anything.

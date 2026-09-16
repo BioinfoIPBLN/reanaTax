@@ -546,6 +546,18 @@ def validateInputParameters() {
     // The negative-control filter. Its settings are validated in
     // controlSettings(); what belongs here is the interaction with the rest of
     // the run, which that function cannot see.
+    if (params.drop_host_clade && params.skip_kraken2) {
+        error("--drop_host_clade has nothing to expand with --skip_kraken2: the host's lineage is read from the Kraken2 reports.")
+    }
+    if (params.drop_host_clade && params.drop_host_clade.toString().toLowerCase() == 'genus') {
+        log.warn("--drop_host_clade genus removes very little for most hosts: a database usually holds one species per host genus, so the clade is the host taxon itself. Measured on a human host it was 0.1% of the microbial reads, against 58-66% at family. Use family or wider unless you know the genus is populated.")
+    }
+    if (params.drop_host_clade && ['class', 'phylum'].contains(params.drop_host_clade.toString().toLowerCase())) {
+        log.warn("--drop_host_clade ${params.drop_host_clade} removes every member of the host's ${params.drop_host_clade}, which is correct only when no OTHER organism at that rank is part of the experiment. On a xenograft, a co-culture or any multi-host cohort this deletes real signal; check ${params.outdir}/host_clade/ for what went.")
+    }
+    if (params.drop_host_clade && !params.drop_host_taxon) {
+        log.warn("--drop_host_clade is set but --drop_host_taxon is not: the clade will be removed from the combined tables and the cell matrix, while the host taxon's own rows are kept and the remaining abundances are not renormalised against them. Set --drop_host_taxon too unless that is deliberate.")
+    }
     if (params.assembly && params.skip_kraken2) {
         error("--assembly has nothing to score with --skip_kraken2: the contigs are classified with Kraken2 and judged against the combined report.")
     }
@@ -743,6 +755,30 @@ def shuffleSettings() {
 // keeps biologically distinct libraries apart: the contrast groups when there
 // are any, and otherwise one assembly of everything.
 //
+//
+// The host clade to treat as host, resolved once.
+//
+// Deliberately not defaulted to a rank. Which rank is safe depends entirely on
+// what else is in the sample: class Mammalia is free on human tissue and
+// deletes the mouse on a xenograft, and no setting of this pipeline can tell
+// those apart.
+//
+def hostCladeSettings() {
+    if (!params.drop_host_clade) {
+        return null
+    }
+    def known = ['genus', 'family', 'order', 'class', 'phylum']
+    def rank = params.drop_host_clade.toString().trim().toLowerCase()
+    if (!known.contains(rank)) {
+        error("--drop_host_clade: '${params.drop_host_clade}' is not one of ${known.join(', ')}.")
+    }
+    def taxid = params.host_kmer_taxid ?: params.host_carryover_taxid
+    if (!taxid) {
+        error("--drop_host_clade needs a host taxid to expand from: set --host_carryover_taxid (or --host_kmer_taxid) to the taxon that names your host.")
+    }
+    return [taxid: taxid, rank: rank]
+}
+
 def assemblySettings() {
     if (!params.assembly) {
         return null

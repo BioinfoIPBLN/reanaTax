@@ -64,6 +64,7 @@ include { decontamSettings         } from '../subworkflows/local/utils_nfcore_re
 include { shuffleSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { controlSettings          } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { assemblySettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { hostCladeSettings        } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { scChemistry              } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { meanReadLength            } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { brackenDistributions      } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
@@ -476,6 +477,7 @@ workflow REANATAX {
             shuffleSettings(),
             controlSettings(),
             assemblySettings(),
+            hostCladeSettings(),
             params.kraken2_use_daemon,
             params.min_rel_abundance,
             params.min_samples,

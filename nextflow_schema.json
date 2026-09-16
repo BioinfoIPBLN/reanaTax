@@ -560,6 +560,19 @@
                     "help_text": "Reads the depletion step missed are still classified, and while the host row sits in the table every microbial abundance is a fraction of host + microbes rather than of microbes. This drops the rows for `--host_carryover_taxid` and rescales the fraction columns against what is left. Exact for the Bracken table, which is flat; for the hierarchical Kraken2 combined report only the host's own rows go, and its ancestors keep their original clade counts. Dropped rows are written to the `.removed.tsv`, and the unfiltered combined table is published either way.",
                     "fa_icon": "fas fa-user-minus"
                 },
+                "drop_host_clade": {
+                    "type": "string",
+                    "enum": [
+                        "genus",
+                        "family",
+                        "order",
+                        "class",
+                        "phylum"
+                    ],
+                    "description": "Also drop every taxon under the host's own clade at this rank.",
+                    "help_text": "Host leakage does not stop at the host taxid: a host read that misses the host genome is assigned to the nearest relative the database holds. Measured on the CSI-Microbes 10x cohort with Homo sapiens already dropped, Pan/Pongo/Gorilla/Macaca/Tupaia were still 84% of everything called microbial in the uninfected library -- 0.1% at genus, 58-66% at family, 71-88% at class. The lineage is read from the run's own Kraken2 reports. This is a prediction from the taxonomy, not a measurement of the reads, so leakage landing outside the clade (conserved or low-complexity matches to unrelated genomes) is untouched -- that is what --host_kmer_filter is for. High ranks are destructive by design: class on a xenograft deletes the mouse.",
+                    "fa_icon": "fas fa-sitemap"
+                },
                 "exploremetatax_bundle": {
                     "type": "boolean",
                     "description": "Write a tar.gz of the taxonomic tables for the exploreMetaTax Shiny app.",
