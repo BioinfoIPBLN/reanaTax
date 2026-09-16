@@ -1400,6 +1400,91 @@
                     "minimum": 0,
                     "description": "Reads in a library for `--prevalence_filter` to count the taxon as present there.",
                     "fa_icon": "fas fa-ruler-horizontal"
+                },
+                "export_biom": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Also write the classification as a BIOM table.",
+                    "help_text": "Purely for interoperability: nothing in this pipeline reads it. Built with kraken-biom from the same per-sample reports Krona uses (Bracken's redistributed report when Bracken ran, the Kraken2 report otherwise), then restricted to the taxa that survived the filters so it agrees with the combined tables. Written as BIOM 1.0 (JSON), which phyloseq's import_biom reads without rhdf5; pass `--fmt hdf5` through `ext.args2` for BIOM 2.1.",
+                    "fa_icon": "fas fa-table"
+                },
+                "biom_metadata": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "mimetype": "text/tsv",
+                    "description": "Sample metadata to embed in the BIOM table. Defaults to --da_metadata.",
+                    "help_text": "TSV with the sample id in the first column and one column per factor. Every sample classified in the run must appear, or the export stops and names the ones missing. Only read when --export_biom is set.",
+                    "fa_icon": "fas fa-file-csv"
+                },
+                "assembly": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Assemble the non-host fraction de novo and score every taxon against the contigs.",
+                    "help_text": "The one line of evidence the other filters are blind to: they all count things about a taxon's reads, and a contig is a longer sequence. Reads placed by index hopping, or piled on a single conserved locus, do not assemble. Produces an evidence table only unless --contig_filter is also set.",
+                    "fa_icon": "fas fa-puzzle-piece"
+                },
+                "assembly_assembler": {
+                    "type": "string",
+                    "default": "megahit",
+                    "enum": [
+                        "megahit",
+                        "metaspades"
+                    ],
+                    "description": "Which assembler to use.",
+                    "help_text": "MEGAHIT by default: the non-host fraction is overwhelmingly bacterial and archaeal, so there is no splicing for an RNA assembler to model, and what RNA-seq does impose is severe coverage skew -- which is what a multi-k metagenome assembler handles. metaSPAdes gives better contiguity for considerably more time and memory, accepts only paired-end reads, and has to concatenate a pool before it can assemble it.",
+                    "fa_icon": "fas fa-cogs"
+                },
+                "assembly_pool": {
+                    "type": "string",
+                    "enum": [
+                        "all",
+                        "group",
+                        "sample"
+                    ],
+                    "description": "How libraries are pooled before assembly. Defaults to group when --da_grouping is set, otherwise all.",
+                    "help_text": "Per-library assembly is close to useless on the cohorts this exists for: a false positive sitting at tens of reads per library assembles into nothing, and neither does a real taxon at that depth. Pooling by contrast group puts the libraries that should share an organism into one assembly.",
+                    "fa_icon": "fas fa-object-group"
+                },
+                "assembly_min_contig_len": {
+                    "type": "integer",
+                    "default": 300,
+                    "minimum": 1,
+                    "description": "Shortest contig the assembler will report.",
+                    "fa_icon": "fas fa-ruler-horizontal"
+                },
+                "assembly_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed straight to the assembler.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "contig_filter": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Also remove taxa that had enough reads to assemble something and did not.",
+                    "help_text": "Off by default, and deliberately: a contig is strong positive evidence, but its absence is weak negative evidence because a genuinely rare organism does not assemble either. --contig_min_reads is the gate that keeps a taxon from being condemned for being rare. Contigs roll up the taxonomy, so a contig assigned to a species also supports the genus above it.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "contig_min_reads": {
+                    "type": "integer",
+                    "default": 50,
+                    "minimum": 0,
+                    "description": "Below this many reads a taxon is recorded and not judged.",
+                    "fa_icon": "fas fa-hashtag"
+                },
+                "contig_min_length": {
+                    "type": "integer",
+                    "default": 500,
+                    "minimum": 1,
+                    "description": "A contig must reach this length to count as support.",
+                    "fa_icon": "fas fa-ruler"
+                },
+                "contig_min_contigs": {
+                    "type": "integer",
+                    "default": 1,
+                    "minimum": 1,
+                    "description": "This many qualifying contigs are needed to support a taxon.",
+                    "fa_icon": "fas fa-layer-group"
                 }
             }
         },

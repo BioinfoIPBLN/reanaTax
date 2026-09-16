@@ -23,6 +23,12 @@ include { ABUNDANCE_CONTROL as CONTROL_KRAKEN2 } from '../../../modules/local/ab
 include { ABUNDANCE_CONTROL as CONTROL_BRACKEN } from '../../../modules/local/abundance/control/main'
 include { ABUNDANCE_FILTER as FILTER_KRAKEN2 } from '../../../modules/local/abundance/filter/main'
 include { ABUNDANCE_FILTER as FILTER_BRACKEN } from '../../../modules/local/abundance/filter/main'
+include { KRAKENBIOM                        } from '../../../modules/local/krakenbiom/main'
+include { MEGAHIT                           } from '../../../modules/local/megahit/main'
+include { SPADES_META                       } from '../../../modules/local/spades/meta/main'
+include { KRAKEN2_KRAKEN2 as KRAKEN2_CONTIGS } from '../../../modules/nf-core/kraken2/kraken2/main'
+include { KRAKEN2_DAEMON as KRAKEN2_DAEMON_CONTIGS } from '../../../modules/local/kraken2/daemon/main'
+include { CONTIG_EVIDENCE                   } from '../../../modules/local/contig/evidence/main'
 
 workflow TAXONOMY_KRAKEN2_BRACKEN {
 
@@ -41,10 +47,13 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     decontam_settings // map: metadata, neg_column, neg_value, conc_column, method, threshold, batch_column, batch_combine - or null
     shuffle_settings // map: method, seed, max_reads, max_ratio, min_reads - or null
     control_settings // map: controls, ratio, statistic, min_reads, floor_reads, prevalence, prevalence_min_reads - or null
+    assembly_settings // map: assembler, pool, groups, min_reads, min_length, min_contigs, filter - or null
     use_daemon // boolean: classify through `k2 classify --use-daemon`
     min_rel_abundance // float: relative abundance a taxon must exceed...
     min_samples // integer: ...in at least this many samples
     min_reads // number: ...and this many reads in total, 0 to disable
+    export_biom // boolean: also write the combined counts as a BIOM table
+    biom_metadata // path: sample metadata to embed in the BIOM, or null
 
     main:
 
@@ -57,7 +66,13 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     def ch_kraken2_db = channel.empty()
     if (kraken2_db.endsWith('.tar.gz') || kraken2_db.endsWith('.tgz')) {
         UNTAR(channel.value([[id: 'kraken2_db'], file(kraken2_db, checkIfExists: true)]))
-        ch_kraken2_db = UNTAR.out.untar.map { _meta, db -> db }
+        // .first() makes it a VALUE channel. Without it this is a queue channel
+        // holding one item, and a process pairs a queue channel element-by-element
+        // against the reads - so the cohort would classify its first sample and
+        // silently stop. The directory branch below is already a value channel;
+        // there are now three consumers (reads, shuffled reads, contigs) and all
+        // of them need the database once per task, not once per run.
+        ch_kraken2_db = UNTAR.out.untar.map { _meta, db -> db }.first()
     }
     else {
         ch_kraken2_db = channel.value(file(kraken2_db, checkIfExists: true))
@@ -351,6 +366,106 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     // counts stale - the same limitation drop_taxa() already documents, and
     // the same answer: docs/output.md says to take Bracken downstream.
     //
+    //
+    // MODULE: What the assembly says, which is the one thing read counts cannot.
+    //
+    // Libraries are POOLED before assembling. Per-library assembly is close to
+    // useless on the cohorts this filter is for: on the CSI-Microbes plate the
+    // false positives sit at 11-78 reads per well, and nothing assembles from
+    // that. Pooling by group puts every library that should share an organism
+    // into one assembly, which is where a real taxon finally has the depth to
+    // produce a contig and a hopped read still does not.
+    //
+    // MEGAHIT rather than an RNA assembler even though the input is usually
+    // RNA-seq - see modules/local/megahit for why the microbial fraction is the
+    // wrong shape for an isoform model.
+    //
+    def ch_contig_drop = channel.empty()
+    def ch_contig_evidence = channel.empty()
+    def ch_contigs = channel.empty()
+
+    if (assembly_settings) {
+        def ch_pools = ch_reads
+            .map { meta, reads ->
+                def files = reads instanceof List ? reads : [reads]
+                def key = assembly_settings.pool == 'sample'
+                    ? meta.id
+                    : assembly_settings.pool == 'group'
+                        ? (assembly_settings.groups[meta.id] ?: 'ungrouped')
+                        : 'all'
+                [[id: "pool_${key}", single_end: meta.single_end], files]
+            }
+            .groupTuple()
+            .map { meta, filesets ->
+                [
+                    meta,
+                    filesets.collect { files -> files[0] },
+                    meta.single_end ? [] : filesets.collect { files -> files[1] },
+                ]
+            }
+
+        if (assembly_settings.assembler == 'metaspades') {
+            SPADES_META(ch_pools)
+            ch_contigs = SPADES_META.out.contigs
+        }
+        else {
+            MEGAHIT(ch_pools)
+            ch_contigs = MEGAHIT.out.contigs
+        }
+
+        // single_end on the way OUT, whatever the libraries were: a contig file
+        // is one unpaired FASTA, and both Kraken2 modules read meta.single_end
+        // to decide whether to pass --paired. Leaving a paired-end pool's meta
+        // alone would hand Kraken2 one file and tell it there are two.
+        ch_contigs = ch_contigs.map { meta, contigs -> [meta + [single_end: true], contigs] }
+
+        // Kraken2 reads FASTA as happily as FASTQ, and the contigs are gzipped,
+        // which is what the module's hardcoded --gzip-compressed needs. The
+        // per-contig assignment is the point: the report alone gives counts, and
+        // contig LENGTHS are what separate a 2 kb genome fragment from a 210 bp
+        // fragment that happens to classify.
+        def ch_contig_report = channel.empty()
+        def ch_contig_assignments = channel.empty()
+
+        if (use_daemon) {
+            KRAKEN2_DAEMON_CONTIGS(
+                ch_contigs,
+                file(kraken2_db, checkIfExists: true).toAbsolutePath().toString(),
+                false,
+                true,
+            )
+            ch_contig_report = KRAKEN2_DAEMON_CONTIGS.out.report
+            ch_contig_assignments = KRAKEN2_DAEMON_CONTIGS.out.classified_reads_assignment
+        }
+        else {
+            KRAKEN2_CONTIGS(ch_contigs, ch_kraken2_db, false, true)
+            ch_contig_report = KRAKEN2_CONTIGS.out.report
+            ch_contig_assignments = KRAKEN2_CONTIGS.out.classified_reads_assignment
+        }
+
+        // Scored on the UNFILTERED combined kreport, like every other evidence
+        // filter: its verdict is one of the inputs to the filtering, not a
+        // comment on the result of it. The kreport and not Bracken, because a
+        // contig assigned at genus has no species row to be scored against.
+        CONTIG_EVIDENCE(
+            KRAKENTOOLS_COMBINEKREPORTS.out.txt,
+            ch_contig_assignments.map { _meta, table -> table }.collect(sort: true),
+            ch_contig_report.map { _meta, report -> report }.collect(sort: true),
+            assembly_settings.min_reads,
+            assembly_settings.min_length,
+            assembly_settings.min_contigs,
+        )
+        ch_contig_evidence = CONTIG_EVIDENCE.out.evidence
+        ch_multiqc_files = ch_multiqc_files.mix(CONTIG_EVIDENCE.out.mqc.map { _meta, mqc -> mqc })
+
+        // Evidence by default, a filter only on request. A contig is strong
+        // positive evidence; its absence is weak negative evidence, because a
+        // genuinely rare organism does not assemble either.
+        if (assembly_settings.filter) {
+            ch_contig_drop = CONTIG_EVIDENCE.out.drop_list.map { _meta, list -> list }
+        }
+    }
+
     def ch_control_drop = channel.empty()
     def ch_control_cells = channel.empty()
     def ch_control_evidence = channel.empty()
@@ -412,8 +527,8 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     // Union of every list: each condemns a taxon for its own reason, and
     // surviving one is no argument against the others. `collect` gives the
     // filter a single list, and emits an empty one when no filter ran.
-    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || control_settings || (decontam_settings && !skip_bracken)
-        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).collect(sort: true)
+    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || control_settings || (assembly_settings && assembly_settings.filter) || (decontam_settings && !skip_bracken)
+        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).mix(ch_contig_drop).collect(sort: true)
         : channel.value([])
 
     FILTER_KRAKEN2(ch_kraken2_for_filter, ch_drop_list, min_rel_abundance, min_samples, min_reads)
@@ -440,6 +555,41 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         ch_krona = KRONA_KTIMPORTTEXT.out.html
     }
 
+    //
+    // MODULE: The same counts as a BIOM table, for tools outside this pipeline.
+    //
+    // Built from the per-sample reports Krona uses, for the same reason: when
+    // Bracken ran, its redistributed report is the one that answers "how much",
+    // and the raw Kraken2 report is only the right source when it did not.
+    //
+    // Restricted afterwards to the taxa in the FILTERED combined kreport, not
+    // the Bracken one. Bracken's table is species-only, and kraken-biom emits a
+    // row per rank; intersecting against a species-only list would silently
+    // delete every genus, family and order observation - the same trap the
+    // negative-control filter hit from the other direction.
+    //
+    def ch_biom = channel.empty()
+
+    if (export_biom) {
+        KRAKENBIOM(
+            (skip_bracken ? ch_report_classified : ch_bracken_report)
+                .toSortedList { entry_a, entry_b -> entry_a[0].id <=> entry_b[0].id }
+                .filter { entries -> entries }
+                .map { entries ->
+                    [
+                        [
+                            id: skip_bracken ? 'kraken2_biom' : 'bracken_biom',
+                            names: entries.collect { entry -> entry[0].id }.join(' '),
+                        ],
+                        entries.collect { entry -> entry[1] },
+                    ]
+                },
+            FILTER_KRAKEN2.out.filtered.map { _meta, table -> table },
+            biom_metadata ? file(biom_metadata, checkIfExists: true) : [],
+        )
+        ch_biom = KRAKENBIOM.out.biom
+    }
+
     emit:
     report = ch_kraken2_report // channel: [ val(meta), path(report) ]
     report_combined = KRAKENTOOLS_COMBINEKREPORTS.out.txt // channel: [ val(meta), path(txt) ]
@@ -449,6 +599,9 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     report_combined_filtered = FILTER_KRAKEN2.out.filtered // channel: [ val(meta), path(tsv) ]
     bracken_combined_filtered = ch_bracken_combined_filtered // channel: [ val(meta), path(tsv) ]
     krona = ch_krona // channel: [ val(meta), path(html) ]
+    biom = ch_biom // channel: [ val(meta), path(biom) ]
+    contigs = ch_contigs // channel: [ val(meta), path(fa.gz) ]
+    contig_evidence = ch_contig_evidence // channel: [ val(meta), path(tsv) ]
     drop_list = ch_drop_list // channel: [ path(txt) ] - every filter's verdict, for consumers outside this subworkflow
     minimizer_evidence = minimizer_filter ? ABUNDANCE_MINIMIZER.out.evidence : channel.empty() // channel: [ val(meta), path(tsv) ]
     host_kmer_evidence = ch_hostkmer_evidence // channel: [ val(meta), path(tsv) ]

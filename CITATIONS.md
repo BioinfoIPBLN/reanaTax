@@ -58,6 +58,18 @@
 
   > Lu J, Rincon N, Wood DE, Breitwieser FP, Pockrandt C, Langmead B, Salzberg SL, Steinegger M. Metagenome analysis using the Kraken software suite. Nat Protoc. 2022 Dec;17(12):2815-2839. doi: 10.1038/s41596-022-00738-y. PubMed PMID: 35577959; PubMed Central PMCID: PMC9725748.
 
+- [MEGAHIT](https://pubmed.ncbi.nlm.nih.gov/25609793/)
+
+  > Li D, Liu CM, Luo R, Sadakane K, Lam TW. MEGAHIT: an ultra-fast single-node solution for large and complex metagenomics assembly via succinct de Bruijn graph. Bioinformatics. 2015 May 15;31(10):1674-6. doi: 10.1093/bioinformatics/btv033. PubMed PMID: 25609793.
+
+- [metaSPAdes](https://pubmed.ncbi.nlm.nih.gov/28298430/)
+
+  > Nurk S, Meleshko D, Korobeynikov A, Pevzner PA. metaSPAdes: a new versatile metagenomic assembler. Genome Res. 2017 May;27(5):824-834. doi: 10.1101/gr.213959.116. PubMed PMID: 28298430; PubMed Central PMCID: PMC5411777.
+
+- [kraken-biom](https://github.com/smdabdoub/kraken-biom)
+
+  > Dabdoub SM. kraken-biom: Enabling interoperative format conversion for Kraken results. Version 1.2.0.
+
 - [Krona](https://pubmed.ncbi.nlm.nih.gov/21961884/)
 
   > Ondov BD, Bergman NH, Phillippy AM. Interactive metagenomic visualization in a Web browser. BMC Bioinformatics. 2011 Sep 30;12:385. doi: 10.1186/1471-2105-12-385. PubMed PMID: 21961884; PubMed Central PMCID: PMC3190407.

@@ -546,6 +546,24 @@ def validateInputParameters() {
     // The negative-control filter. Its settings are validated in
     // controlSettings(); what belongs here is the interaction with the rest of
     // the run, which that function cannot see.
+    if (params.assembly && params.skip_kraken2) {
+        error("--assembly has nothing to score with --skip_kraken2: the contigs are classified with Kraken2 and judged against the combined report.")
+    }
+    if (params.contig_filter && !params.assembly) {
+        error("--contig_filter needs --assembly: there are no contigs to judge a taxon against otherwise.")
+    }
+    if (params.assembly && params.assembly_assembler == 'metaspades' && params.assembly_pool == 'sample') {
+        log.warn("--assembly_assembler metaspades with --assembly_pool sample runs one SPAdes assembly per library, which is both the slowest and the least informative combination. MEGAHIT, or a coarser pool, is almost always the better trade.")
+    }
+    if (params.contig_filter && (params.contig_min_reads as int) < 50) {
+        log.warn("--contig_min_reads ${params.contig_min_reads} will judge taxa that had too few reads to assemble anything. Absence of a contig is weak evidence of absence; the gate is what keeps a rare organism from being condemned for being rare.")
+    }
+    if (params.export_biom && params.skip_kraken2) {
+        error("--export_biom has nothing to write with --skip_kraken2: the BIOM table is built from the Kraken2/Bracken reports.")
+    }
+    if (params.biom_metadata && !params.export_biom) {
+        log.warn("--biom_metadata was given but --export_biom is not set, so no BIOM table will be written.")
+    }
     if (params.negative_controls && params.skip_kraken2) {
         error("--negative_controls has nothing to filter with --skip_kraken2: the control levels are read off the combined Kraken2 and Bracken tables.")
     }
@@ -715,6 +733,66 @@ def shuffleSettings() {
 // --decontam does not have to declare them twice. The ID column is the first
 // one, matching --da_metadata and bin/decontam_filter.R.
 //
+//
+// How the assembly branch is configured, resolved once so the subworkflow never
+// reads params.
+//
+// The pool is the decision that matters. Per-library assembly is close to
+// useless on the cohorts this filter exists for - tens of reads per library
+// assemble into nothing - so the default is the coarsest grouping that still
+// keeps biologically distinct libraries apart: the contrast groups when there
+// are any, and otherwise one assembly of everything.
+//
+def assemblySettings() {
+    if (!params.assembly) {
+        return null
+    }
+    def known = ['megahit', 'metaspades']
+    if (!known.contains(params.assembly_assembler)) {
+        error("--assembly_assembler: '${params.assembly_assembler}' is not one of ${known.join(', ')}.")
+    }
+    def pools = ['all', 'group', 'sample']
+    def pool = params.assembly_pool ?: (params.da_metadata && params.da_grouping ? 'group' : 'all')
+    if (!pools.contains(pool)) {
+        error("--assembly_pool: '${pool}' is not one of ${pools.join(', ')}.")
+    }
+    def groups = [:]
+    if (pool == 'group') {
+        if (!(params.da_metadata && params.da_grouping)) {
+            error("--assembly_pool group needs --da_metadata and --da_grouping to say which libraries belong together.")
+        }
+        def lines = file(params.da_metadata, checkIfExists: true).readLines()
+            .findAll { line -> line.trim() && !line.startsWith('#') }
+        if (lines.size() < 2) {
+            error("--assembly_pool group: ${params.da_metadata} has no data rows.")
+        }
+        def header = lines[0].split('\t') as List
+        def column = header.findIndexOf { field -> field.trim() == params.da_grouping }
+        if (column < 0) {
+            error("--assembly_pool group: ${params.da_metadata} has no column '${params.da_grouping}'. It has: ${header.join(', ')}")
+        }
+        lines.drop(1).each { line ->
+            def fields = line.split('\t') as List
+            def value = column < fields.size() ? fields[column].trim() : ''
+            if (fields[0].trim() && value) {
+                groups[fields[0].trim()] = value.replaceAll(/[^A-Za-z0-9_.-]+/, '_')
+            }
+        }
+        if (!groups) {
+            error("--assembly_pool group: no row of ${params.da_metadata} has ${params.da_grouping} set.")
+        }
+    }
+    return [
+        assembler: params.assembly_assembler,
+        pool: pool,
+        groups: groups,
+        min_reads: params.contig_min_reads,
+        min_length: params.contig_min_length,
+        min_contigs: params.contig_min_contigs,
+        filter: params.contig_filter,
+    ]
+}
+
 def controlSettings() {
     def prevalence = params.prevalence_filter as double
     if (!params.negative_controls && prevalence <= 0) {

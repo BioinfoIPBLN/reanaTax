@@ -63,6 +63,7 @@ include { hostKmerSettings         } from '../subworkflows/local/utils_nfcore_re
 include { decontamSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { shuffleSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { controlSettings          } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { assemblySettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { scChemistry              } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { meanReadLength            } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { brackenDistributions      } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
@@ -445,6 +446,15 @@ workflow REANATAX {
         def bracken_dists = brackenDistributions(params.bracken_db ?: params.kraken2_db)
         def ch_reads_for_tax = ch_nonhost_reads
             .join(FASTQ_QC_TRIM.out.fastp_json, remainder: true)
+            // remainder: true exists so a sample with reads but NO fastp JSON
+            // (--skip_trimming) still gets classified. It also lets the mirror
+            // case through - a sample with a JSON and no reads - as a null path,
+            // which surfaces as "Path value cannot be null" on a process whose
+            // own error message then fails to render. Keeping the first case and
+            // dropping the second is what this filter does; a sample that lost
+            // its reads upstream is an upstream bug, and it should not be
+            // rediscovered here as an unrecoverable crash.
+            .filter { _meta, reads, _json -> reads }
             .map { meta, reads, json ->
                 def observed = json ? meanReadLength(json) : null
                 [meta + [bracken_r: resolveBrackenReadLength(observed, bracken_dists, params.bracken_read_length)], reads]
@@ -465,10 +475,13 @@ workflow REANATAX {
             decontamSettings(),
             shuffleSettings(),
             controlSettings(),
+            assemblySettings(),
             params.kraken2_use_daemon,
             params.min_rel_abundance,
             params.min_samples,
             params.min_reads,
+            params.export_biom,
+            params.biom_metadata ?: params.da_metadata,
         )
         ch_multiqc_files = ch_multiqc_files.mix(TAXONOMY_KRAKEN2_BRACKEN.out.multiqc_files)
         ch_kraken2_report = TAXONOMY_KRAKEN2_BRACKEN.out.report

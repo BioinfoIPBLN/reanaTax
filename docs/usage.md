@@ -672,6 +672,58 @@ The idea is PRISM's — that read count without breadth is not evidence, and tha
 below about ten reads there is nothing to confirm either way. The metric is this
 pipeline's own; PRISM's score is not reproduced.
 
+### De novo assembly of the non-host fraction (`--assembly`)
+
+Every filter above judges a taxon by counting things about its reads — how many, how many distinct minimizers, how they behave under shuffling, how they compare to a blank. Not one of them ever produces a longer sequence. That is the gap this fills: a 1 kb contig that classifies to a taxon is categorically stronger evidence than fifty 100 bp reads that do, because reads placed by index hopping, or piled on one conserved locus, do not assemble into anything.
+
+```bash
+nextflow run BioinfoIPBLN/reanaTax \
+    --input samplesheet.csv \
+    --kraken2_db /path/to/db \
+    --assembly \
+    --da_metadata metadata.tsv \
+    --da_grouping condition \
+    -profile singularity
+```
+
+That writes `assembly/reanatax.contig_evidence.tsv` and removes nothing. Add `--contig_filter` to turn it into a verdict.
+
+#### Contigs, not transcripts — and MEGAHIT, not Trinity
+
+The input is usually RNA-seq, so an RNA assembler looks like the obvious choice. It is not, and [nf-rnaSeqMetagen](https://doi.org/10.1016/j.medmic.2020.100011) — which pioneered this step and uses Trinity for it — is solving the wrong half of the problem.
+
+What survives host depletion is overwhelmingly bacterial and archaeal: unspliced, operonic, with no isoform structure for an RNA assembler to model. What RNA-seq *does* impose is savage coverage skew, where rRNA and a handful of transcripts swamp everything else — and that is a coverage problem, which is exactly what a multi-k metagenome assembler is built for. The goal here is also not a transcriptome: it is one longer sequence to classify, so a taxonomic call rests on contiguous evidence.
+
+The exception is a eukaryotic microbe or a spliced virus — *Plasmodium*, *Toxoplasma*, a fungus, EBV — where transcript structure is real. That is the `--target_taxid` case, and [`TARGETED_TAXON`](#one-taxon-followed-to-its-own-differential-expression---target_taxid) already does something stronger there: it aligns to the organism's actual genome and counts its actual genes, rather than guessing at one.
+
+`--assembly_assembler metaspades` trades time and memory for contiguity. It accepts only paired-end reads and can take just one library, so a pool has to be concatenated before it can be assembled — which is why MEGAHIT is the default.
+
+#### Pooling is the decision that matters
+
+Per-library assembly is close to useless on the cohorts this filter exists for. On the CSI-Microbes plate the false positives sit at 11–78 reads *per well*: nothing assembles from that, and neither does a real taxon at that depth. So libraries are pooled first.
+
+| `--assembly_pool` | One assembly per | Use when |
+| ----------------- | ---------------- | -------- |
+| `group` (default with `--da_grouping`) | contrast group | the usual case — libraries that should share an organism are assembled together, and groups that should not stay apart |
+| `all` (default otherwise) | cohort | no grouping is defined, or the cohort is small |
+| `sample` | library | libraries are deep metagenomes in their own right |
+
+#### What it reports, and what it will not claim
+
+| Column | Meaning |
+| ------ | ------- |
+| `reads` | clade reads for the taxon, from the combined Kraken2 report |
+| `pools` | how many pooled assemblies produced a contig for it |
+| `contigs` / `contigs_over_min` | contigs assigned to it, and how many clear `--contig_min_length` |
+| `contig_bp`, `longest_bp`, `n50`, `mean_bp` | the size of that evidence |
+| `verdict` | `supported`, `unsupported`, or `not_judged` |
+
+Contigs **roll up the taxonomy**. A contig assigned to *Fusobacterium nucleatum* is support for genus *Fusobacterium* above it, reconstructed from the contig report's own indentation rather than from an external taxonomy dump. This is not cosmetic: on the CSI-Microbes plate every false positive the negative-control filter removed sat at *genus*, and a species-only accounting would have scored none of them.
+
+The gate is the honest part. **Absence of a contig is weak evidence of absence** — a genuinely rare organism does not assemble either. So a taxon below `--contig_min_reads` (50) is recorded as `not_judged` and never condemned, exactly as `--minimizer_filter` does. Lowering that gate is how you start deleting real rare organisms, and the pipeline warns if you set it below 50 with `--contig_filter` on.
+
+One consequence of pooling worth stating: a taxon spread thinly across many libraries may have thousands of reads in total and still never reach assembly depth in any single pool. Coarser pooling mitigates it; `--contig_filter` on `--assembly_pool sample` is the combination most likely to condemn something real.
+
 ## Single-cell data (`--single_cell`)
 
 scRNA-seq is not a variant of the bulk route, and the reason is worth stating
@@ -1961,6 +2013,29 @@ If you use Singularity and want to reuse images across runs, set:
 ```bash
 export NXF_SINGULARITY_CACHEDIR=/path/to/cache
 ```
+
+## BIOM export (`--export_biom`)
+
+Off by default. `--export_biom` writes the classification as a BIOM table in `biom/`, for tools outside this pipeline — QIIME 2, phyloseq, `microbiome`, anything that expects BIOM rather than TSV. Nothing downstream here reads it.
+
+```bash
+nextflow run BioinfoIPBLN/reanaTax \
+    --input samplesheet.csv \
+    --kraken2_db /path/to/db \
+    --export_biom \
+    --biom_metadata metadata.tsv \
+    -profile singularity
+```
+
+`--biom_metadata` is optional and falls back to `--da_metadata`; it is the same TSV shape, sample id in column 1, and it is attached as BIOM sample metadata so a `phyloseq` object arrives with its `sample_data()` already filled in. Every sample classified in the run must appear in it — a sample missing from the file stops the export and names it, rather than failing inside `pandas` the way `kraken-biom --metadata` does.
+
+Two things are worth knowing before handing the file to someone else.
+
+**It is filtered.** `kraken-biom` reads the raw per-sample reports, so a BIOM built straight from them would carry back every taxon `--negative_controls`, the evidence filters and the abundance thresholds removed. The table published here is restricted to the taxids in the filtered combined report, so it says the same thing as `*_filtered.tsv`. When the filters removed anything, the pre-filter table is published alongside as `*.unfiltered.biom` — use that one only if you mean to.
+
+**It is not species-only.** Observations run from domain to species, because a great deal of Kraken2 signal never reaches species: on the CSI-Microbes plate every false positive the control filter removed sat at genus. Counts remain additive — a species row holds its clade's reads, a higher row holds only the reads that stopped there — so a column still sums to the classified total. Change the range with `ext.args` on `KRAKENBIOM` if you want the tool's own `--max O --min S`.
+
+The output is BIOM 1.0 (JSON), which `phyloseq::import_biom` reads without `rhdf5`. For BIOM 2.1, pass `ext.args2 = '--format hdf5'` to `KRAKENBIOM`, or convert afterwards with `biom convert --to-hdf5`.
 
 ## Differential abundance
 

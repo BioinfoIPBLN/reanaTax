@@ -14,6 +14,8 @@ This document describes the output produced by the pipeline. All paths are relat
 - [Kraken2](#kraken2) — taxonomic classification
 - [Bracken](#bracken) — abundance re-estimation
 - [Krona](#krona) — interactive taxonomy charts
+- [Assembly](#assembly) — contigs from the non-host fraction, and what they say about each taxon
+- [BIOM](#biom) — the same counts in BIOM format, for tools outside this pipeline
 - [MultiQC](#multiqc) — aggregate report
 - [Pipeline information](#pipeline-information) — run metadata, versions and reports
 
@@ -342,6 +344,49 @@ See [usage](usage.md#diversity-and-what-explains-it---run_diversity) for the cav
 </details>
 
 [Krona](https://github.com/marbl/Krona) renders the composition as a zoomable hierarchy. Built from the Bracken-corrected report when Bracken ran, otherwise from the Kraken2 report. Open the HTML directly in a browser — no server needed.
+
+### Assembly
+
+Only produced with `--assembly`.
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `assembly/`
+  - `pool_<key>.contigs.fa.gz`: the contigs, one file per pool (`pool_all`, `pool_<group>` or `pool_<sample>`).
+  - `pool_<key>.contigs.kraken2.report.txt`: Kraken2's classification of those contigs.
+  - `pool_<key>.megahit.log` / `.spades.log`: the assembler's own log.
+  - `reanatax.contig_evidence.tsv`: one row per taxon — reads, pools, contig count, total bp, longest contig, N50, verdict.
+  - `reanatax.contig_drop.txt`: the taxids condemned, written whether or not `--contig_filter` is set, and read by the abundance filter only when it is.
+
+</details>
+
+The one line of evidence the other filters are blind to. They all count things about a taxon's reads; a contig is a longer sequence, and reads placed by index hopping or piled on a single conserved locus do not assemble into one.
+
+Contigs roll up the taxonomy, so a contig assigned to a species also supports every rank above it — the lineage comes from the contig report's own indentation. Read `verdict` with the read gate in mind: `not_judged` means the taxon never had enough reads to assemble anything, and is a statement about depth rather than about the taxon.
+
+Nothing is removed unless `--contig_filter` is set; without it the drop list is published as a record and the combined tables are untouched.
+
+### BIOM
+
+Only produced with `--export_biom`.
+
+<details markdown="1">
+<summary>Output files</summary>
+
+- `biom/`
+  - `bracken_biom.biom` (or `kraken2_biom.biom` with `--skip_bracken`): the classification as a BIOM 1.0 (JSON) table, observation ids are NCBI taxids, observation metadata is the full `k__…;s__…` lineage.
+  - `*.unfiltered.biom`: the same table before the filters were applied, written only when they removed something.
+
+</details>
+
+Nothing in this pipeline reads it. The combined tables are already a taxa-by-sample count matrix — which is why the differential-abundance step skips the `kraken-biom` round trip `EzAppDiffShot` does — so this exists to hand a run to QIIME 2, phyloseq, `microbiome` or anything else that speaks BIOM.
+
+Built by [kraken-biom](https://github.com/smdabdoub/kraken-biom) from the same per-sample reports Krona uses, then **restricted to the taxa that survived the filters**, so it agrees with `*_filtered.tsv` rather than contradicting it. The unfiltered table is published beside it when the two differ, because a BIOM handed to another tool is exactly where an unexplained discrepancy is hardest to chase down.
+
+Every rank from domain to species is present as its own observation (`--max D --min S`), not just species. Counts stay additive: a species row carries its clade's reads, and a row above it carries only the reads that stopped at that rank. This matters more here than it looks — on the CSI-Microbes plate every false positive the negative-control filter removed sat at *genus*, and kraken-biom's own default of `--max O` would have started the table below the ranks where that signal lives.
+
+BIOM 1.0 (JSON) is the default because phyloseq's `import_biom` reads it without `rhdf5`. For BIOM 2.1 (HDF5), either pass `ext.args2 = '--format hdf5'` to `KRAKENBIOM` or run `biom convert -i table.biom -o table.hdf5.biom --to-hdf5` afterwards.
 
 ### MultiQC
 
