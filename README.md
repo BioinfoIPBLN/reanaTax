@@ -88,7 +88,7 @@ See [docs/usage.md](docs/usage.md) for the full parameter reference - in particu
 
 ## Credits
 
-BioinfoIPBLN/reanatax was originally written by Jose L. Ruiz.
+BioinfoIPBLN/reanatax was originally written by [Jose L. Ruiz](https://github.com/josruirod) (Functional Genomics Center Zurich, University of Zurich / ETH Zurich).
 
 It reuses design and code from [reanalyzerGSE](https://github.com/BioinfoIPBLN/reanalyzerGSE) and from the [nf-core/modules](https://github.com/nf-core/modules) collection.
 
