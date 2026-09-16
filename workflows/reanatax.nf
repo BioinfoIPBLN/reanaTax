@@ -478,6 +478,8 @@ workflow REANATAX {
             controlSettings(),
             assemblySettings(),
             hostCladeSettings(),
+            params.drop_host_taxon,
+            params.host_carryover_taxid,
             params.kraken2_use_daemon,
             params.min_rel_abundance,
             params.min_samples,

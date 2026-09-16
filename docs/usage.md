@@ -697,6 +697,20 @@ nextflow run BioinfoIPBLN/reanaTax \
     -profile singularity
 ```
 
+#### How it relates to `--drop_host_taxon`
+
+They are independent flags, and `--drop_host_clade` is a **strict superset** — it does not replace the older one, it contains it.
+
+| Flags | What is removed |
+| ----- | --------------- |
+| `--drop_host_taxon` alone | the host taxid only (9606) |
+| `--drop_host_clade family` alone | Hominidae and everything under it — **including 9606** |
+| both | the same as `--drop_host_clade family`; the taxid is listed twice and de-duplicated |
+
+So `--drop_host_taxon` is still there, still does exactly what it always did, and is the right choice on its own when you want nothing but the host removed. Setting both is harmless. Both feed the same drop set in `filter_abundance.py` and both renormalise the surviving abundances, so no combination leaves the fractions inconsistent.
+
+Both now travel on the same shared drop list, so both reach the combined tables *and* the single-cell matrix. That was not always true: `--drop_host_taxon` used to be an argument to the abundance filter and touched the combined tables only, which made it the one removal in the pipeline that left the two views disagreeing — *Homo sapiens* rows outlived it in `cell_taxa` and produced two spurious "significant" cell-type enrichment results on the CSI-Microbes plate. Host filtering happens after `--sc_kmer_denoise` and `--sc_ambient`, so both of those still see the host rows they need.
+
 The lineage is read from the run's own Kraken2 reports, so the ranks are the ones the database actually uses and there is no external taxonomy to keep in step. The taxa removed are listed in `host_clade/reanatax.host_clade_evidence.tsv`.
 
 It also reaches further than `--drop_host_taxon` does. That flag is an argument to the abundance filter, so it never touched the single-cell matrix — which is why *Homo sapiens* rows outlived it in `cell_taxa`. `--drop_host_clade` travels on the shared drop list, so the cohort tables and the cell matrix agree.

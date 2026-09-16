@@ -555,9 +555,11 @@ def validateInputParameters() {
     if (params.drop_host_clade && ['class', 'phylum'].contains(params.drop_host_clade.toString().toLowerCase())) {
         log.warn("--drop_host_clade ${params.drop_host_clade} removes every member of the host's ${params.drop_host_clade}, which is correct only when no OTHER organism at that rank is part of the experiment. On a xenograft, a co-culture or any multi-host cohort this deletes real signal; check ${params.outdir}/host_clade/ for what went.")
     }
-    if (params.drop_host_clade && !params.drop_host_taxon) {
-        log.warn("--drop_host_clade is set but --drop_host_taxon is not: the clade will be removed from the combined tables and the cell matrix, while the host taxon's own rows are kept and the remaining abundances are not renormalised against them. Set --drop_host_taxon too unless that is deliberate.")
-    }
+    // No warning for --drop_host_clade without --drop_host_taxon: the clade
+    // CONTAINS the host taxon (9606 is the first row of a Hominidae expansion),
+    // and both flags feed the same drop set in filter_abundance.py, which
+    // renormalises either way. The clade flag is a strict superset; setting
+    // both is redundant rather than wrong.
     if (params.assembly && params.skip_kraken2) {
         error("--assembly has nothing to score with --skip_kraken2: the contigs are classified with Kraken2 and judged against the combined report.")
     }

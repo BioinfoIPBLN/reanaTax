@@ -50,6 +50,8 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     control_settings // map: controls, ratio, statistic, min_reads, floor_reads, prevalence, prevalence_min_reads - or null
     assembly_settings // map: assembler, pool, groups, min_reads, min_length, min_contigs, filter - or null
     host_clade // map: taxid, rank - or null
+    drop_host_taxon // boolean: remove the host taxon from both the tables and the matrix
+    host_taxon // the taxid that names the host
     use_daemon // boolean: classify through `k2 classify --use-daemon`
     min_rel_abundance // float: relative abundance a taxon must exceed...
     min_samples // integer: ...in at least this many samples
@@ -383,6 +385,22 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     // wrong shape for an isoform model.
     //
     //
+    // The host taxon itself, on the SHARED drop list rather than as an argument
+    // to the abundance filter. It was the latter for most of this pipeline's
+    // life, which meant it reached the combined tables and not the cell matrix -
+    // the single removal that left the two views disagreeing, against the
+    // invariant the rest of the single-cell branch is built on. It showed:
+    // Homo sapiens rows outlived it in cell_taxa and produced two "significant"
+    // cell-type enrichment results on the CSI-Microbes plate.
+    //
+    // Not a process. One taxid does not need a container to write down, and
+    // collectFile keeps it on the same channel every other verdict travels.
+    //
+    def ch_host_taxon_drop = drop_host_taxon && host_taxon
+        ? channel.of(host_taxon.toString()).collectFile(name: 'host_taxon_drop.txt', newLine: true)
+        : channel.empty()
+
+    //
     // MODULE: the host's relatives, which are host reads under another name.
     //
     // Scored on the per-sample reports rather than the combined table because
@@ -552,8 +570,8 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     // Union of every list: each condemns a taxon for its own reason, and
     // surviving one is no argument against the others. `collect` gives the
     // filter a single list, and emits an empty one when no filter ran.
-    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || control_settings || host_clade || (assembly_settings && assembly_settings.filter) || (decontam_settings && !skip_bracken)
-        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).mix(ch_contig_drop).mix(ch_hostclade_drop).collect(sort: true)
+    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || control_settings || host_clade || drop_host_taxon || (assembly_settings && assembly_settings.filter) || (decontam_settings && !skip_bracken)
+        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).mix(ch_contig_drop).mix(ch_hostclade_drop).mix(ch_host_taxon_drop).collect(sort: true)
         : channel.value([])
 
     FILTER_KRAKEN2(ch_kraken2_for_filter, ch_drop_list, min_rel_abundance, min_samples, min_reads)
