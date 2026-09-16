@@ -33,7 +33,15 @@ workflow SINGLECELL_STARSOLO {
         ? channel.value(file(whitelist, checkIfExists: true))
         : channel.value([])
 
-    STARSOLO(ch_reads, ch_index, ch_gtf, ch_whitelist)
+    // .first() on both, and it is not cosmetic. PREPARE_HOST_REFERENCE emits
+    // QUEUE channels holding one item each, and a process pairs a queue channel
+    // element-by-element against the reads - so without this STARsolo aligns
+    // the FIRST sample and silently drops every other one. Measured on the
+    // CSI-Microbes droplet cohort: 3 libraries in, "STARSOLO | 1 of 1", two
+    // thirds of the cohort gone with no error. The bulk route already does this
+    // at every HISAT2_ALIGN* call site; this path had been exercised only with
+    // one sample at a time.
+    STARSOLO(ch_reads, ch_index.first(), ch_gtf.first(), ch_whitelist)
     STARSOLO_UNMAPPED(STARSOLO.out.bam)
 
     //

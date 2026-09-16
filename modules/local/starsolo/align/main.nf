@@ -14,10 +14,23 @@
 //
 //   --outSAMunmapped Within   keeps unmapped reads IN the BAM. Without it they
 //                             are dropped and there is nothing to classify.
-//   --outSAMtype BAM Unsorted the unmapped reads are wanted, not a sorted
-//                             alignment; sorting them is wasted work.
 //   CB/UB in --outSAMattributes  the corrected barcode and deduplicated UMI.
 //                             CR/UR (raw) are kept alongside for diagnostics.
+//   --outSAMtype BAM SortedByCoordinate  NOT a preference. STAR refuses CB/UB
+//                             on an unsorted BAM - "CB and/or UB attributes in
+//                             --outSAMattributes can only be output in the
+//                             sorted BAM file" - because the corrected barcode
+//                             and the deduplicated UMI are only known once the
+//                             solo pass has finished, which STAR does during
+//                             the sort. Sorting reads that are wanted only as
+//                             FASTQ does look like wasted work, and it is; it
+//                             is also the only way to get the tags that make
+//                             the branch work at all.
+//
+// --limitBAMsortRAM is therefore set too, and scaled from task.memory rather
+// than left at STAR's default of 0 (which means "the genome index size", ~30 GB
+// for human, on top of the ~30 GB the index already occupies - close enough to
+// the 72 GB of process_high to matter, and it would not grow on retry).
 //
 // Taking CB rather than re-deriving the barcode from the read is a deliberate
 // improvement on SAHMI, whose sckmer.r reads it positionally as
@@ -39,7 +52,7 @@ process STARSOLO {
     path whitelist
 
     output:
-    tuple val(meta), path('*.Aligned.out.bam'), emit: bam
+    tuple val(meta), path('*.Aligned.sortedByCoord.out.bam'), emit: bam
     tuple val(meta), path('*Solo.out'), emit: solo
     tuple val(meta), path('*Log.final.out'), emit: log_final
     tuple val(meta), path('*Log.out'), emit: log_out
@@ -64,6 +77,7 @@ process STARSOLO {
     def whitelist_arg = whitelist ? "${whitelist}" : 'None'
     def zipped = files.every { entry -> entry.name.endsWith('.gz') }
     def read_command = zipped ? '--readFilesCommand zcat' : ''
+    def sort_ram = (task.memory.toBytes() / 2.5) as long
     """
     STAR \\
         --runMode alignReads \\
@@ -74,7 +88,8 @@ process STARSOLO {
         --runThreadN ${task.cpus} \\
         --soloCBwhitelist ${whitelist_arg} \\
         --outSAMunmapped Within \\
-        --outSAMtype BAM Unsorted \\
+        --outSAMtype BAM SortedByCoordinate \\
+        --limitBAMsortRAM ${sort_ram} \\
         --outSAMattributes NH HI nM AS CR UR CB UB GX GN \\
         --outFileNamePrefix ${prefix}. \\
         ${args}
@@ -85,7 +100,7 @@ process STARSOLO {
     stub:
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
-    touch ${prefix}.Aligned.out.bam ${prefix}.Log.final.out ${prefix}.Log.out
+    touch ${prefix}.Aligned.sortedByCoord.out.bam ${prefix}.Log.final.out ${prefix}.Log.out
     mkdir -p ${prefix}_Solo.out
     """
 }
