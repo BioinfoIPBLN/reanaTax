@@ -59,15 +59,26 @@ def open_maybe_gzip(path):
     return gzip.open(path, "rt", errors="replace") if path.endswith(".gz") else open(path, encoding="utf-8", errors="replace")
 
 
-def encode(kmer):
-    """2 bits per base, or None if the k-mer contains anything but ACGT."""
-    value = 0
-    for base in kmer:
+def pack_read(sequence):
+    """(2-bit packing of the whole read, index of the last non-ACGT base at or
+    before each position).
+
+    Encoding each k-mer on its own re-walks all 35 of its bases, so a read
+    whose runs cover it end to end pays thousands of base lookups where the
+    read holds only 90 bases. Walking it once turns a k-mer into a bit slice,
+    and a window is valid exactly when the last non-ACGT base falls before it.
+    """
+    packed = 0
+    prev_bad = []
+    last_bad = -1
+    for index, base in enumerate(sequence):
         code = BASES.get(base)
         if code is None:
-            return None
-        value = (value << 2) | code
-    return value
+            code = 0
+            last_bad = index
+        packed = (packed << 2) | code
+        prev_bad.append(last_bad)
+    return packed, prev_bad
 
 
 def parse_assignment(field):
@@ -169,7 +180,9 @@ def main():
 
     # (taxid, barcode) -> [total k-mers, {distinct encoded k-mers}]
     per_barcode = {}
+    held_barcodes = {}
     dropped_host = 0
+    kmer_mask = (1 << (2 * args.kmer_len)) - 1
 
     with open_maybe_gzip(args.reads) as handle:
         for line in handle:
@@ -194,6 +207,12 @@ def main():
             if not sequence:
                 continue
 
+            # Packed lazily: a read assigned to an ancestor by LCA can have no
+            # run matching its own taxid, and then nothing here is encoded.
+            packed = None
+            prev_bad = None
+            length = len(sequence)
+
             # Walk the runs in read order; run i starts at k-mer index `offset`.
             offset = 0
             for run_taxid, count in runs:
@@ -204,20 +223,25 @@ def main():
                         # SAHMI's nsample: hold at most this many barcodes per
                         # taxon. Without a cap an abundant taxon in a deep
                         # library would hold a k-mer set for every droplet.
-                        if args.max_barcodes_per_taxon:
-                            held = sum(1 for held_taxid, _bc in per_barcode if held_taxid == taxid)
-                            if held >= args.max_barcodes_per_taxon:
-                                offset += count
-                                continue
+                        # Counted, not recounted: entries are never removed,
+                        # so the running tally is exactly what scanning the
+                        # dict used to produce - at O(1) instead of O(n) per
+                        # new barcode, which was quadratic over the file.
+                        if args.max_barcodes_per_taxon and held_barcodes.get(taxid, 0) >= args.max_barcodes_per_taxon:
+                            offset += count
+                            continue
+                        held_barcodes[taxid] = held_barcodes.get(taxid, 0) + 1
                         entry = per_barcode[key] = [0, set()]
                     entry[0] += count
+                    if packed is None:
+                        packed, prev_bad = pack_read(sequence)
                     for start in range(offset, offset + count):
-                        kmer = sequence[start:start + args.kmer_len]
-                        if len(kmer) < args.kmer_len:
+                        stop = start + args.kmer_len
+                        if stop > length:
                             break
-                        encoded = encode(kmer)
-                        if encoded is not None:
-                            entry[1].add(encoded)
+                        if prev_bad[stop - 1] >= start:
+                            continue
+                        entry[1].add((packed >> (2 * (length - stop))) & kmer_mask)
                 offset += count
 
     # Regroup by taxon, then correlate total against distinct over barcodes.

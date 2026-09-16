@@ -502,6 +502,7 @@ workflow REANATAX {
     // on the pseudobulk tables acts on the reads behind the matrix too.
     //
     def ch_cell_taxa = channel.empty()
+    def ch_sc_kmer_drop = null
 
     if (params.single_cell && !params.skip_kraken2) {
         // Joined on sample id rather than zipped: the three channels are
@@ -534,6 +535,7 @@ workflow REANATAX {
                 params.sc_adjust,
                 params.sc_max_barcodes_per_taxon,
             )
+            ch_sc_kmer_drop = SCTAXA_DENOISE.out.drop_list
             ch_multiqc_files = ch_multiqc_files.mix(SCTAXA_DENOISE.out.mqc.map { _meta, mqc -> mqc })
         }
 
@@ -632,8 +634,20 @@ workflow REANATAX {
     // multiple-testing cost for taxa the pipeline has already judged false.
     //
     if (params.sc_apply_drop_list && (params.single_cell || params.sc_plate_based) && !params.skip_kraken2) {
+        // Joined on meta.id, not collected: --sc_kmer_denoise produces one drop
+        // list per library and they are not interchangeable, so collecting them
+        // would condemn every taxon any library failed in all of them. The
+        // plate route never sets this - SCTAXA_DENOISE runs only under
+        // --single_cell - and then the matrix travels with an empty slot.
+        def ch_filter_input = ch_sc_kmer_drop
+            ? ch_cell_taxa
+                .map { meta, counts -> [meta.id, meta, counts] }
+                .join(ch_sc_kmer_drop.map { meta, drop -> [meta.id, drop] })
+                .map { _id, meta, counts, drop -> [meta, counts, drop] }
+            : ch_cell_taxa.map { meta, counts -> [meta, counts, []] }
+
         SCTAXA_FILTER(
-            ch_cell_taxa,
+            ch_filter_input,
             TAXONOMY_KRAKEN2_BRACKEN.out.drop_list,
             // --negative_controls reaches the matrix here or nowhere: the
             // cell-by-taxon table is built from the per-read assignments, not

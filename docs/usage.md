@@ -869,10 +869,15 @@ untested.
 
 > **The verdicts are per sample and are NOT fed into the cohort abundance
 > filter.** Barcodes only mean anything inside the library that produced them,
-> and a taxon that fails in one sample may be perfectly real in another. The
-> evidence table and drop list are published for you to apply; the bulk filters
-> (`--minimizer_filter`, `--host_kmer_filter`, `--decontam`) remain the ones
-> that act on the combined tables.
+> and a taxon that fails in one sample may be perfectly real in another, so the
+> bulk filters (`--minimizer_filter`, `--host_kmer_filter`, `--decontam`) remain
+> the only ones that act on the combined tables.
+>
+> The drop list **is** applied to the cell-by-taxon matrix, by
+> `--sc_apply_drop_list`, and only to the library it was computed from. That is
+> the one place the per-sample scope is not a problem: the matrix has a row per
+> library, so each list reaches its own rows and no others. The evidence table
+> is published either way.
 
 ### Which cell types carry which microbes (`--sc_cell_metadata`)
 

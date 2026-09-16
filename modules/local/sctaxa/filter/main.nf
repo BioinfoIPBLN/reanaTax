@@ -21,7 +21,7 @@ process SCTAXA_FILTER {
         : 'biocontainers/python:3.12'}"
 
     input:
-    tuple val(meta), path(counts, stageAs: 'counts/*')
+    tuple val(meta), path(counts, stageAs: 'counts/*'), path(sc_drop, stageAs: 'drop/*')
     path drop_lists, stageAs: 'drop/*'
     path drop_cells, stageAs: 'cells/*'
 
@@ -37,7 +37,12 @@ process SCTAXA_FILTER {
     script:
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
-    def drop = drop_lists ? "--drop drop/*" : ''
+    // Both the cohort lists and this sample's own sc_kmer list land in drop/,
+    // so one glob picks up whichever are present. They are staged separately
+    // because they are scoped differently: a cohort list condemns a taxon in
+    // every library, --sc_kmer_denoise judges it library by library and travels
+    // in the tuple so it reaches only the matrix it was computed from.
+    def drop = (drop_lists || sc_drop) ? "--drop drop/*" : ''
     // The negative-control filter's per-library verdicts. Kept separate from
     // the drop lists because they are a different kind of claim: a drop list
     // condemns a taxon everywhere, these condemn it in named libraries only.
