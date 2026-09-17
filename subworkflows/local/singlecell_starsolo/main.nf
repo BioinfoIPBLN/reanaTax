@@ -41,7 +41,11 @@ workflow SINGLECELL_STARSOLO {
     // thirds of the cohort gone with no error. The bulk route already does this
     // at every HISAT2_ALIGN* call site; this path had been exercised only with
     // one sample at a time.
-    STARSOLO(ch_reads, ch_index.first(), ch_gtf.first(), ch_whitelist)
+    // .first() on the index only: it arrives as a QUEUE channel of one item, which
+    // would otherwise pair element-by-element against the reads and run STARSOLO
+    // once for the whole cohort. ch_gtf is already a value channel, and .first()
+    // on one of those is a no-op that Nextflow warns about.
+    STARSOLO(ch_reads, ch_index.first(), ch_gtf, ch_whitelist)
     STARSOLO_UNMAPPED(STARSOLO.out.bam)
 
     //

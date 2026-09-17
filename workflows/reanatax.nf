@@ -445,8 +445,14 @@ workflow REANATAX {
         // pulled from several studies will not share one read length.
         //
         def bracken_dists = brackenDistributions(params.bracken_db ?: params.kraken2_db)
+        // Keyed on meta.id, not on the meta map. The default join key is the whole
+        // map, and SINGLECELL_STARSOLO adds `single_end: true` to it - so on the
+        // single-cell path the two metas never matched, every sample took the
+        // null-JSON branch, and --bracken_read_length auto silently fell back to
+        // the 100 bp default against a measured cDNA length of 90.
         def ch_reads_for_tax = ch_nonhost_reads
-            .join(FASTQ_QC_TRIM.out.fastp_json, remainder: true)
+            .map { meta, reads -> [meta.id, meta, reads] }
+            .join(FASTQ_QC_TRIM.out.fastp_json.map { meta, json -> [meta.id, json] }, remainder: true)
             // remainder: true exists so a sample with reads but NO fastp JSON
             // (--skip_trimming) still gets classified. It also lets the mirror
             // case through - a sample with a JSON and no reads - as a null path,
@@ -455,8 +461,8 @@ workflow REANATAX {
             // dropping the second is what this filter does; a sample that lost
             // its reads upstream is an upstream bug, and it should not be
             // rediscovered here as an unrecoverable crash.
-            .filter { _meta, reads, _json -> reads }
-            .map { meta, reads, json ->
+            .filter { _id, _meta, reads, _json -> reads }
+            .map { _id, meta, reads, json ->
                 def observed = json ? meanReadLength(json) : null
                 [meta + [bracken_r: resolveBrackenReadLength(observed, bracken_dists, params.bracken_read_length)], reads]
             }
