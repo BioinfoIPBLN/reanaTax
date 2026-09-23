@@ -71,6 +71,10 @@
 // fresh one. Clearing it up front would be wrong: the daemon is shared with
 // anything else on the node, and a healthy daemon serving another run must not
 // be torn down on suspicion.
+//
+// The reset VERIFIES the kill rather than assuming it, because a wedged daemon
+// ignores SIGTERM and clearing /tmp around a survivor is worse than the hang.
+// See the reset_daemon block for the mechanism.
 process KRAKEN2_DAEMON {
     tag "$meta.id"
     label 'process_high'
@@ -125,7 +129,38 @@ process KRAKEN2_DAEMON {
     // is mid-conversation with the daemon we are about to stop.
     def reset_daemon = task.attempt > 1 ? """
         echo "[KRAKEN2_DAEMON] attempt ${task.attempt}: the previous attempt did not return within ${classify_timeout}, so the daemon is unreachable. Stopping it and clearing /tmp so a fresh one is started." >&2
+        # Read the PID BEFORE k2 clean, which removes the file. k2 clean signals
+        # with SIGTERM, and a daemon blocked in pipe_read does not act on it -
+        # observed on the leprosy cohort, where one sat in that state for 18 hours
+        # and only SIGKILL cleared it. Removing the pidfile around a survivor
+        # ORPHANS it: still alive, still holding the hardcoded /tmp FIFOs, but no
+        # longer named anywhere, so the next daemon shares those paths with it and
+        # the two race for client messages. That is worse than the hang this reset
+        # exists to fix, and it is why the kill is verified rather than assumed.
+        stuck=\$(tr -dc '0-9' < /tmp/classify.pid 2>/dev/null || true)
         timeout 60 k2 clean --stop-daemon >/dev/null 2>&1 || true
+        # Same safety rule as the pipeline's own cleanup: only ever signal a PID
+        # that is genuinely a classify process and genuinely ours. k2 records a PID
+        # it has not verified - a kernel thread's, in one observed case - so an
+        # unchecked kill here could signal an unrelated process.
+        if [ -n "\${stuck}" ] \\
+           && [ "\$(cat /proc/\${stuck}/comm 2>/dev/null)" = "classify" ] \\
+           && [ "\$(stat -c%u /proc/\${stuck} 2>/dev/null)" = "\$(id -u)" ]; then
+            kill -TERM "\${stuck}" 2>/dev/null || true
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+                kill -0 "\${stuck}" 2>/dev/null || break
+                sleep 1
+            done
+            if kill -0 "\${stuck}" 2>/dev/null; then
+                echo "[KRAKEN2_DAEMON] PID \${stuck} ignored SIGTERM; sending SIGKILL." >&2
+                kill -KILL "\${stuck}" 2>/dev/null || true
+                sleep 2
+            fi
+            if kill -0 "\${stuck}" 2>/dev/null; then
+                echo "[KRAKEN2_DAEMON] PID \${stuck} survived SIGKILL. NOT clearing /tmp: a fresh daemon would share its FIFOs and the two would race. Stop it by hand before resuming." >&2
+                exit 1
+            fi
+        fi
         rm -f /tmp/classify.pid /tmp/classify_stdin /tmp/classify_stdout
 """ : ''
     def prefix = task.ext.prefix ?: "${meta.id}"
