@@ -2162,6 +2162,29 @@ Pre-built databases (GTDB, IMG/VR, RefSeq fungi and others) and the sylph-tax ta
 
 Per-sample profiles and cohort tables land in `sylph/`.
 
+## Metax
+
+`--run_metax` profiles the non-host reads with [Metax](https://github.com/hzi-bifo/Metax), which aligns them to a genome collection and then asks, for every candidate taxon, whether its reads cover the genome the way random sampling at that depth would. The observed-to-expected breadth ratio (OEBR), its chunk-level twin and a probability on each decide it: a taxon whose reads pile onto one region — a contaminated contig in the reference, a kitome fragment, a conserved gene shared with the organism really present — is dropped. That is the question `--host_kmer_filter` and `--minimizer_filter` approach indirectly, answered on coverage. Metax reports NCBI taxids, so its calls line up with Kraken2's without a name mapping.
+
+```bash
+--run_metax \
+--metax_db /data/metax/metax_newdb/metax_db.json \
+--metax_dmp_dir /data/taxonomy
+```
+
+Like sylph it is additive: leave Kraken2 on to compare the two on the same reads, or add `--skip_kraken2` to run Metax instead, in which case every `--skip_kraken2` restriction applies. Metax does write a per-read classification (`--metax_save_readclassifications` publishes it), but in its own format, not on the path the single-cell and filter logic read.
+
+Read these before relying on it:
+
+- **No public container.** Metax is published on its author's conda channel (`zldeng`), not on bioconda, and that package ships the `metax` binary without the `maCMD` aligner it calls. The module's conda environment supplies both, so `-profile conda` or `mamba` works, and `-profile wave` builds an image from it. Otherwise pass an image with `--metax_container`; without one, under Docker or Singularity the task runs on the host and needs `metax` and `maCMD` on the PATH. The pipeline warns about this at startup.
+- **Coverage-based filtering and RNA.** Metax's authors say plainly that true taxa can be over-filtered where genome-wide coverage is not expected, "such as in RNA-derived data". A transcriptome covers what is expressed, so on RNA a missing Metax call is weak evidence of absence. RNA viruses are the exception worth knowing: there the transcript is the genome.
+- **Memory.** Alignment against a full database is the heavy part — about 55 GB peak for the 33,000-genome RefSeq databases in the paper. A fractional index (`metax index -f 0.05`) takes that to about 5 GB at a modest cost in recall, and Metax then skips the per-read output.
+- **The database is used as a directory.** `maCMD` finds the index files through `metax_db.json`, so `--metax_db` may name the JSON or the directory holding it; either way the whole directory is staged.
+
+Databases: pre-built cross-domain databases from NCBI RefSeq (the 2025 one holds 33,533 genomes) and instructions for custom ones are in the [Metax repository](https://github.com/hzi-bifo/Metax). `--metax_dmp_dir` is an unpacked NCBI [taxdump](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz). `--metax_args` passes anything else to `metax profile`, for example `--mode recall` or `--mode precision`.
+
+Per-sample profiles and cohort tables land in `metax/`.
+
 ## Core Nextflow arguments
 
 > [!NOTE]

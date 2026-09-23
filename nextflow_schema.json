@@ -529,6 +529,43 @@
                     "help_text": "For example `--annotate-virus-hosts` with a pre-built viral database. Do not set -t; the module passes --sylph_taxonomy there.",
                     "fa_icon": "fas fa-terminal"
                 },
+                "run_metax": {
+                    "type": "boolean",
+                    "description": "Also profile the non-host reads with Metax.",
+                    "help_text": "Metax aligns reads to a genome collection and keeps a taxon only if its reads cover the genome the way random sampling would (observed over expected breadth, OEBR), which drops artifacts from contaminated references, kitome fragments and shared conserved regions. It reports NCBI taxids. Additive: `--run_metax --skip_kraken2` uses it instead of Kraken2. No public container exists - see --metax_container. Its authors note that coverage-based filtering can drop true taxa in RNA-derived data, so on transcriptomes a missing call is weak evidence of absence.",
+                    "fa_icon": "fas fa-dna"
+                },
+                "metax_db": {
+                    "type": "string",
+                    "description": "A Metax database: its metax_db.json, or the directory holding it.",
+                    "help_text": "Pre-built cross-domain databases from NCBI RefSeq (2025: 33,533 genomes; 2022: 33,143) are linked from https://github.com/hzi-bifo/Metax. The whole directory is used, because maCMD finds the index files through the JSON. Build a custom one with `metax index`.",
+                    "fa_icon": "fas fa-database"
+                },
+                "metax_dmp_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "NCBI taxonomy dump for Metax (nodes.dmp, names.dmp, merged.dmp, delnodes.dmp).",
+                    "help_text": "Unpack https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz. A GTDB or ICTV dump works too, if the database was built with its taxids.",
+                    "fa_icon": "fas fa-sitemap"
+                },
+                "metax_args": {
+                    "type": "string",
+                    "description": "Extra `metax profile` arguments.",
+                    "help_text": "For example `--mode recall` (identity 0.95, aligned fraction 0.60) or `--mode precision`, `--min-cbreadth`, or `--host` for pathogen mode. Do not set --db, --dmp-dir, -i, -p, -o or -t; the module sets those.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "metax_save_readclassifications": {
+                    "type": "boolean",
+                    "description": "Publish Metax's per-read classifications (classify.txt, gzipped).",
+                    "help_text": "One line per read with the most likely taxid and the likelihood of every candidate. Off by default because it is a line per read; Metax does not write it at all for a fractional index.",
+                    "fa_icon": "fas fa-save"
+                },
+                "metax_container": {
+                    "type": "string",
+                    "description": "A container image providing metax and maCMD.",
+                    "help_text": "Metax is published on its author's conda channel (zldeng), not on bioconda, so no public image exists. Without this, `-profile wave` builds one from the module's conda environment, `-profile conda` or `mamba` installs it, and otherwise METAX_PROFILE needs metax and maCMD on the host PATH.",
+                    "fa_icon": "fab fa-docker"
+                },
                 "bracken_db": {
                     "type": "string",
                     "format": "path",

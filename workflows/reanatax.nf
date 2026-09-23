@@ -20,6 +20,7 @@ include { TAXONOMY_KRAKEN2_BRACKEN  } from '../subworkflows/local/taxonomy_krake
 include { TAXONOMY_KRAKENUNIQ      } from '../subworkflows/local/taxonomy_krakenuniq'
 include { TAXONOMY_METAPHLAN       } from '../subworkflows/local/taxonomy_metaphlan'
 include { TAXONOMY_SYLPH           } from '../subworkflows/local/taxonomy_sylph'
+include { TAXONOMY_METAX           } from '../subworkflows/local/taxonomy_metax'
 include { TAXONOMY_PATHSEQ         } from '../subworkflows/local/taxonomy_pathseq'
 include { DIFFERENTIAL_ABUNDANCE    } from '../subworkflows/local/differential_abundance'
 include { HOST_EXPRESSION           } from '../subworkflows/local/host_expression'
@@ -837,6 +838,27 @@ workflow REANATAX {
             ch_nonhost_reads,
             params.sylph_db,
             params.sylph_taxonomy,
+        )
+    }
+
+    //
+    // SUBWORKFLOW: Metax, on the same non-host reads.
+    //
+    // Additive like MetaPhlAn and sylph, with `--run_metax --skip_kraken2` as
+    // the replacement. Metax does align every read and writes a per-read
+    // classification, but in its own format and not on the path the cell,
+    // host-k-mer and minimizer logic read, so a Metax-only run carries the same
+    // `--skip_kraken2` restrictions. The pre-built databases include the human
+    // reference where applicable (the 2022 one names GRCh38), and with it in
+    // the index, host reads under `--skip_host_removal` land on Homo sapiens
+    // rather than on whatever microbe they happen to resemble.
+    //
+    if (params.run_metax) {
+        TAXONOMY_METAX(
+            ch_nonhost_reads,
+            params.metax_db,
+            params.metax_dmp_dir,
+            params.metax_save_readclassifications,
         )
     }
     //

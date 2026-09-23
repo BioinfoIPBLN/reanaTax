@@ -447,6 +447,13 @@ Only written with `--run_humann`. These are the files the bundled [exploreMetaTa
   - `taxprof/<sample>.sylphmpa` (with `--sylph_taxonomy`): the sylph-tax taxonomic profile, MetaPhlAn-style, with ANI and coverage on the genome (`t__`) rows.
   - `sylph_combined.relative_abundance.tsv`, `sylph_combined.sequence_abundance.tsv` (with `--sylph_taxonomy`): clades by samples. Relative abundance is coverage-normalised, as MetaPhlAn reports; sequence abundance is the share of reads assigned, as a Kraken2 percentage is. A sample with nothing detected is a column of zeros, not a missing column.
 
+- `metax/` (with `--run_metax`)
+  - `<sample>.profile.txt`: Metax's profile for one sample, as Metax writes it — tab-separated with no header row. The 13 columns are taxon name, taxid, rank, reads, depth, abundance, observed breadth, expected breadth, the breadth probability, fixed and flexible chunk breadth, expected flexible chunk breadth and the chunk probability; pathogen mode (`--host`) appends host names, host taxids and diseases.
+  - `metax_combined.long.tsv`: every sample's rows under a named header, with a `sample` column. Observed over expected breadth is the OEBR Metax filters on.
+  - `metax_combined.abundance.tsv`, `metax_combined.reads.tsv`: taxa by samples, keyed on NCBI taxid. A sample in which nothing passed the coverage filters is a column of zeros.
+  - `log/<sample>.log`: the Metax run log.
+  - `classify/<sample>.classify.txt.gz` (with `--metax_save_readclassifications`): one line per read with its most likely taxid and the likelihood of every candidate.
+
 - `differential_abundance/` (with `--da_metadata`)
   - `<comparison>.<method>.results.tsv`: one row per taxon tested - `lfc`, `pvalue`, `qvalue`, `significant`.
   - `<comparison>.<method>.volcano.png`: log2 fold change against -log10(p), significant taxa labelled.

@@ -100,6 +100,14 @@
 
   > Shaw J, Yu YW. Rapid species-level metagenome profiling and containment estimation with sylph. Nat Biotechnol. 2025 Aug;43(8):1348-1359. doi: 10.1038/s41587-024-02412-y. PubMed PMID: 39379646; PubMed Central PMCID: PMC12339375.
 
+- [Metax](https://pubmed.ncbi.nlm.nih.gov/42727575/)
+
+  > Deng ZL, Safaei N, McHardy AC. Metax enables accurate cross-domain taxonomic profiling of metagenomes. Cell. 2026 Sep 11. doi: 10.1016/j.cell.2026.08.024. PubMed PMID: 42727575.
+
+- [MA (Modular Aligner)](https://pubmed.ncbi.nlm.nih.gov/31028275/)
+
+  > Schmidt M, Heese K, Kutzner A. Accurate high throughput alignment via line sweep-based seed processing. Nat Commun. 2019 Apr 26;10(1):1939. doi: 10.1038/s41467-019-09977-2. PubMed PMID: 31028275; PubMed Central PMCID: PMC6486643.
+
 - [GATK PathSeq](https://pubmed.ncbi.nlm.nih.gov/29855304/)
 
   > Walker MA, Pedamallu CS, Ojesina AI, Bullman S, Sharpe T, Whelan CW, Meyerson M. GATK PathSeq: a customizable computational tool for the discovery and identification of microbial sequences in libraries from eukaryotic hosts. Bioinformatics. 2018 Dec 15;34(24):4287-4289. doi: 10.1093/bioinformatics/bty501. PubMed PMID: 29855304; PubMed Central PMCID: PMC6289124.
