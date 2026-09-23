@@ -96,6 +96,10 @@
 
   > Blanco-Míguez A, Beghini F, Cumbo F, McIver LJ, Thompson KN, Zolfo M, et al. Extending and improving metagenomic taxonomic profiling with uncharacterized species using MetaPhlAn 4. Nat Biotechnol. 2023 Nov;41(11):1633-1644. doi: 10.1038/s41587-023-01688-w. PubMed PMID: 36823356; PubMed Central PMCID: PMC10635830.
 
+- [sylph](https://pubmed.ncbi.nlm.nih.gov/39379646/)
+
+  > Shaw J, Yu YW. Rapid species-level metagenome profiling and containment estimation with sylph. Nat Biotechnol. 2025 Aug;43(8):1348-1359. doi: 10.1038/s41587-024-02412-y. PubMed PMID: 39379646; PubMed Central PMCID: PMC12339375.
+
 - [GATK PathSeq](https://pubmed.ncbi.nlm.nih.gov/29855304/)
 
   > Walker MA, Pedamallu CS, Ojesina AI, Bullman S, Sharpe T, Whelan CW, Meyerson M. GATK PathSeq: a customizable computational tool for the discovery and identification of microbial sequences in libraries from eukaryotic hosts. Bioinformatics. 2018 Dec 15;34(24):4287-4289. doi: 10.1093/bioinformatics/bty501. PubMed PMID: 29855304; PubMed Central PMCID: PMC6289124.

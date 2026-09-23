@@ -441,6 +441,12 @@ Only written with `--run_humann`. These are the files the bundled [exploreMetaTa
   - `metaphlan_combined.tsv`: all samples in one table.
   - `log/<sample>.metaphlan.log`: the run log, including the marker-mapping rate.
 
+- `sylph/` (with `--run_sylph`)
+  - `<sample>.sylph.tsv`: sylph's output for one sample, one row per genome called, with its adjusted ANI, taxonomic and sequence abundance, and effective coverage. `Sample_file` holds the sample id rather than the read file name.
+  - `sylph_combined.genomes.tsv`: every sample's rows in one table.
+  - `taxprof/<sample>.sylphmpa` (with `--sylph_taxonomy`): the sylph-tax taxonomic profile, MetaPhlAn-style, with ANI and coverage on the genome (`t__`) rows.
+  - `sylph_combined.relative_abundance.tsv`, `sylph_combined.sequence_abundance.tsv` (with `--sylph_taxonomy`): clades by samples. Relative abundance is coverage-normalised, as MetaPhlAn reports; sequence abundance is the share of reads assigned, as a Kraken2 percentage is. A sample with nothing detected is a column of zeros, not a missing column.
+
 - `differential_abundance/` (with `--da_metadata`)
   - `<comparison>.<method>.results.tsv`: one row per taxon tested - `lfc`, `pvalue`, `qvalue`, `significant`.
   - `<comparison>.<method>.volcano.png`: log2 fold change against -log10(p), significant taxa labelled.

@@ -2138,6 +2138,30 @@ It is additive rather than exclusive: add `--skip_kraken2` to use MetaPhlAn *ins
 
 Differential abundance does not read MetaPhlAn output — see above for why.
 
+## sylph
+
+`--run_sylph` profiles the non-host reads with [sylph](https://github.com/bluenote-1577/sylph), which calls a species when the sample contains enough of its genome rather than by classifying reads. It estimates the containment ANI of every reference genome against the reads, corrects that for low coverage, and reports genomes at 95% ANI or above. That makes far fewer false positives than per-read classification, at a fraction of Kraken2's memory.
+
+```bash
+--run_sylph \
+--sylph_db /data/sylph/gtdb-r232-c200-dbv2.syl2db,/data/sylph/imgvr_c200_v0.3.0.syldb \
+--sylph_taxonomy /data/sylph/gtdb_r232_metadata.tsv.gz,/data/sylph/IMGVR_4.1_metadata.tsv.gz
+```
+
+Like MetaPhlAn it is additive: leave Kraken2 on to put a whole-genome call next to a per-read one on the same library, or add `--skip_kraken2` to run sylph instead. For the quickest profile add `--skip_host_removal` as well, and the run skips alignment too. sylph does not need host depletion to be right: a host genome that is not in the database cannot be called.
+
+Read these before relying on it:
+
+- **No per-read classification.** Nothing that joins reads to cells, host k-mers or minimizers can use sylph, so `--run_sylph --skip_kraken2` carries every restriction `--skip_kraken2` already does: no `--single_cell` or `--sc_plate_based`, no `--host_kmer_filter`, `--decontam`, `--run_diversity`, `--target_taxid` or `--run_humann`, and differential abundance does not run.
+- **A detection floor.** sylph needs about 0.01–0.05x coverage of a bacterial genome, at least a few hundred short reads. An organism present at tens of reads, which Kraken2 will report, sylph will not.
+- **Transcriptomes cover genomes unevenly.** The ANI model assumes the reads sample the whole genome. RNA-seq samples what is expressed, and 3′ single-cell chemistries only the transcript ends, which lowers the containment and the ANI estimate with it: an organism can be present and still fall under 95%. On RNA, a sylph call is strong evidence of presence and a missing one is weak evidence of absence.
+- **Small genomes need a smaller `c`.** sylph keeps about one k-mer in `c` (200 by default) and wants more than 50 to report a genome, which rules out genomes below ~10 kb at the default — HIV-1 among them. Use a database sketched with `-c 100` and pass `--sylph_args '-c 100'`; the reads and the database must be sketched at the same `c`.
+- **GTDB names, not NCBI taxids.** The pre-built databases carry GTDB taxonomy. Its species are drawn at 95% ANI, so names and boundaries differ from the NCBI taxonomy Kraken2 reports; the *M. tuberculosis* complex, for example, is one GTDB species.
+
+Pre-built databases (GTDB, IMG/VR, RefSeq fungi and others) and the sylph-tax tables that go with them are listed in the [sylph documentation](https://sylph-docs.github.io/). The pipeline runs sylph 1.0.0, so the two-stage `.syl2db` format works. Pass the taxonomy tables as files: sylph-tax's built-in names (`GTDB_r232`, `IMGVR_4.1`, ...) resolve through a folder under `$HOME` that a container does not have. `--sylph_taxonomy` is optional; without it you get sylph's genome-level output only.
+
+Per-sample profiles and cohort tables land in `sylph/`.
+
 ## Core Nextflow arguments
 
 > [!NOTE]

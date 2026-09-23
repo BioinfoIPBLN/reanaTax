@@ -19,6 +19,7 @@ include { HOST_DEPLETION_HISAT2 as HOST_DEPLETION_UNIVEC } from '../subworkflows
 include { TAXONOMY_KRAKEN2_BRACKEN  } from '../subworkflows/local/taxonomy_kraken2_bracken'
 include { TAXONOMY_KRAKENUNIQ      } from '../subworkflows/local/taxonomy_krakenuniq'
 include { TAXONOMY_METAPHLAN       } from '../subworkflows/local/taxonomy_metaphlan'
+include { TAXONOMY_SYLPH           } from '../subworkflows/local/taxonomy_sylph'
 include { TAXONOMY_PATHSEQ         } from '../subworkflows/local/taxonomy_pathseq'
 include { DIFFERENTIAL_ABUNDANCE    } from '../subworkflows/local/differential_abundance'
 include { HOST_EXPRESSION           } from '../subworkflows/local/host_expression'
@@ -816,6 +817,27 @@ workflow REANATAX {
         ch_metaphlan_merged = TAXONOMY_METAPHLAN.out.merged
         ch_metaphlan_profile = TAXONOMY_METAPHLAN.out.profile
 
+    }
+
+    //
+    // SUBWORKFLOW: sylph, on the same non-host reads.
+    //
+    // Additive like MetaPhlAn: `--run_sylph --skip_kraken2` uses it instead of
+    // Kraken2, and leaving Kraken2 on puts a whole-genome ANI call next to a
+    // per-read classification of the same library. Nothing downstream consumes
+    // it, because sylph assigns no reads - there is nothing for the cell, host
+    // k-mer or minimizer logic to join on - which is also why `--skip_kraken2`
+    // already carries every restriction a sylph-only run needs. With
+    // `--skip_host_removal` too, a run skips alignment as well: a host genome
+    // that is not in the sylph database cannot be called, so sylph does not
+    // need the host reads removed to be right.
+    //
+    if (params.run_sylph) {
+        TAXONOMY_SYLPH(
+            ch_nonhost_reads,
+            params.sylph_db,
+            params.sylph_taxonomy,
+        )
     }
     //
     // SUBWORKFLOW: What the community is doing, not just who is in it.

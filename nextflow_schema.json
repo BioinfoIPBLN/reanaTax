@@ -499,6 +499,36 @@
                     "help_text": "`-t rel_ab_w_read_stats` adds the estimated_number_of_reads_from_the_clade column, which count-based differential-abundance methods require. Do not set --input_type, --db_dir, --index, --nproc, --tmp_dir, --mapout or -o; the module sets those.",
                     "fa_icon": "fas fa-terminal"
                 },
+                "run_sylph": {
+                    "type": "boolean",
+                    "description": "Also profile the non-host reads with sylph.",
+                    "help_text": "sylph calls a species from the containment ANI of its reference genome against the reads (reported when >= 95%), instead of classifying reads one by one, which makes far fewer false positives than per-read classification. Additive: `--run_sylph --skip_kraken2` uses it instead of Kraken2, and adding `--skip_host_removal` skips alignment as well, since a host genome that is not in the database cannot be called. It assigns no reads, so a sylph-only run carries every restriction of `--skip_kraken2`. Its documented floor is 0.01-0.05x coverage of a bacterial genome, and it assumes the reads sample the whole genome: on RNA-seq, and 3' single-cell libraries above all, a present organism can fall under 95%, so a missing call is weak evidence of absence.",
+                    "fa_icon": "fas fa-dna"
+                },
+                "sylph_db": {
+                    "type": "string",
+                    "description": "One or more sylph databases (.syldb or .syl2db), comma-separated.",
+                    "help_text": "Pre-built databases (GTDB, IMG/VR, RefSeq fungi, ...) are listed at https://sylph-docs.github.io/. The pipeline runs sylph 1.0.0, so the two-stage .syl2db format works. Reads are sketched at sylph's default c = 200; for a database sketched at another c, pass it in `--sylph_args` (e.g. `-c 100`), because reads and database must match. Genomes below ~10 kb, HIV-1 among them, need a -c 100 database: sylph wants more than 50 sketched k-mers to report a genome.",
+                    "fa_icon": "fas fa-database"
+                },
+                "sylph_taxonomy": {
+                    "type": "string",
+                    "description": "sylph-tax taxonomy metadata file(s) for the --sylph_db databases, comma-separated. Optional.",
+                    "help_text": "sylph reports genome files, not taxa; these tables map each genome file to a lineage and have to be the ones built for the databases profiled against. Pass files, not sylph-tax's built-in identifiers such as GTDB_r232: those resolve through a folder under $HOME that a container does not have. A custom table is two columns - genome file name, then a semicolon-delimited lineage (d__...;p__...;...;s__...). Without it, only sylph's genome-level output is written. The pre-built tables carry GTDB taxonomy, whose names and species boundaries differ from the NCBI taxonomy Kraken2 reports.",
+                    "fa_icon": "fas fa-sitemap"
+                },
+                "sylph_args": {
+                    "type": "string",
+                    "description": "Extra `sylph profile` arguments.",
+                    "help_text": "For example `-c 100` for a -c 100 database, `-u` to estimate the unknown fraction and report true rather than effective coverage, or `--min-number-kmers` for genomes too small for the default. Do not set -t, -o, -r, -1 or -2; the module sets those.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "sylph_tax_args": {
+                    "type": "string",
+                    "description": "Extra `sylph-tax taxprof` arguments.",
+                    "help_text": "For example `--annotate-virus-hosts` with a pre-built viral database. Do not set -t; the module passes --sylph_taxonomy there.",
+                    "fa_icon": "fas fa-terminal"
+                },
                 "bracken_db": {
                     "type": "string",
                     "format": "path",

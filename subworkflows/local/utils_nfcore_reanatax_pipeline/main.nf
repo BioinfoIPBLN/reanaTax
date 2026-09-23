@@ -468,8 +468,12 @@ def validateInputParameters() {
         error("--run_humann needs the Kraken2 report to build HUMAnN's taxonomic profile; it cannot be combined with --skip_kraken2.")
     }
 
-    if (params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan) {
-        log.warn("--skip_kraken2 with neither --krakenuniq_db nor --run_metaphlan leaves nothing to classify the non-host reads with.")
+    if (params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan && !params.run_sylph) {
+        log.warn("--skip_kraken2 with none of --krakenuniq_db, --run_metaphlan or --run_sylph leaves nothing to classify the non-host reads with.")
+    }
+
+    if (params.run_sylph && !params.sylph_db) {
+        error("--run_sylph needs --sylph_db: one or more sylph databases (.syldb or .syl2db), comma-separated. Pre-built ones, with the sylph-tax tables that go with them for --sylph_taxonomy, are listed at https://sylph-docs.github.io/")
     }
 
     if (!params.skip_kraken2 && !params.kraken2_db) {
