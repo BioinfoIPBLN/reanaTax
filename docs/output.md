@@ -454,6 +454,9 @@ Only written with `--run_humann`. These are the files the bundled [exploreMetaTa
   - `log/<sample>.log`: the Metax run log.
   - `classify/<sample>.classify.txt.gz` (with `--metax_save_readclassifications`): one line per read with its most likely taxid and the likelihood of every candidate.
 
+- `taxpasta/` (with `--run_taxpasta`)
+  - `<profiler>.taxpasta.tsv` for each of `kraken2`, `bracken`, `krakenuniq` and `metaphlan` that ran: `taxonomy_id` plus one count column per sample, from the raw per-sample outputs. With `--taxpasta_args '--add-name --add-rank'` and a taxdump, name and rank columns too. The extension follows `--taxpasta_format`.
+
 - `differential_abundance/` (with `--da_metadata`)
   - `<comparison>.<method>.results.tsv`: one row per taxon tested - `lfc`, `pvalue`, `qvalue`, `significant`.
   - `<comparison>.<method>.volcano.png`: log2 fold change against -log10(p), significant taxa labelled.

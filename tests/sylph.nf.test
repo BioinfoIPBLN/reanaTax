@@ -1,0 +1,28 @@
+nextflow_pipeline {
+
+    name "Test pipeline: sylph-only fast path"
+    script "../main.nf"
+    tag "pipeline"
+    tag "sylph"
+    profile "test_sylph"
+
+    test("-profile test_sylph") {
+
+        when {
+            params {
+                outdir = "$outputDir"
+            }
+        }
+
+        then {
+            // The test database holds no SARS-CoV-2, so sylph is expected to find
+            // nothing. What must hold is that an empty result is still a result:
+            // the run succeeds and the cohort table has its header.
+            assertAll(
+                { assert workflow.success },
+                { assert path("$outputDir/sylph/sylph_combined.genomes.tsv").exists() },
+                { assert !path("$outputDir/kraken2").exists() }
+            )
+        }
+    }
+}

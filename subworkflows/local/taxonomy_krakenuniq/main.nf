@@ -20,6 +20,7 @@
 // another's statistics.
 //
 
+include { UNTAR as UNTAR_KRAKENUNIQ } from '../../../modules/nf-core/untar/main'
 include { KRAKENUNIQ_PRELOADEDKRAKENUNIQ                 } from '../../../modules/nf-core/krakenuniq/preloadedkrakenuniq/main'
 include { KRAKENTOOLS_COMBINEKREPORTS as COMBINE_KRAKENUNIQ } from '../../../modules/nf-core/krakentools/combinekreports/main'
 include { KRAKENTOOLS_KREPORT2KRONA as KREPORT2KRONA_UNIQ   } from '../../../modules/nf-core/krakentools/kreport2krona/main'
@@ -32,7 +33,7 @@ workflow TAXONOMY_KRAKENUNIQ {
 
     take:
     ch_reads // channel: [ val(meta), [ path(fastq) ] ]
-    krakenuniq_db // string: path to a KrakenUniq database directory
+    krakenuniq_db // string: path to a KrakenUniq database directory, or a .tar.gz of one
     save_output_fastqs // boolean
     save_reads_assignment // boolean
     skip_krona // boolean
@@ -44,7 +45,18 @@ workflow TAXONOMY_KRAKENUNIQ {
 
     main:
 
-    def ch_db = channel.value(file(krakenuniq_db, checkIfExists: true))
+    // A tarball is unpacked first, as on the Kraken2 route - which is what lets
+    // the test profiles use nf-core's packed SARS-CoV-2 KrakenUniq database.
+    // .first() for the same reason given there: every batch needs the database,
+    // not just the first.
+    def ch_db = channel.empty()
+    if (krakenuniq_db.endsWith('.tar.gz') || krakenuniq_db.endsWith('.tgz')) {
+        UNTAR_KRAKENUNIQ(channel.value([[id: 'krakenuniq_db'], file(krakenuniq_db, checkIfExists: true)]))
+        ch_db = UNTAR_KRAKENUNIQ.out.untar.map { _meta, db -> db }.first()
+    }
+    else {
+        ch_db = channel.value(file(krakenuniq_db, checkIfExists: true))
+    }
 
     //
     // MODULE: One task per layout, not per sample.

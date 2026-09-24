@@ -104,6 +104,10 @@
 
   > Deng ZL, Safaei N, McHardy AC. Metax enables accurate cross-domain taxonomic profiling of metagenomes. Cell. 2026 Sep 11. doi: 10.1016/j.cell.2026.08.024. PubMed PMID: 42727575.
 
+- [Taxpasta](https://doi.org/10.21105/joss.05627)
+
+  > Beber ME, Borry M, Stamouli S, Fellows Yates JA. TAXPASTA: TAXonomic Profile Aggregation and STAndardisation. J Open Source Softw. 2023;8(87):5627. doi: 10.21105/joss.05627.
+
 - [MA (Modular Aligner)](https://pubmed.ncbi.nlm.nih.gov/31028275/)
 
   > Schmidt M, Heese K, Kutzner A. Accurate high throughput alignment via line sweep-based seed processing. Nat Commun. 2019 Apr 26;10(1):1939. doi: 10.1038/s41467-019-09977-2. PubMed PMID: 31028275; PubMed Central PMCID: PMC6486643.

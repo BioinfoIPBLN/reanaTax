@@ -21,6 +21,7 @@ include { TAXONOMY_KRAKENUNIQ      } from '../subworkflows/local/taxonomy_kraken
 include { TAXONOMY_METAPHLAN       } from '../subworkflows/local/taxonomy_metaphlan'
 include { TAXONOMY_SYLPH           } from '../subworkflows/local/taxonomy_sylph'
 include { TAXONOMY_METAX           } from '../subworkflows/local/taxonomy_metax'
+include { STANDARDISATION_TAXPASTA } from '../subworkflows/local/standardisation_taxpasta'
 include { TAXONOMY_PATHSEQ         } from '../subworkflows/local/taxonomy_pathseq'
 include { DIFFERENTIAL_ABUNDANCE    } from '../subworkflows/local/differential_abundance'
 include { HOST_EXPRESSION           } from '../subworkflows/local/host_expression'
@@ -859,6 +860,23 @@ workflow REANATAX {
             params.metax_db,
             params.metax_dmp_dir,
             params.metax_save_readclassifications,
+        )
+    }
+
+    //
+    // SUBWORKFLOW: Taxpasta - every profiler it can read, as one table shape.
+    //
+    // Kraken2, Bracken, KrakenUniq and MetaPhlAn, from their raw per-sample
+    // outputs: taxonomy_id plus a count column per sample, so two profilers can
+    // be compared on the same library without a parser for each.
+    //
+    if (params.run_taxpasta) {
+        STANDARDISATION_TAXPASTA(
+            ch_kraken2_report,
+            ch_bracken,
+            ch_krakenuniq_report,
+            ch_metaphlan_profile,
+            params.taxpasta_taxonomy_dir,
         )
     }
     //

@@ -476,6 +476,14 @@ def validateInputParameters() {
         error("--run_metax needs --metax_db (a Metax database's metax_db.json, or the directory holding it) and --metax_dmp_dir (an NCBI taxonomy dump: nodes.dmp, names.dmp, merged.dmp). Pre-built databases are listed at https://github.com/hzi-bifo/Metax")
     }
 
+    if (params.run_taxpasta && (params.taxpasta_args ?: '') ==~ /.*--add-(name|rank|lineage|id-lineage|rank-lineage).*/ && !params.taxpasta_taxonomy_dir) {
+        error("--taxpasta_args asks for taxon names, ranks or lineages, which Taxpasta reads from a taxdump: set --taxpasta_taxonomy_dir to a directory holding at least nodes.dmp and names.dmp.")
+    }
+
+    if (params.run_taxpasta && params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan) {
+        log.warn("--run_taxpasta has nothing to standardise: it reads Kraken2, Bracken, KrakenUniq and MetaPhlAn output, and none of them is running. sylph, Metax and PathSeq write their own cohort tables.")
+    }
+
     if (params.run_metax && workflow.containerEngine && !params.metax_container) {
         log.warn("Metax has no public container image: it is not on bioconda. Without --metax_container, METAX_PROFILE runs outside ${workflow.containerEngine} and needs metax and maCMD on the PATH - unless -profile wave is active too, in which case Wave builds an image from the module's conda environment.")
     }

@@ -1,0 +1,30 @@
+nextflow_pipeline {
+
+    name "Test pipeline: KrakenUniq route and Taxpasta"
+    script "../main.nf"
+    tag "pipeline"
+    tag "krakenuniq"
+    tag "taxpasta"
+    profile "test_krakenuniq"
+
+    test("-profile test_krakenuniq") {
+
+        when {
+            params {
+                outdir = "$outputDir"
+            }
+        }
+
+        then {
+            // No snapshot yet: the first run on CI records one. These assert the
+            // parts that are true regardless of tool versions - the run finished,
+            // and each Taxpasta table exists with at least one data row.
+            assertAll(
+                { assert workflow.success },
+                { assert path("$outputDir/taxpasta/kraken2.taxpasta.tsv").readLines().size() > 1 },
+                { assert path("$outputDir/taxpasta/bracken.taxpasta.tsv").readLines().size() > 1 },
+                { assert path("$outputDir/taxpasta/krakenuniq.taxpasta.tsv").readLines().size() > 1 }
+            )
+        }
+    }
+}

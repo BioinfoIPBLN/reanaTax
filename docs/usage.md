@@ -1700,6 +1700,9 @@ of the reference those k-mers span. A taxon called from reads piled on one
 conserved stretch has few distinct k-mers for its read count and near-zero
 coverage - which no abundance filter can see.
 
+`--krakenuniq_db` takes a database directory or a `.tar.gz` of one, which is
+unpacked first, as on the Kraken2 route.
+
 ```bash
 nextflow run . -profile local,singularity \
   --input_accessions PRJNA1392516 \
@@ -2185,6 +2188,25 @@ Databases: pre-built cross-domain databases from NCBI RefSeq (the 2025 one holds
 
 Per-sample profiles and cohort tables land in `metax/`.
 
+## Taxpasta
+
+`--run_taxpasta` standardises the per-sample outputs of every profiler [Taxpasta](https://taxpasta.readthedocs.io) can read into one table per profiler, all in one shape: a `taxonomy_id` column and a count column per sample. Comparing two profilers on the same library then needs no parser for each format.
+
+```bash
+--run_taxpasta \
+--taxpasta_taxonomy_dir /data/taxonomy \
+--taxpasta_args '--add-name --add-rank'
+```
+
+What it covers, and what it does not:
+
+- **Four profilers.** Kraken2, Bracken, KrakenUniq and MetaPhlAn — the ones Taxpasta 0.7 reads. sylph, Metax and PathSeq are not among them and keep their own cohort tables.
+- **Raw outputs.** The tables are built from each profiler's per-sample output, before this pipeline's evidence filters (host clade, host k-mers, minimizers, negative controls). The filtered views stay in each profiler's own combined tables.
+- **MetaPhlAn counts are not read counts.** Taxpasta reads MetaPhlAn's relative abundance and scales it. It also insists on MetaPhlAn's four-column default output, so profiles written with this pipeline's default `-t rel_ab_w_read_stats` are trimmed to the three columns Taxpasta uses before they are read.
+- **Names and lineages need a taxdump.** `--add-name`, `--add-rank` and the lineage options read taxon names from `--taxpasta_taxonomy_dir` (at least `nodes.dmp` and `names.dmp`); the pipeline refuses them without it. Use the taxonomy the databases were built with.
+
+`--taxpasta_format` picks `tsv` (default), `csv`, `arrow`, `parquet` or `biom`. A single-sample run is written with `taxpasta standardise`, in Taxpasta's long layout, because `taxpasta merge` needs at least two profiles. Tables land in `taxpasta/`.
+
 ## Core Nextflow arguments
 
 > [!NOTE]
@@ -2196,7 +2218,7 @@ Configuration presets, comma-separated. Order matters: later profiles override e
 
 Execution: `local`, `slurm`
 Containers/environments: `docker`, `singularity`, `apptainer`, `podman`, `shifter`, `charliecloud`, `conda`, `mamba`, `wave`
-Testing: `test`, `test_accession`, `test_full`
+Testing: `test`, `test_accession`, `test_full`, `test_krakenuniq` (the minimal test plus KrakenUniq and Taxpasta), `test_sylph` (the minimal test's reads through sylph alone, with no host alignment or Kraken2)
 
 > [!TIP]
 > We highly recommend using Docker or Singularity containers for full pipeline reproducibility. `conda` is supported as a fallback where containers are not possible.

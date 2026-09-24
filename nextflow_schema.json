@@ -566,6 +566,38 @@
                     "help_text": "Metax is published on its author's conda channel (zldeng), not on bioconda, so no public image exists. Without this, `-profile wave` builds one from the module's conda environment, `-profile conda` or `mamba` installs it, and otherwise METAX_PROFILE needs metax and maCMD on the host PATH.",
                     "fa_icon": "fab fa-docker"
                 },
+                "run_taxpasta": {
+                    "type": "boolean",
+                    "description": "Standardise the per-sample outputs of Kraken2, Bracken, KrakenUniq and MetaPhlAn with Taxpasta.",
+                    "help_text": "One table per profiler, all in one shape: taxonomy_id plus a count column per sample, so profilers can be compared on the same library without a parser for each. Built from the raw per-sample outputs, before this pipeline's evidence filters. sylph, Metax and PathSeq are not supported by Taxpasta and write their own cohort tables. MetaPhlAn counts are Taxpasta's scaling of relative abundance, not read counts.",
+                    "fa_icon": "fas fa-table"
+                },
+                "taxpasta_format": {
+                    "type": "string",
+                    "default": "tsv",
+                    "enum": [
+                        "tsv",
+                        "csv",
+                        "arrow",
+                        "parquet",
+                        "biom"
+                    ],
+                    "description": "File format of the Taxpasta tables.",
+                    "fa_icon": "fas fa-file"
+                },
+                "taxpasta_taxonomy_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Taxdump directory (at least nodes.dmp and names.dmp) for adding taxon names, ranks or lineages.",
+                    "help_text": "Required when --taxpasta_args contains --add-name, --add-rank, --add-lineage, --add-id-lineage or --add-rank-lineage. Use the taxonomy the databases were built with.",
+                    "fa_icon": "fas fa-sitemap"
+                },
+                "taxpasta_args": {
+                    "type": "string",
+                    "description": "Extra Taxpasta arguments, e.g. '--add-name --add-rank'.",
+                    "help_text": "Passed to `taxpasta merge` (or `taxpasta standardise` for a single sample). Do not set --profiler, --samplesheet, --output or --taxonomy; the module sets those.",
+                    "fa_icon": "fas fa-terminal"
+                },
                 "bracken_db": {
                     "type": "string",
                     "format": "path",
@@ -648,10 +680,11 @@
                 },
                 "krakenuniq_db": {
                     "type": "string",
-                    "format": "directory-path",
-                    "description": "KrakenUniq database directory. Setting it enables the KrakenUniq route.",
+                    "format": "path",
+                    "description": "KrakenUniq database directory, or a .tar.gz of one. Setting it enables the KrakenUniq route.",
                     "help_text": "KrakenUniq cannot read a Kraken2 index, so this is a separate database you supply (build it with `krakenuniq-build`, or fetch a prebuilt one). The route is additive: it runs alongside Kraken2 unless you also pass `--skip_kraken2`. Its report adds per-taxon distinct-k-mer counts (`kmers`, `dup`) and reference coverage (`cov`), estimated by HyperLogLog - the discriminator Kraken2 approximates with distinct minimizers, at roughly five times the resolution. Bracken is not run on this route: Bracken's k-mer distributions belong to a Kraken2 database.",
-                    "fa_icon": "fas fa-fingerprint"
+                    "fa_icon": "fas fa-fingerprint",
+                    "exists": true
                 },
                 "krakenuniq_args": {
                     "type": "string",
