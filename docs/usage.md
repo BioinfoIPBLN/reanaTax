@@ -422,6 +422,8 @@ Memory mapping drops the request to 16 GB. It is slower in the worst case, but w
 
 **Bracken** re-estimates abundances from the Kraken2 report. It needs a `databaseNmers.kmer_distrib` file in the database matching `--bracken_read_length` (default `auto`, which measures the trimmed length from fastp and snaps it to the nearest distribution the database ships); pass a number to pin it instead. Point `--bracken_db` elsewhere if the distributions live outside the Kraken2 database directory. `--skip_bracken` turns the step off.
 
+`--bracken_threshold` (default `10`, Bracken's own) is the number of reads Kraken2 must have assigned at `--bracken_level` for a taxon to stay in the table. Below it the taxon is dropped and its reads discarded; at or above it, it also receives a share of the reads Kraken2 could only place higher up. At `0` every taxon qualifies, and on host-dominated libraries that is a problem: most of what sits high in the tree is leftover host, and Bracken hands it out by k-mer profile. On GSE207405, 72% of the species counts were redistributed reads; a taxon with 10 Kraken2 reads came out with 4,427 and one with 4 with 9,564. With `--negative_controls`, keep in mind that a contaminant a blank carries at fewer than 10 species-level reads is absent from that blank's Bracken column, and the whole-taxon control verdict is scored on the Bracken table. For very shallow blanks, `--bracken_threshold 0` keeps them visible.
+
 **Stringency.** `--kraken2_min_hit_groups` (Kraken2's `--minimum-hit-groups`) defaults to `2`, which is Kraken2's own default. For host-dominated or low-biomass libraries — RNA-seq mined for microbial signal is both — raising it is the standard tightening, and Monteleone et al. use `3`:
 
 ```bash

@@ -635,9 +635,9 @@
                 },
                 "bracken_threshold": {
                     "type": "integer",
-                    "default": 0,
+                    "default": 10,
                     "minimum": 0,
-                    "description": "Minimum number of reads at the chosen level before Bracken re-estimates it.",
+                    "description": "Minimum Kraken2 reads at the chosen level for a taxon to be kept and to receive redistributed reads. Bracken's own default.",
                     "fa_icon": "fas fa-filter"
                 },
                 "min_rel_abundance": {

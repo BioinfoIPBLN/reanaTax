@@ -9,6 +9,8 @@ Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-
 
 ### `Fixed`
 
+- `--bracken_threshold` defaulted to `0`, where Bracken's own default is `10`. Below the threshold Bracken drops a taxon; at or above it, the taxon also receives a share of every read Kraken2 could only place higher in the tree. At `0`, a species with one or two Kraken2 reads qualified, and on host-dominated libraries the reads being shared out are mostly leftover host: on GSE207405, 72% of the species counts were redistributed reads, SARS-CoV-2 went from 10 Kraken2 read pairs to 4,427 and *E. coli* from 4 to 9,564. Now `10`. The docs note the trade-off for `--negative_controls`, where a contaminant a blank carries below the threshold drops out of that blank's Bracken column.
+
 - ALDEx2 reported the fold change with the wrong sign whenever a contrast had no covariates and the sample group sorted alphabetically before the reference, as KO does before WT. That branch handed `aldex.clr` the groups as a character vector, and `aldex.effect` reports `diff.btw` as the second level minus the first in `as.factor()` order, not in the reference-first order the script sets up. On GSE302342 a taxon found only in WT_MCAO was reported as higher in KO_MCAO. The sign is now oriented explicitly. The covariate branch (`aldex.glm`) and ANCOM-BC2 were already correct.
 
 - `--host_microbe_correlation` never ran. The subworkflow joined the host count matrix (`[id: 'reanatax']`) with the Bracken table (`[id: 'bracken_combined', ...]`) on their metas, and `join` drops an unmatched key without a word, so the process always received nothing. Now `combine`, since both sides are single cohort-level tables.
