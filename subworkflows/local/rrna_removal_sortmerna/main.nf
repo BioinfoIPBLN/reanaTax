@@ -77,7 +77,7 @@ workflow RRNA_REMOVAL_SORTMERNA {
 
     // Sort so mate 1 is always first, the same contract host depletion emits.
     def ch_filtered = SORTMERNA_READS.out.reads.map { meta, fastq ->
-        def files = (fastq instanceof List ? fastq : [fastq]).sort { fq -> fq.name }
+        def files = (fastq instanceof List ? fastq : [fastq]).toSorted { fq -> fq.name }
         [meta, files]
     }
 

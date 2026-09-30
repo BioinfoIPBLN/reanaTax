@@ -24,6 +24,7 @@ process HISAT2_MERGECHUNKS {
     tuple val(meta), path(bams, stageAs: 'chunk_bam/*'), path(summaries, stageAs: 'chunk_log/*'), path(fastqs, stageAs: 'chunk_fastq/*')
     val save_unaligned
     val cleanup_intermediates
+    val work_dir
 
     output:
     tuple val(meta), path("*.bam")                   , emit: bam
@@ -51,12 +52,20 @@ process HISAT2_MERGECHUNKS {
     // directory, so a staging mode that hard-links or copies real inputs -
     // or a future caller that hands this module something it does not own -
     // cannot lose data.
+    //
+    // The work directory arrives as a String input rather than as
+    // `workflow.workDir` in the script. Nextflow hashes every variable a script
+    // mentions, whether or not the branch that uses it runs, and a Path is
+    // hashed by its size and modification time. The work directory's change
+    // whenever a run creates task folders, so this task - and everything
+    // downstream of it - missed the cache on every resume.
     def cleanup = cleanup_intermediates
         ? """
+    work_root=\$(readlink -f "${work_dir}")
     for chunk in chunk_bam/*.bam; do
         target=\$(readlink -f "\$chunk" || true)
         case "\$target" in
-            ${workflow.workDir}/*) rm -f "\$target" ;;
+            "\$work_root"/*) rm -f "\$target" ;;
         esac
     done
     """

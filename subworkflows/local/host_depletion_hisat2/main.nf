@@ -129,6 +129,7 @@ workflow HOST_DEPLETION_HISAT2 {
             ch_merged_bam.join(ch_merged_summary).join(ch_merged_fastq),
             true,
             cleanup_intermediates,
+            workflow.workDir.toString(),
         )
 
         ch_aligned = HISAT2_MERGECHUNKS.out.bam
@@ -226,8 +227,15 @@ workflow HOST_DEPLETION_HISAT2 {
     // For paired-end input HISAT2 writes `<id>.unmapped_1.fastq.gz` and
     // `<id>.unmapped_2.fastq.gz`; sort so mate 1 always comes first.
     //
+    // toSorted, not sort: Groovy's List.sort sorts IN PLACE, and this list is
+    // the task's own output object. Nextflow binds a task's outputs to its
+    // channels before it publishes them, so the publisher can still be
+    // iterating the list while this operator reorders it - a
+    // ConcurrentModificationException that aborts the run ("Unexpected error
+    // while finalizing task ... cause: null").
+    //
     def ch_unaligned = ch_fastq.map { meta, fastq ->
-        def files = (fastq instanceof List ? fastq : [fastq]).sort { fq -> fq.name }
+        def files = (fastq instanceof List ? fastq : [fastq]).toSorted { fq -> fq.name }
         [meta, files]
     }
 

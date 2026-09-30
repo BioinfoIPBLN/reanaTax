@@ -26,6 +26,8 @@ process CLEANUP_INTERMEDIATES {
 
     input:
     tuple val(meta), path(targets, stageAs: 'targets/*'), path(sentinels, stageAs: 'sentinels/*')
+    // A String, not `workflow.workDir` in the script: see HISAT2_MERGECHUNKS.
+    val work_dir
 
     output:
     tuple val(meta), path("*.cleanup.log"), emit: log
@@ -37,12 +39,13 @@ process CLEANUP_INTERMEDIATES {
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
     : > ${prefix}.cleanup.log
+    work_root=\$(readlink -f "${work_dir}")
     for staged in targets/*; do
         [ -e "\$staged" ] || continue
         target=\$(readlink -f "\$staged" || true)
         size=\$(stat -Lc%s "\$staged" 2>/dev/null || echo 0)
         case "\$target" in
-            ${workflow.workDir}/*)
+            "\$work_root"/*)
                 rm -f "\$target"
                 echo -e "removed\\t\${size}\\t\$target" >> ${prefix}.cleanup.log
                 ;;

@@ -54,7 +54,7 @@ workflow FASTQ_DOWNLOAD_FASTQDL {
     // "orphan" FASTQ alongside _1/_2 for some submissions.
     //
     def ch_runs_reads = FASTQDL.out.fastq.map { meta, fastq ->
-        def files = (fastq instanceof List ? fastq : [fastq]).sort { fq -> fq.name }
+        def files = (fastq instanceof List ? fastq : [fastq]).toSorted { fq -> fq.name }
         def read1 = files.find { fq -> fq.name.endsWith('_1.fastq.gz') }
         def read2 = files.find { fq -> fq.name.endsWith('_2.fastq.gz') }
         read1 && read2

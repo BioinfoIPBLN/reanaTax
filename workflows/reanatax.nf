@@ -137,7 +137,8 @@ workflow REANATAX {
     //
     if (params.cleanup_intermediates) {
         CLEANUP_INTERMEDIATES(
-            FASTQ_DOWNLOAD_FASTQDL.out.reads.join(FASTQ_QC_TRIM.out.raw_finished)
+            FASTQ_DOWNLOAD_FASTQDL.out.reads.join(FASTQ_QC_TRIM.out.raw_finished),
+            workflow.workDir.toString(),
         )
     }
 
