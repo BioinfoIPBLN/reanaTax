@@ -458,11 +458,12 @@ Only written with `--run_humann`. These are the files the bundled [exploreMetaTa
   - `<profiler>.taxpasta.tsv` for each of `kraken2`, `bracken`, `krakenuniq` and `metaphlan` that ran: `taxonomy_id` plus one count column per sample, from the raw per-sample outputs. With `--taxpasta_args '--add-name --add-rank'` and a taxdump, name and rank columns too. The extension follows `--taxpasta_format`.
 
 - `differential_abundance/` (with `--da_metadata`)
-  - `<comparison>.<method>.results.tsv`: one row per taxon tested - `lfc`, `pvalue`, `qvalue`, `significant`.
+  - `<comparison>.<method>.results.tsv`: one row per taxon tested - `lfc`, `pvalue`, `qvalue`, `significant`. `lfc` is always the sample group over the reference group.
+  - Tested on `bracken/bracken_combined_<level>.verdicts.filtered.tsv`: the combined Bracken table with every drop applied (host taxon and clade, evidence filters, negative controls) but no abundance thresholds, which the methods apply themselves.
   - `<comparison>.<method>.volcano.png`: log2 fold change against -log10(p), significant taxa labelled.
 
 - `read_accounting/`
-  - `reanatax.read_accounting.tsv`: one row per sample, raw reads through to classified reads.
+  - `reanatax.read_accounting.tsv`: one row per sample, raw reads through to classified reads. When a Kraken2 report exists, `nonhost_reads` is what Kraken2 received and `host_removed_reads` is the rest of what entered host depletion. With `--require_both_mates_unmapped` the HISAT2 summary cannot give either: it counts every pair that failed to align as a pair, including pairs whose other mate is host.
   - `reanatax_polya_mqc.tsv`: poly(A) carry-over diagnostic, with `--run_polya_check`.
 
 </details>

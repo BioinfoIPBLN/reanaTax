@@ -2121,7 +2121,7 @@ It is a separate file rather than a samplesheet column because the `--input_acce
 
 Each has its own container — no biocontainer carries both — so naming both runs two processes over the same table. They disagree in informative ways; treat a taxon only one of them calls with suspicion.
 
-**Both need integer counts**, which is why they read the combined Bracken table and why MetaPhlAn relative abundances are rejected rather than silently rescaled. They also run on the *unfiltered* combined table on purpose: each applies its own `--da_prevalence_min` / `--da_relabund_min`, and passing a table already thinned by `--min_rel_abundance` would filter twice under two different rules.
+**Both need integer counts**, which is why they read the combined Bracken table and why MetaPhlAn relative abundances are rejected rather than silently rescaled. They run on a combined table that has had every drop applied - the host taxon and clade, the evidence filters, negative controls - but none of the abundance thresholds: each method applies its own `--da_prevalence_min` / `--da_relabund_min`, and passing a table already thinned by `--min_rel_abundance` would filter twice under two different rules. It is published as `bracken/bracken_combined_<level>.verdicts.filtered.tsv`.
 
 Outputs land in `differential_abundance/`: a results TSV per method (`taxon`, `lfc`, `pvalue`, `qvalue`, `significant`), a volcano plot, and a top-25 table that appears as a MultiQC section.
 

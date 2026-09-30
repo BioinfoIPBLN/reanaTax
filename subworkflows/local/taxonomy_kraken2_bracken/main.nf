@@ -23,6 +23,7 @@ include { ABUNDANCE_CONTROL as CONTROL_KRAKEN2 } from '../../../modules/local/ab
 include { ABUNDANCE_CONTROL as CONTROL_BRACKEN } from '../../../modules/local/abundance/control/main'
 include { ABUNDANCE_FILTER as FILTER_KRAKEN2 } from '../../../modules/local/abundance/filter/main'
 include { ABUNDANCE_FILTER as FILTER_BRACKEN } from '../../../modules/local/abundance/filter/main'
+include { ABUNDANCE_FILTER as VERDICT_BRACKEN } from '../../../modules/local/abundance/filter/main'
 include { KRAKENBIOM                        } from '../../../modules/local/krakenbiom/main'
 include { MEGAHIT                           } from '../../../modules/local/megahit/main'
 include { SPADES_META                       } from '../../../modules/local/spades/meta/main'
@@ -577,10 +578,19 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     FILTER_KRAKEN2(ch_kraken2_for_filter, ch_drop_list, min_rel_abundance, min_samples, min_reads)
 
     def ch_bracken_combined_filtered = channel.empty()
+    def ch_bracken_combined_verdicts = channel.empty()
 
     if (!skip_bracken) {
         FILTER_BRACKEN(ch_bracken_for_filter, ch_drop_list, min_rel_abundance, min_samples, min_reads)
         ch_bracken_combined_filtered = FILTER_BRACKEN.out.filtered
+
+        // The same verdicts with every abundance threshold at zero, for the
+        // statistics that apply their own prevalence rules (differential
+        // abundance, the host-microbe correlation). Handing those the raw
+        // combined table instead would test the host taxon, its clade and
+        // every taxon an evidence filter condemned as if it were a microbe.
+        VERDICT_BRACKEN(ch_bracken_for_filter, ch_drop_list, 0, 0, 0)
+        ch_bracken_combined_verdicts = VERDICT_BRACKEN.out.filtered
     }
 
     def ch_krona = channel.empty()
@@ -641,6 +651,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     bracken_combined = ch_bracken_combined // channel: [ val(meta), path(txt) ]
     report_combined_filtered = FILTER_KRAKEN2.out.filtered // channel: [ val(meta), path(tsv) ]
     bracken_combined_filtered = ch_bracken_combined_filtered // channel: [ val(meta), path(tsv) ]
+    bracken_combined_verdicts = ch_bracken_combined_verdicts // channel: [ val(meta), path(tsv) ] - every drop applied, no abundance thresholds
     krona = ch_krona // channel: [ val(meta), path(html) ]
     biom = ch_biom // channel: [ val(meta), path(biom) ]
     contigs = ch_contigs // channel: [ val(meta), path(fa.gz) ]

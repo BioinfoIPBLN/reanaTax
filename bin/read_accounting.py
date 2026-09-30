@@ -251,6 +251,20 @@ def derive(row):
         del row[key]
     row["per_fragment"] = per_fragment
 
+    # What actually reached classification, whenever a report says so. The
+    # HISAT2 summary cannot give it on the --require_both_mates_unmapped route:
+    # "aligned concordantly 0 times" counts every pair that failed to align AS
+    # A PAIR, but only pairs where neither mate aligned are released, and the
+    # summary never prints that number. Kraken2 classifies exactly the reads the
+    # last pass released, so its classified + unclassified total is exact on
+    # either route. On GSE302342 the summary figure was ~30x too high.
+    if host_labels and ("classified_reads" in row or "unclassified_reads" in row):
+        released = row.get("classified_reads", 0) + row.get("unclassified_reads", 0)
+        row["nonhost_reads"] = released
+        first_input = row.get(f"{host_labels[0]}_input_reads")
+        if first_input is not None:
+            row["host_removed_reads"] = max(first_input - released, 0)
+
     # How many reads rRNA depletion actually removed. Taken as trimmed minus
     # what the FIRST host pass received, not from the SortMeRNA log: with
     # `--paired_in` a pair is dropped whole when either mate is rRNA, so the

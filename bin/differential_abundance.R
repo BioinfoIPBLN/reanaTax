@@ -146,11 +146,17 @@ if (method %in% c("aldex2", "aldex")) {
                       qvalue = if (length(qv)) glmRes[[qv[1]]] else p.adjust(glmRes[[pv[1]]], "BH"),
                       stringsAsFactors = FALSE)
   } else {
-    clr <- aldex.clr(counts, as.character(meta[[opt$grouping]]), mc.samples = 128, denom = "all", verbose = FALSE)
+    conds <- as.character(meta[[opt$grouping]])
+    clr <- aldex.clr(counts, conds, mc.samples = 128, denom = "all", verbose = FALSE)
     tt <- aldex.ttest(clr)
     ef <- aldex.effect(clr)
+    # aldex.effect reports diff.btw as the second level minus the first, in
+    # as.factor() order - alphabetical for a character vector - not in the
+    # refGroup-first order set above. Without this, any contrast whose sample
+    # group sorts before its reference (KO vs WT) came out with the sign flipped.
+    orient <- if (levels(as.factor(conds))[2] == opt$sample_group) 1 else -1
     res <- data.frame(taxon = rownames(tt),
-                      lfc = ef$diff.btw,
+                      lfc = orient * ef$diff.btw,
                       pvalue = tt$we.ep,
                       qvalue = tt$we.eBH,
                       stringsAsFactors = FALSE)

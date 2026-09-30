@@ -56,14 +56,15 @@ workflow HOST_EXPRESSION {
     //
     // MODULE: host expression against microbial abundance.
     //
-    // Joined on the meta rather than combined blindly: both sides are
-    // cohort-level tables keyed [id: 'reanatax'], and a join makes that
-    // assumption explicit and fails loudly if it ever stops holding.
+    // Combined, not joined. Both sides are cohort-level tables holding one item
+    // each, but their metas differ - [id: 'reanatax'] for the counts,
+    // [id: 'bracken_combined', names: ...] for Bracken - and `join` drops an
+    // unmatched key without a word, so the correlation never ran at all.
     //
     def ch_correlation = channel.empty()
 
     if (correlate) {
-        HOSTMICROBE_CORRELATION(ch_counts.join(ch_microbial))
+        HOSTMICROBE_CORRELATION(ch_counts.combine(ch_microbial.map { _meta, table -> table }))
         ch_correlation = HOSTMICROBE_CORRELATION.out.results
         ch_multiqc_files = ch_multiqc_files.mix(HOSTMICROBE_CORRELATION.out.mqc.map { _meta, mqc -> mqc })
     }

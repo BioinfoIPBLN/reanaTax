@@ -1057,10 +1057,12 @@ workflow REANATAX {
     //
     // SUBWORKFLOW: Which taxa differ between two groups.
     //
-    // Runs on the UNFILTERED combined Bracken table on purpose: ALDEx2 and
-    // ANCOM-BC2 apply their own prevalence and abundance filters, and feeding
-    // them a table already thinned by --min_rel_abundance would filter twice
-    // with two different rules.
+    // Runs on the combined Bracken table with every drop applied - the host
+    // taxon and clade, the evidence filters, negative controls - but none of
+    // the abundance thresholds: ALDEx2 and ANCOM-BC2 apply their own
+    // prevalence and abundance filters, and feeding them a table already
+    // thinned by --min_rel_abundance would filter twice with two different
+    // rules.
     //
     if (params.da_metadata && !params.skip_bracken && !params.skip_kraken2) {
         def da_missing = ['da_grouping', 'da_sample_group', 'da_ref_group'].findAll { key -> !params[key] }
@@ -1068,7 +1070,7 @@ workflow REANATAX {
             error("--da_metadata was given, so ${da_missing.collect { key -> '--' + key }.join(', ')} must be too.")
         }
         DIFFERENTIAL_ABUNDANCE(
-            TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined,
+            TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined_verdicts,
             params.da_metadata,
             daMethods(params.da_method),
         )
@@ -1109,7 +1111,7 @@ workflow REANATAX {
     if (host_quantified && params.da_metadata && params.host_de_method) {
         HOST_EXPRESSION(
             ch_host_matrix,
-            TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined,
+            TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined_verdicts,
             params.da_metadata,
             hostDeMethods(params.host_de_method),
             params.host_microbe_correlation,
