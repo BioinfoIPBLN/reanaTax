@@ -96,6 +96,7 @@ nextflow run . -profile local,singularity \
   --remove_rrna --sortmerna_db /data/rrna/smr_v4.3_sensitive_db.fasta \
   --host GCF_000001405.40 \
   --kraken2_db /data/k2_core_nt \
+  --bracken_threshold 10 \
   --outdir results
 ```
 
@@ -422,7 +423,14 @@ Memory mapping drops the request to 16 GB. It is slower in the worst case, but w
 
 **Bracken** re-estimates abundances from the Kraken2 report. It needs a `databaseNmers.kmer_distrib` file in the database matching `--bracken_read_length` (default `auto`, which measures the trimmed length from fastp and snaps it to the nearest distribution the database ships); pass a number to pin it instead. Point `--bracken_db` elsewhere if the distributions live outside the Kraken2 database directory. `--skip_bracken` turns the step off.
 
-`--bracken_threshold` (default `10`, Bracken's own) is the number of reads Kraken2 must have assigned at `--bracken_level` for a taxon to stay in the table. Below it the taxon is dropped and its reads discarded; at or above it, it also receives a share of the reads Kraken2 could only place higher up. At `0` every taxon qualifies, and on host-dominated libraries that is a problem: most of what sits high in the tree is leftover host, and Bracken hands it out by k-mer profile. On GSE207405, 72% of the species counts were redistributed reads; a taxon with 10 Kraken2 reads came out with 4,427 and one with 4 with 9,564. With `--negative_controls`, keep in mind that a contaminant a blank carries at fewer than 10 species-level reads is absent from that blank's Bracken column, and the whole-taxon control verdict is scored on the Bracken table. For very shallow blanks, `--bracken_threshold 0` keeps them visible.
+**Choosing `--bracken_threshold`.** This is required whenever Bracken runs. There is no default because the value changes what the Bracken tables contain, and neither obvious choice suits all data.
+
+Bracken keeps a taxon only if Kraken2 assigned it at least this many reads at `--bracken_level`. Below that, the taxon is dropped and its reads are discarded. The taxa it keeps also receive a share of the reads Kraken2 could only place higher in the tree (genus, family, root), in proportion to how often each taxon's reads land there.
+
+- **`10`** is Bracken's own default. Use it for host-dominated or low-biomass libraries: RNA-seq mined for microbes, tissue, cell culture. There, most of what Kraken2 places high in the tree is leftover host, and a lower threshold lets Bracken hand it to taxa with almost no evidence of their own. On GSE207405 (mouse endothelial cultures) at `0`, 72% of the species counts were redistributed reads: SARS-CoV-2 went from 10 Kraken2 read pairs to 4,427, and *E. coli* from 4 to 9,564.
+- **`0`** keeps every taxon Kraken2 saw. Use it when a taxon with a handful of reads has to appear in the tables themselves: very shallow libraries, or `--negative_controls` with shallow blanks. The control filter's whole-taxon verdict is scored on the Bracken table, so a contaminant a blank carries below the threshold would be missing from that blank's column. Expect species with one or two reads to be inflated.
+
+Neither setting touches the per-sample Kraken2 reports in `kraken2/`, which remain the place to weigh the evidence for any single taxon. Each per-sample Bracken file also splits its count into `kraken_assigned_reads` and `added_reads`: a species that is mostly `added_reads` was mostly redistributed.
 
 **Stringency.** `--kraken2_min_hit_groups` (Kraken2's `--minimum-hit-groups`) defaults to `2`, which is Kraken2's own default. For host-dominated or low-biomass libraries — RNA-seq mined for microbial signal is both — raising it is the standard tightening, and Monteleone et al. use `3`:
 
@@ -694,6 +702,7 @@ Measured on the CSI-Microbes 10x cohort, with *Homo sapiens* already dropped, as
 nextflow run BioinfoIPBLN/reanaTax \
     --input samplesheet.csv \
     --kraken2_db /path/to/db \
+    --bracken_threshold 10 \
     --drop_host_taxon --host_carryover_taxid 9606 \
     --drop_host_clade family \
     -profile singularity
@@ -731,6 +740,7 @@ Every filter above judges a taxon by counting things about its reads — how man
 nextflow run BioinfoIPBLN/reanaTax \
     --input samplesheet.csv \
     --kraken2_db /path/to/db \
+    --bracken_threshold 10 \
     --assembly \
     --da_metadata metadata.tsv \
     --da_grouping condition \
@@ -1710,6 +1720,7 @@ nextflow run . -profile local,singularity \
   --input_accessions PRJNA1392516 \
   --host GCF_000001405.40 \
   --kraken2_db /data/k2_core_nt \
+  --bracken_threshold 10 \
   --krakenuniq_db /data/krakenuniq_std \
   --outdir results
 ```
@@ -1762,6 +1773,7 @@ nextflow run . -profile local,singularity \
   --input_accessions SRX8592588,SRX8592589 \
   --host GCF_943734735.2 \
   --kraken2_db /srv/GT/databases/kraken2/k2_core_nt_20251015 \
+  --bracken_threshold 10 \
   --kraken2_use_daemon \
   --kraken2_confidence 0.1 \
   --outdir results
@@ -1940,7 +1952,7 @@ The pipeline can have a large language model write short summaries into the HTML
 ```bash
 nextflow run BioinfoIPBLN/reanatax \
    -profile local,singularity \
-   --input_dir /data/my_reads --fasta host.fa --kraken2_db /data/kraken2/Standard \
+   --input_dir /data/my_reads --fasta host.fa --kraken2_db /data/kraken2/Standard --bracken_threshold 10 \
    --llm_endpoint http://your-llm-host:8000/v1/chat/completions \
    --llm_model your-model-name \
    --outdir ./results
@@ -1994,6 +2006,7 @@ nextflow run BioinfoIPBLN/reanatax \
     --host_accession GCF_000001405.40 \
     --ncbi_group vertebrate_mammalian \
     --kraken2_db /data/kraken2/Standard \
+    --bracken_threshold 10 \
     --outdir ./results
 ```
 
@@ -2081,6 +2094,7 @@ Off by default. `--export_biom` writes the classification as a BIOM table in `bi
 nextflow run BioinfoIPBLN/reanaTax \
     --input samplesheet.csv \
     --kraken2_db /path/to/db \
+    --bracken_threshold 10 \
     --export_biom \
     --biom_metadata metadata.tsv \
     -profile singularity

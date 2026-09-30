@@ -635,9 +635,9 @@
                 },
                 "bracken_threshold": {
                     "type": "integer",
-                    "default": 10,
                     "minimum": 0,
-                    "description": "Minimum Kraken2 reads at the chosen level for a taxon to be kept and to receive redistributed reads. Bracken's own default.",
+                    "description": "Minimum Kraken2 reads at the chosen level for a taxon to be kept and to receive redistributed reads. Required whenever Bracken runs: 10 is Bracken's own default, 0 keeps every taxon.",
+                    "help_text": "No default, on purpose: the right value depends on the data. See 'Choosing --bracken_threshold' in docs/usage.md.",
                     "fa_icon": "fas fa-filter"
                 },
                 "min_rel_abundance": {

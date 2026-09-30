@@ -48,6 +48,7 @@ nextflow run BioinfoIPBLN/reanatax \
    --input_accessions PRJNA682076 \
    --host_accession GCF_000001405.40 --ncbi_group vertebrate_mammalian \
    --kraken2_db /data/kraken2/Standard \
+   --bracken_threshold 10 \
    --outdir ./results
 ```
 
@@ -59,6 +60,7 @@ nextflow run BioinfoIPBLN/reanatax \
    --input_dir /data/my_reads \
    --fasta /data/genomes/host.fa.gz \
    --kraken2_db /data/kraken2/Standard \
+   --bracken_threshold 10 \
    --outdir ./results
 ```
 
@@ -76,6 +78,7 @@ nextflow run BioinfoIPBLN/reanatax \
    --input samplesheet.csv \
    --hisat2_index /data/genomes/host_hisat2 \
    --kraken2_db /data/kraken2/Standard \
+   --bracken_threshold 10 \
    --outdir ./results
 ```
 

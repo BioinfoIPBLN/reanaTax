@@ -496,6 +496,12 @@ def validateInputParameters() {
         error("--kraken2_db is required. Point it at a Kraken2 database directory (or .tar.gz), or disable classification with --skip_kraken2.")
     }
 
+    // No default: the value changes what the Bracken tables contain, and each
+    // of the two obvious choices is wrong for some data. See docs/usage.md.
+    if (!params.skip_kraken2 && !params.skip_bracken && params.bracken_threshold == null) {
+        error("--bracken_threshold is required whenever Bracken runs. Bracken drops every taxon with fewer Kraken2 reads than this at --bracken_level, and hands the reads Kraken2 could only place higher in the tree to the taxa that remain. 10 is Bracken's own default and the safer choice for host-dominated or low-biomass libraries. 0 keeps every taxon, but lets Bracken inflate species that Kraken2 gave one or two reads. See 'Choosing --bracken_threshold' in docs/usage.md. Pass --skip_bracken to turn Bracken off.")
+    }
+
     // `--report-minimizer-data` inserts two columns in the MIDDLE of the Kraken2
     // report, and every consumer here was checked against that: Bracken 3.1,
     // combine_kreports.py, kreport2mpa.py and kreport2krona.py all index the
