@@ -33,7 +33,6 @@ apps/*/site/
 benchmark/
 bin/benchmark_*.py
 bin/benchmark_diff.py
-bin/polya_carryover.py
 
 # Same boundary: reanalysis runs, not pipeline. Eight SRA accessions with their
 # differential-abundance metadata and ready-to-launch commands.
