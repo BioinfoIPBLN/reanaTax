@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-co.re/) template.
 
+### `Changed`
+
+- Samples now move through the pipeline one at a time instead of in cohort-wide steps. Two `groupTuple` calls without an expected size held every sample back until the whole cohort had reached the same point: the run grouping after download, so trimming waited for the slowest download, and the chunk merge after host alignment, so no merge, second host pass or Kraken2 run could start until every chunk of every sample had aligned. Both now carry the expected count with `groupKey`: runs per sample from the run sheet, and chunks per sample from the chunk plan. So a sample is merged, depleted and classified while others are still downloading or aligning. Kraken2 still classifies one sample at a time, since the daemon takes one client, but it starts early. Incomplete groups are still emitted at the end (`remainder: true`). Task inputs are unchanged, so existing caches still resume.
+
 ### `Fixed`
 
 - A transient ENA error could become a run accession. The ENA portal sometimes answers a metadata query with its error message as the data line ("ERROR occurred. Not all results may have been written.Query: ..."). `fastq-dl` wrote it into the run-info table, `runinfo_to_runsheet.py` passed it on as a run, and FASTQDL then failed on an accession that does not exist. It hit 6 of 180 experiments in one CSI-Microbes plate download. The script now fails on any run accession that is not `SRR`/`ERR`/`DRR` plus digits, so `FASTQDL_METADATA` retries the query, which succeeds. It fails rather than skips because the message says the results may be incomplete.

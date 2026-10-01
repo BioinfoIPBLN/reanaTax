@@ -62,15 +62,17 @@ workflow HOST_DEPLETION_HISAT2 {
     if (chunk_size && chunk_size > 0) {
         HISAT2_CHUNKPLAN(ch_reads)
 
-        def ch_chunks = HISAT2_CHUNKPLAN.out.plan
+        // Ceiling division, and at least one chunk even for an empty library,
+        // so a sample with no surviving reads still produces the summary and the
+        // empty outputs the rest of the pipeline expects.
+        def size = chunk_size as long
+        def ch_plan = HISAT2_CHUNKPLAN.out.plan
             .map { meta, plan -> [meta, plan.text.trim() as long] }
+
+        def ch_chunks = ch_plan
             .join(ch_reads)
             .flatMap { meta, total, reads ->
-                // Ceiling division, and at least one chunk even for an empty
-                // library, so a sample with no surviving reads still produces the
-                // summary and the empty outputs the rest of the pipeline expects.
-                def size = chunk_size as long
-                def n_chunks = total > 0 ? (total + size - 1).intdiv(size) : 1
+                def n_chunks = chunkCount(total, size)
                 (0..<n_chunks).collect { index ->
                     [
                         meta + [
@@ -105,22 +107,19 @@ workflow HOST_DEPLETION_HISAT2 {
         // its inputs in the same order as the original one: groupTuple makes no
         // promise about order, and an unsorted list would change the task hash
         // from run to run and defeat -resume.
+        //
+        // Each sample is released as soon as its own chunks are aligned. A plain
+        // groupTuple waits for the channel to close, i.e. for every chunk of
+        // every sample, so no merge, no second host pass and no classification
+        // could start until the whole cohort had aligned. groupKey carries the
+        // sample's chunk count, from the same plan that created the chunks; an
+        // incomplete group is still emitted at the end (remainder), as before.
         def chunk_keys = ['chunk', 'chunk_skip', 'chunk_upto']
+        def ch_chunk_count = ch_plan.map { meta, total -> [meta, chunkCount(total, size)] }
 
-        def ch_merged_bam = ch_chunk_bam
-            .map { meta, files -> [meta.findAll { key, _value -> !(key in chunk_keys) }, files] }
-            .groupTuple()
-            .map { meta, files -> [meta, files.flatten().sort { entry -> entry.name }] }
-
-        def ch_merged_summary = ch_chunk_summary
-            .map { meta, files -> [meta.findAll { key, _value -> !(key in chunk_keys) }, files] }
-            .groupTuple()
-            .map { meta, files -> [meta, files.flatten().sort { entry -> entry.name }] }
-
-        def ch_merged_fastq = ch_chunk_fastq
-            .map { meta, files -> [meta.findAll { key, _value -> !(key in chunk_keys) }, files] }
-            .groupTuple()
-            .map { meta, files -> [meta, files.flatten().sort { entry -> entry.name }] }
+        def ch_merged_bam = regroupChunks(ch_chunk_bam, ch_chunk_count, chunk_keys)
+        def ch_merged_summary = regroupChunks(ch_chunk_summary, ch_chunk_count, chunk_keys)
+        def ch_merged_fastq = regroupChunks(ch_chunk_fastq, ch_chunk_count, chunk_keys)
 
         // `true`, like the unchunked calls above: the non-host FASTQs are the
         // pipeline's product, not an optional extra. params.save_unaligned only
@@ -248,4 +247,21 @@ workflow HOST_DEPLETION_HISAT2 {
     host_counts_summary = ch_host_counts_summary // channel: [ val(meta), path(summary) ]
     summary = ch_summary // channel: [ val(meta), path(log) ]
     multiqc_files = ch_multiqc_files // channel: path(file)
+}
+
+// Chunks for a library of `total` reads-or-pairs: ceiling division, and at least
+// one even for an empty library.
+def chunkCount(total, size) {
+    return total > 0 ? (total + size - 1).intdiv(size) : 1
+}
+
+// Collect one sample's chunk outputs back under the sample's own meta, released
+// as soon as all of that sample's chunks have arrived (see the call site).
+def regroupChunks(ch_chunk_outputs, ch_chunk_count, chunk_keys) {
+    return ch_chunk_outputs
+        .map { meta, files -> [meta.findAll { key, _value -> !(key in chunk_keys) }, files] }
+        .combine(ch_chunk_count, by: 0)
+        .map { meta, files, n_chunks -> [groupKey(meta, n_chunks), files] }
+        .groupTuple(remainder: true)
+        .map { group, files -> [group.getGroupTarget(), files.flatten().sort { entry -> entry.name }] }
 }

@@ -65,15 +65,25 @@ workflow FASTQ_DOWNLOAD_FASTQDL {
     //
     // Group runs that belong together. `run` keeps every run as its own sample.
     //
-    def ch_grouped = ch_runs_reads
-        .map { meta, reads ->
-            def key = group_runs_by == 'run'
-                ? meta.run_accession
-                : group_runs_by == 'sample' ? meta.sample_accession : meta.experiment_accession
-            [key, meta, reads]
-        }
+    // Each group is released as soon as its own runs have downloaded. A plain
+    // groupTuple only emits when the channel closes, so trimming, alignment and
+    // classification of every sample waited for the slowest download in the
+    // cohort. The run sheet already says how many runs each group has, long
+    // before the downloads finish, so groupKey can carry that count. An
+    // incomplete group is still emitted at the end (remainder), as before.
+    //
+    def ch_expected_runs = ch_runs
+        .map { meta, _accession -> [runGroup(meta, group_runs_by), meta.run_accession] }
         .groupTuple(by: 0)
-        .map { key, metas, reads ->
+        .map { key, runs -> [key, runs.size()] }
+
+    def ch_grouped = ch_runs_reads
+        .map { meta, reads -> [runGroup(meta, group_runs_by), meta, reads] }
+        .combine(ch_expected_runs, by: 0)
+        .map { key, meta, reads, expected -> [groupKey(key, expected), meta, reads] }
+        .groupTuple(by: 0, remainder: true)
+        .map { group, metas, reads ->
+            def key = group.getGroupTarget()
             // Sort by run accession so that merged FASTQs are byte-identical
             // between resumes and between machines.
             def ordered = [metas, reads].transpose().sort { entry -> entry[0].run_accession }
@@ -103,4 +113,11 @@ workflow FASTQ_DOWNLOAD_FASTQDL {
     reads = ch_reads // channel: [ val(meta), [ path(fastq) ] ]
     runinfo = FASTQDL_METADATA.out.runinfo // channel: [ val(meta), path(tsv) ]
     runsheet = FASTQDL_METADATA.out.runsheet // channel: [ val(meta), path(csv) ]
+}
+
+// The sample a run belongs to under --group_runs_by.
+def runGroup(meta, group_runs_by) {
+    return group_runs_by == 'run'
+        ? meta.run_accession
+        : group_runs_by == 'sample' ? meta.sample_accession : meta.experiment_accession
 }
