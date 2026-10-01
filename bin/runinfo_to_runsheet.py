@@ -39,6 +39,12 @@ COLUMNS = [
 
 WHITESPACE = re.compile(r"\s+")
 
+# SRA, ENA and DDBJ run accessions. ENA's portal sometimes answers a query with
+# its error message as the data line ("ERROR occurred. Not all results may have
+# been written.Query: ..."), and fastq-dl writes that into the run-info table
+# as though it were a run.
+RUN_ACCESSION = re.compile(r"^[SED]RR\d+$")
+
 # csv.field_size_limit defaults to 128 kB; some ENA free-text fields exceed it.
 csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
 
@@ -70,6 +76,18 @@ def main(argv=None):
 
     if not rows:
         sys.exit(f"ERROR: no runs found in '{args.run_info}' for query '{args.query}'")
+
+    # Fail rather than skip: the message says the results may be incomplete, so
+    # dropping the bad row could lose runs without a word. A non-zero exit lets
+    # the task's retry policy repeat the query, which then succeeds.
+    for row in rows:
+        run = clean(row.get("run_accession"))
+        if run and not RUN_ACCESSION.match(run):
+            sys.exit(
+                f"ERROR: the archive returned '{run[:120]}' instead of a run accession "
+                f"for query '{args.query}'. This is usually a transient ENA error; "
+                "exiting non-zero so the query is retried."
+            )
 
     seen = set()
     with open(args.output, "w", newline="", encoding="utf-8") as fout:
