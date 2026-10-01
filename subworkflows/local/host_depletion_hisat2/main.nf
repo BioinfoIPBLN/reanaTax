@@ -250,7 +250,8 @@ workflow HOST_DEPLETION_HISAT2 {
 }
 
 // Chunks for a library of `total` reads-or-pairs: ceiling division, and at least
-// one even for an empty library.
+// one even for an empty library. A long, like its inputs; groupKey needs an int,
+// so the call site converts.
 def chunkCount(total, size) {
     return total > 0 ? (total + size - 1).intdiv(size) : 1
 }
@@ -261,7 +262,7 @@ def regroupChunks(ch_chunk_outputs, ch_chunk_count, chunk_keys) {
     return ch_chunk_outputs
         .map { meta, files -> [meta.findAll { key, _value -> !(key in chunk_keys) }, files] }
         .combine(ch_chunk_count, by: 0)
-        .map { meta, files, n_chunks -> [groupKey(meta, n_chunks), files] }
+        .map { meta, files, n_chunks -> [groupKey(meta, n_chunks as int), files] }
         .groupTuple(remainder: true)
         .map { group, files -> [group.getGroupTarget(), files.flatten().sort { entry -> entry.name }] }
 }
