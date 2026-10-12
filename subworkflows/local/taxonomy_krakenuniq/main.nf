@@ -38,7 +38,7 @@ workflow TAXONOMY_KRAKENUNIQ {
     save_reads_assignment // boolean
     skip_krona // boolean
     minimizer_filter // boolean: drop taxa whose evidence has no breadth
-    minimizer_thresholds // map: min_reads, min_distinct, max_duplication, min_coverage
+    minimizer_thresholds // map: min_reads, min_distinct, max_duplication, min_coverage, distinct_scale, duplication_coverage, duplication_min_distinct
     min_rel_abundance // float
     min_samples // integer
     min_reads // number: ...and this many reads in total, 0 to disable
@@ -143,6 +143,8 @@ workflow TAXONOMY_KRAKENUNIQ {
             minimizer_thresholds.max_duplication,
             minimizer_thresholds.min_coverage,
             minimizer_thresholds.distinct_scale,
+            minimizer_thresholds.duplication_coverage,
+            minimizer_thresholds.duplication_min_distinct,
         )
         ch_drop_list = MINIMIZER_KRAKENUNIQ.out.drop_list.map { _meta, list -> list }.first()
         ch_evidence = MINIMIZER_KRAKENUNIQ.out.evidence

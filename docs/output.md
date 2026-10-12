@@ -165,7 +165,7 @@ A sample in which Kraken2 classified nothing (its report holds only the `unclass
 <summary>Output files</summary>
 
 - `minimizer_filter/` (with `--minimizer_filter`)
-  - `*.minimizer_evidence.tsv`: every taxon with its reads, distinct minimizers, duplication, coverage and verdict. With `--minimizer_correlation` it also carries the three Spearman coefficients and the largest of their BH-adjusted p-values.
+  - `*.minimizer_evidence.tsv`: every taxon with its reads, distinct minimizers, duplication, coverage, the duplication limit it was held to (it rises with coverage for genome-scale taxa) and verdict. With `--minimizer_correlation` it also carries the three Spearman coefficients and the largest of their BH-adjusted p-values.
   - `*.minimizer_drop.txt`: the taxids that failed.
 - `host_kmer_filter/` (with `--host_kmer_filter`)
   - `*.host_kmer_evidence.tsv`: per taxon, its reads, how many of them carried host k-mers, and the resulting fraction.

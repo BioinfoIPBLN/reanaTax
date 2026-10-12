@@ -688,8 +688,8 @@ def redactPipelineInfo(outdir) {
 // expression.
 //
 //
-// The four minimizer-evidence thresholds, gathered so the taxonomy subworkflows
-// take one argument rather than four positional numbers it would be easy to
+// The minimizer-evidence thresholds, gathered so the taxonomy subworkflows take
+// one argument rather than seven positional numbers it would be easy to
 // transpose.
 //
 def minimizerThresholds() {
@@ -699,6 +699,8 @@ def minimizerThresholds() {
         max_duplication: params.minimizer_max_duplication,
         min_coverage: params.minimizer_min_coverage,
         distinct_scale: params.minimizer_distinct_scale,
+        duplication_coverage: params.minimizer_duplication_coverage,
+        duplication_min_distinct: params.minimizer_duplication_min_distinct,
     ]
 }
 

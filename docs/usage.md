@@ -476,6 +476,26 @@ Coverage is off by default because it is confounded with depth: a genuinely rare
 organism also covers little of its reference. Turn it on when your libraries are
 deep enough that a real taxon should be well covered.
 
+**The duplication limit rises with coverage.** A small genome sequenced deeply
+runs out of distinct minimizers long before it runs out of reads, so its
+duplication climbs with depth, and a flat limit condemns exactly the organisms
+that are there in force: on PRISM's CLID benchmark the flat 100 removed RSV at a
+million reads and rubella at 15,000, each the top species of its run. Above
+`--minimizer_duplication_coverage` (0.01) the limit becomes
+`--minimizer_max_duplication × coverage / 0.01`. RSV at 10% coverage may reach
+1,000, rubella at 3.5% may reach 350.
+
+That only applies to a taxon with at least `--minimizer_duplication_min_distinct`
+(1000) distinct minimizers, roughly 5 kb of sequence at Kraken2's defaults. A
+taxon the database holds only as a barcode is fully covered by a few hundred,
+and without the floor it would ride the raised limit straight through. Across
+the benchmark runs so far, 1 of the 529 taxa the flat limit condemned clears
+both bars (squirrel monkey retrovirus, a real cell-line passenger at 80%
+coverage), and so do both real infections it condemned. Lower the floor for
+viruses smaller than ~5 kb, such as HBV; set the coverage to 0 for the old flat
+limit. The evidence table's `duplication_limit` column shows the limit each
+taxon was held to.
+
 #### Where the numbers come from
 
 Kraken2's `--report-minimizer-data` inserts two columns — minimizers observed for
@@ -492,7 +512,8 @@ minimizers held per clade; the coverage test is skipped if neither is there.
 #### Output, and how to calibrate
 
 `minimizer_filter/*.minimizer_evidence.tsv` lists every taxon with its reads,
-distinct count, duplication, coverage and verdict. Read that **before** trusting
+distinct count, duplication, coverage, the duplication limit it was held to,
+and verdict. Read that **before** trusting
 the defaults — they are deliberately conservative, chosen to catch egregious
 cases without deleting real low-abundance taxa, not tuned to any particular
 library. Sort by `duplication` descending and see where the real organisms stop.

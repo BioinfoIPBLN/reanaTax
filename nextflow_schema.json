@@ -734,7 +734,24 @@
                     "default": 100,
                     "minimum": 0,
                     "description": "...and its observed/distinct ratio must stay below this.",
-                    "help_text": "The average number of times each distinct minimizer was re-hit. A real organism spreads reads over its genome, so most of what it hits is new; a call from one locus re-hits the same handful repeatedly.",
+                    "help_text": "The average number of times each distinct minimizer was re-hit. A real organism spreads reads over its genome, so most of what it hits is new; a call from one locus re-hits the same handful repeatedly. The limit rises with coverage for a taxon with genome-scale breadth; see `--minimizer_duplication_coverage`.",
+                    "fa_icon": "fas fa-clone"
+                },
+                "minimizer_duplication_coverage": {
+                    "type": "number",
+                    "default": 0.01,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Above this coverage the duplication limit rises in proportion, to --minimizer_max_duplication x coverage / this. 0 keeps the limit flat.",
+                    "help_text": "A small genome sequenced deeply runs out of distinct minimizers long before it runs out of reads, so its duplication climbs with depth and a flat limit condemns it: on PRISM's CLID benchmark the flat 100 removed RSV at a million reads and rubella at 15,000, each the top species of its run. Applies only to a taxon with at least `--minimizer_duplication_min_distinct` distinct minimizers.",
+                    "fa_icon": "fas fa-clone"
+                },
+                "minimizer_duplication_min_distinct": {
+                    "type": "number",
+                    "default": 1000,
+                    "minimum": 0,
+                    "description": "...but only for a taxon with at least this many distinct minimizers (k-mers for KrakenUniq): genome-scale breadth, not one locus.",
+                    "help_text": "The floor keeps single-locus calls out of the raised limit. A taxon the database holds only as a barcode is fully covered by a few hundred minimizers, so coverage alone cannot tell it from a saturated genome. Across the benchmark runs so far, 1 of the 529 taxa the flat limit condemned clears both bars, and both real infections it condemned do. At Kraken2's default k=35, l=31 that is roughly 5 kb of sequence, so lower it for viruses smaller than that, such as HBV (3.2 kb).",
                     "fa_icon": "fas fa-clone"
                 },
                 "minimizer_min_coverage": {

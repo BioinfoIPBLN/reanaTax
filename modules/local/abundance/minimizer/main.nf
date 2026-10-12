@@ -26,6 +26,8 @@ process ABUNDANCE_MINIMIZER {
     val max_duplication
     val min_coverage
     val distinct_scale
+    val duplication_coverage
+    val duplication_min_distinct
 
     output:
     tuple val(meta), path("*.minimizer_evidence.tsv"), emit: evidence
@@ -50,6 +52,8 @@ process ABUNDANCE_MINIMIZER {
         --max-duplication ${max_duplication} \\
         --min-coverage ${min_coverage} \\
         --distinct-scale ${distinct_scale} \\
+        --duplication-coverage ${duplication_coverage} \\
+        --duplication-min-distinct ${duplication_min_distinct} \\
         --evidence ${prefix}.minimizer_evidence.tsv \\
         --drop-list ${prefix}.minimizer_drop.txt \\
         --mqc ${prefix}_minimizer_filter_mqc.tsv

@@ -43,7 +43,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     skip_bracken // boolean
     skip_krona // boolean
     minimizer_filter // boolean: drop taxa whose evidence has no breadth
-    minimizer_thresholds // map: min_reads, min_distinct, max_duplication, min_coverage
+    minimizer_thresholds // map: min_reads, min_distinct, max_duplication, min_coverage, distinct_scale, duplication_coverage, duplication_min_distinct
     host_kmer_filter // boolean: drop taxa whose reads are mostly host k-mers
     host_kmer_settings // map: taxid, max_fraction, min_reads
     decontam_settings // map: metadata, neg_column, neg_value, conc_column, method, threshold, batch_column, batch_combine - or null
@@ -263,6 +263,8 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
             minimizer_thresholds.max_duplication,
             minimizer_thresholds.min_coverage,
             minimizer_thresholds.distinct_scale,
+            minimizer_thresholds.duplication_coverage,
+            minimizer_thresholds.duplication_min_distinct,
         )
         ch_minimizer_drop = ABUNDANCE_MINIMIZER.out.drop_list.map { _meta, list -> list }
         ch_multiqc_files = ch_multiqc_files.mix(ABUNDANCE_MINIMIZER.out.mqc.map { _meta, mqc -> mqc })

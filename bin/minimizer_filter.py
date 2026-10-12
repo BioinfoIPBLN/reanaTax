@@ -28,6 +28,19 @@ Three quantities are derived, whichever the source:
                `inspect.txt` shipped with the database (plain or gzipped),
                whose second column is the distinct minimizers per clade.
 
+Duplication on its own also condemns a real organism sequenced deeply enough. A
+small genome runs out of distinct minimizers long before it runs out of reads,
+so its duplication climbs with depth: on PRISM's CLID benchmark a flat limit of
+100 removed RSV at a million reads and rubella at 15,000, each the top species
+of its run. So the limit rises with coverage, to --max-duplication x coverage /
+--duplication-coverage, once a taxon's breadth is genome-scale: at least
+--duplication-min-distinct distinct minimizers. The floor is what keeps
+single-locus calls out. A taxon the database holds only as a barcode is "fully
+covered" by a few hundred minimizers; across every benchmark run so far, one of
+the 529 taxa the flat limit condemned clears both bars (squirrel monkey
+retrovirus, a real cell-line passenger at 80% coverage), and both real
+infections it condemned do.
+
 Reads alone are never a reason to drop: a taxon under --min-reads is left
 untouched, because a handful of reads cannot demonstrate breadth either way and
 condemning them would just re-derive the abundance filter that already ran.
@@ -266,6 +279,21 @@ def correlation_test(per_sample, ranks, args):
     return results
 
 
+def duplication_limit(row, args):
+    """The highest duplication a taxon may show: --max-duplication, raised in
+    proportion to its coverage once its breadth is genome-scale."""
+    limit = args.max_duplication
+    if (
+        args.duplication_coverage > 0
+        and row["coverage"] is not None
+        and row["distinct"] is not None
+        and row["distinct"] >= args.duplication_min_distinct
+        and row["coverage"] > args.duplication_coverage
+    ):
+        limit *= row["coverage"] / args.duplication_coverage
+    return limit
+
+
 def verdict(row, args):
     """Why a taxon is being dropped, or None if it survives."""
     if row["reads"] < args.min_reads:
@@ -277,7 +305,7 @@ def verdict(row, args):
         reasons.append("no_correlation")
     if row["distinct"] is not None and row["distinct"] < args.min_distinct:
         reasons.append("few_distinct")
-    if row["duplication"] is not None and row["duplication"] > args.max_duplication:
+    if row["duplication"] is not None and row["duplication"] > duplication_limit(row, args):
         reasons.append("high_duplication")
     if (
         args.min_coverage > 0
@@ -308,6 +336,12 @@ def main():
                              "0 disables. See the module docstring for the benchmarked value.")
     parser.add_argument("--max-duplication", type=float, default=100,
                         help="...and its observed/distinct ratio must stay below this")
+    parser.add_argument("--duplication-coverage", type=float, default=0.01,
+                        help="above this coverage the duplication limit rises in proportion, "
+                             "to max-duplication x coverage / this. 0 keeps the limit flat")
+    parser.add_argument("--duplication-min-distinct", type=float, default=1000,
+                        help="...but only for a taxon with at least this many distinct "
+                             "minimizers/k-mers, i.e. genome-scale breadth rather than one locus")
     parser.add_argument("--min-coverage", type=float, default=0.0,
                         help="...and cover at least this fraction of its reference (0 disables)")
     parser.add_argument("--correlation-filter", action="store_true",
@@ -422,7 +456,7 @@ def main():
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
         writer.writerow([
             "taxid", "rank", "name", "reads", "samples",
-            "distinct", "observed", "duplication", "coverage",
+            "distinct", "observed", "duplication", "coverage", "duplication_limit",
             "cor_samples", "rho_reads_observed", "rho_reads_distinct",
             "rho_observed_distinct", "cor_q_max", "verdict",
         ])
@@ -437,6 +471,7 @@ def main():
                 taxid, row["rank"], row["name"], int(row["reads"]), row["samples"],
                 fmt(row["distinct"], 0), fmt(row["observed"], 0),
                 fmt(row["duplication"], 3), fmt(row["coverage"], 6),
+                fmt(duplication_limit(row, args), 1),
                 cor["n"] if cor else "NA",
                 fmt(cor["rho_reads_observed"], 3) if cor else "NA",
                 fmt(cor["rho_reads_distinct"], 3) if cor else "NA",
@@ -475,6 +510,8 @@ def main():
         f"[minimizer_filter] {len(best)} taxa: "
         + ", ".join(f"{count} {call}" for call, count in sorted(counts.items()))
         + f" (>= {args.min_distinct:g} distinct, duplication <= {args.max_duplication:g}"
+        + (f" rising with coverage above {args.duplication_coverage:g} at >= {args.duplication_min_distinct:g} distinct"
+           if args.duplication_coverage > 0 else "")
         + (f", coverage >= {args.min_coverage:g}" if args.min_coverage > 0 else "")
         + f", gate {args.min_reads:g} reads); {len(dropped)} taxid(s) listed for removal.",
         file=sys.stderr,
