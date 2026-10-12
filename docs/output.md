@@ -157,7 +157,7 @@ Only written with `--quantify_host` and `--gtf`. These come from the same librar
 
 Read the percentages as *read* abundance, not organism abundance — that is what Bracken corrects.
 
-A sample in which Kraken2 classified nothing (its report holds only the `unclassified` row) is still published and still reaches MultiQC, but is excluded from Bracken and from the combined tables, with a warning naming the sample. Both `combine_kreports.py` and Bracken fail outright on such reports, and one empty sample should not take down the run.
+A sample in which Kraken2 classified nothing (its report holds only the `unclassified` row) is still published and still reaches MultiQC, but is excluded from Bracken and from the combined tables, with a warning naming the sample. Both `combine_kreports.py` and Bracken fail outright on such reports, and one empty sample should not take down the run. A sample with classified reads but no taxon at `--bracken_level` reaching `--bracken_threshold` - what a blank or any low-biomass library looks like - is likewise left out of Bracken and the Bracken tables with a warning, since Bracken exits with "no reads found" on it; it stays in the Kraken2 tables.
 
 ### Evidence filters
 

@@ -478,6 +478,7 @@ workflow REANATAX {
             params.kraken2_save_reads,
             params.kraken2_save_readclassifications,
             params.skip_bracken,
+            [level: params.bracken_level, threshold: params.bracken_threshold],
             params.skip_krona,
             params.minimizer_filter,
             minimizerThresholds(),

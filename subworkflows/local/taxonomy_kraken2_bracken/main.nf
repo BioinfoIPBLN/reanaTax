@@ -41,6 +41,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     save_output_fastqs // boolean: keep the classified/unclassified FASTQs
     save_reads_assignment // boolean: keep the per-read assignment table
     skip_bracken // boolean
+    bracken_settings // map: level, threshold - Bracken's -l and -t
     skip_krona // boolean
     minimizer_filter // boolean: drop taxa whose evidence has no breadth
     minimizer_thresholds // map: min_reads, min_distinct, max_duplication, min_coverage, distinct_scale, duplication_coverage, duplication_min_distinct
@@ -315,7 +316,20 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     def ch_bracken_combined = channel.empty()
 
     if (!skip_bracken) {
-        BRACKEN_BRACKEN(ch_report_classified, ch_bracken_db)
+        // Bracken also exits 1 ("no reads found") when no taxon at its level
+        // reaches --bracken_threshold, which is what a blank or any low-biomass
+        // library looks like: reads classified, none of its species with ten of
+        // them. Such a sample is left out of Bracken and the Bracken tables, the
+        // way an all-unclassified one is, and stays in the Kraken2 tables.
+        def ch_report_bracken = ch_report_classified.filter { meta, report ->
+            def usable = hasBrackenTaxa(report, bracken_settings.level, bracken_settings.threshold)
+            if (!usable) {
+                log.warn("No taxon at rank ${bracken_settings.level} reaches --bracken_threshold ${bracken_settings.threshold} reads in '${meta.id}'; excluding it from Bracken and the Bracken tables. It stays in the Kraken2 tables.")
+            }
+            usable
+        }
+
+        BRACKEN_BRACKEN(ch_report_bracken, ch_bracken_db)
         ch_bracken = BRACKEN_BRACKEN.out.reports
         ch_bracken_report = BRACKEN_BRACKEN.out.txt
 
@@ -689,6 +703,26 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
 // A report is one line per taxon - a few MB even against a large database -
 // and `any` stops at the first classified row.
 //
+// Whether Bracken can estimate anything from this report: a taxon whose rank
+// code is exactly `level` with at least `threshold` reads in its clade - the
+// test Bracken's est_abundance.py applies before it gives up with "no reads
+// found". The rank code sits third from the end in both report layouts, with
+// or without --report-minimizer-data.
+def hasBrackenTaxa(report, level, threshold) {
+    def min_reads = (threshold ?: 0) as long
+    return report.readLines().any { line ->
+        def fields = line.split('\t')
+        if (fields.size() < 6) {
+            return false
+        }
+        def clade_reads = fields[1].trim()
+        if (!clade_reads.isLong()) {
+            return false
+        }
+        return fields[-3].trim() == level && (clade_reads as long) >= min_reads
+    }
+}
+
 def hasClassifiedReads(report) {
     return report.readLines().any { line ->
         if (line.startsWith('#') || line.startsWith('%')) {
