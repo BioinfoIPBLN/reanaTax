@@ -25,8 +25,8 @@ Three quantities are derived, whichever the source:
   distinct     the raw count. Below a few, the call rests on one place.
   coverage     distinct observed / distinct held in the database for that clade.
                KrakenUniq gives it; for Kraken2 the denominator comes from the
-               `inspect.txt` shipped with the database, whose second column is
-               the distinct minimizers per clade.
+               `inspect.txt` shipped with the database (plain or gzipped),
+               whose second column is the distinct minimizers per clade.
 
 Reads alone are never a reason to drop: a taxon under --min-reads is left
 untouched, because a handful of reads cannot demonstrate breadth either way and
@@ -60,6 +60,7 @@ this test can do anything; below that it is refused up front.
 """
 import argparse
 import csv
+import gzip
 import os
 import re
 import sys
@@ -151,10 +152,14 @@ def parse_inspect(path):
 
     `kraken2-inspect` is, in its own words, a wrapper that reports minimizer
     counts per taxon; its second column is the clade total. That is the
-    denominator Kraken2's report does not carry.
+    denominator Kraken2's report does not carry. Read plain or gzipped, told
+    apart by the gzip magic rather than by the name.
     """
+    with open(path, "rb") as probe:
+        gzipped = probe.read(2) == b"\x1f\x8b"
+    opener = gzip.open if gzipped else open
     totals = {}
-    with open(path, encoding="utf-8", errors="replace") as handle:
+    with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             if line.startswith("#"):
                 continue

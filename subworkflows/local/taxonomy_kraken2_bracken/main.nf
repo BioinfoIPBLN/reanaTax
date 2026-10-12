@@ -250,9 +250,14 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
                 .map { reports -> [[id: 'kraken2_minimizer'], reports] },
             // The coverage denominator lives in the database directory; a
             // tarballed database has not been unpacked to a path we can name.
+            // Plain or gzipped: a shared database folder may keep only the
+            // .gz, and the plain name alone then went missing under a run that
+            // had found it at launch.
             kraken2_db.endsWith('.tar.gz') || kraken2_db.endsWith('.tgz')
                 ? []
-                : file("${kraken2_db}/inspect.txt").exists() ? file("${kraken2_db}/inspect.txt") : [],
+                : ['inspect.txt', 'inspect.txt.gz']
+                    .collect { name -> file("${kraken2_db}/${name}") }
+                    .find { inspect -> inspect.exists() } ?: [],
             minimizer_thresholds.min_reads,
             minimizer_thresholds.min_distinct,
             minimizer_thresholds.max_duplication,

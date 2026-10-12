@@ -743,7 +743,7 @@
                     "minimum": 0,
                     "maximum": 1,
                     "description": "...and cover this fraction of its reference. 0 disables the test.",
-                    "help_text": "KrakenUniq reports coverage directly. For Kraken2 the denominator is read from `inspect.txt` in the database directory, whose second column is the distinct minimizers held per clade; the test is skipped if that file is absent. Coverage is confounded with sequencing depth - a genuinely rare organism also covers little - so it is off by default.",
+                    "help_text": "KrakenUniq reports coverage directly. For Kraken2 the denominator is read from `inspect.txt` (or `inspect.txt.gz`) in the database directory, whose second column is the distinct minimizers held per clade; the test is skipped if neither is there. Coverage is confounded with sequencing depth - a genuinely rare organism also covers little - so it is off by default.",
                     "fa_icon": "fas fa-percent"
                 },
                 "min_reads": {

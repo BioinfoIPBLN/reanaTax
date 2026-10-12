@@ -485,9 +485,9 @@ minimizers** behind them. KrakenUniq reports the same idea on k-mers rather than
 minimizers (roughly five times the resolution at Kraken2's default k=35, l=31),
 and adds `cov` outright.
 
-For the Kraken2 route the coverage denominator is read from `inspect.txt` in the
-database directory, whose second column is the distinct minimizers held per
-clade; the coverage test is skipped if that file is not there.
+For the Kraken2 route the coverage denominator is read from `inspect.txt` (or
+`inspect.txt.gz`) in the database directory, whose second column is the distinct
+minimizers held per clade; the coverage test is skipped if neither is there.
 
 #### Output, and how to calibrate
 
