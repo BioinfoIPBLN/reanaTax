@@ -309,7 +309,7 @@
                     "default": 0,
                     "minimum": 0,
                     "description": "Align this many read pairs per task instead of the whole library at once (0 disables).",
-                    "help_text": "HISAT2's memory grows with how much a single process has aligned, and only a fresh process resets it; with `--very-sensitive` on libraries of a few hundred million pairs it has been observed in the hundreds of GB. Chunking runs one HISAT2 process per slice, so the ceiling is set by the chunk rather than by the library.\n\nThe slices are offsets, not files. HISAT2's `-s/--skip` and `-u/--upto` count reads-or-pairs, so each chunk task opens the same FASTQ and aligns its own window - nothing is split, recompressed or written to scratch. The chunks are independent tasks, so they also run in parallel, which is usually the larger win: the longest step in the pipeline becomes as many short tasks as the executor will schedule.\n\nThe per-chunk BAM, summary and non-host FASTQs are joined back into exactly the files an unchunked run produces, so nothing downstream behaves differently. 5000000 is a reasonable starting point. See also `--hisat2_chunk_memory`.",
+                    "help_text": "HISAT2's memory grows with how much a single process has aligned, and only a fresh process resets it; with `--very-sensitive` on libraries of a few hundred million pairs it has been observed in the hundreds of GB. Chunking runs one HISAT2 process per slice, so the ceiling is set by the chunk rather than by the library.\n\nThe library is cut into chunk files in one streaming pass, and each chunk task aligns one of them; the cut costs a second copy of the library on disk until the sample's chunks are merged, which --cleanup_intermediates then deletes. The chunks are independent tasks, so they also run in parallel, which is usually the larger win: the longest step in the pipeline becomes as many short tasks as the executor will schedule. Each gets an equal share of --resource_limit_cpus, as many side by side as fit at about 16 cores each.\n\nThe per-chunk BAM (only with --save_host_bam), summary and non-host FASTQs are joined back into exactly the files an unchunked run produces, so nothing downstream behaves differently. 5000000 is a reasonable starting point. See also `--hisat2_chunk_memory`.",
                     "fa_icon": "fas fa-cut"
                 },
                 "hisat2_chunk_memory": {
@@ -331,6 +331,7 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Sort, index and publish the host-aligned BAM files.",
+                    "help_text": "Off, the default aligner (--require_both_mates_unmapped) writes no host BAM at all: HISAT2's output goes straight into the non-host FASTQs, which saves compressing the whole alignment and reading it back twice.",
                     "fa_icon": "fas fa-save"
                 },
                 "save_unaligned": {
@@ -1893,7 +1894,7 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Delete intermediates as soon as the pipeline knows nothing else reads them.",
-                    "help_text": "Two things: the per-chunk HISAT2 BAMs, removed from inside the merge task once `samtools cat` has succeeded, and the downloaded FASTQs, removed once trimming and raw FastQC have both read them. Only files inside the work directory are ever removed, so a samplesheet's own FASTQs are skipped and reported rather than deleted; and the downloads are left alone under `--skip_trimming`, where they are still the working read set.\n\nOff by default because a deleted intermediate cannot be resumed: Nextflow will re-run the task that produced it, which for the downloads means fetching them again.",
+                    "help_text": "Two things: the per-chunk files - the chunks the library was cut into and, with --save_host_bam, the per-chunk BAMs - removed from inside the merge task once the merge has succeeded, and the downloaded FASTQs, removed once trimming and raw FastQC have both read them. Only files inside the work directory are ever removed, so a samplesheet's own FASTQs are skipped and reported rather than deleted; and the downloads are left alone under `--skip_trimming`, where they are still the working read set.\n\nOff by default because a deleted intermediate cannot be resumed: Nextflow will re-run the task that produced it, which for the downloads means fetching them again.",
                     "fa_icon": "fas fa-trash"
                 }
             }

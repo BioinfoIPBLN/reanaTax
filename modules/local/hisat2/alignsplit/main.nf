@@ -20,6 +20,11 @@
 // that glob too, and the nf-core SAMTOOLS_SORT `samtools cat`s whatever it is
 // handed - which silently published a host BAM holding every unaligned record
 // plus a second copy of every aligned one.
+//
+// Without a host BAM to keep (`save_bam` false) nothing is parked: the stream
+// goes from HISAT2 through `-f 12` straight into `samtools fastq`. Writing the
+// whole alignment out, compressed on one core, and reading it back twice was
+// the module's largest I/O, and all of it for a BAM the run then threw away.
 process HISAT2_ALIGN_SPLIT {
     tag "$meta.id"
     label 'process_high'
@@ -34,9 +39,10 @@ process HISAT2_ALIGN_SPLIT {
     tuple val(meta2), path(index)
     tuple val(meta3), path(splicesites)
     val save_unaligned
+    val save_bam
 
     output:
-    tuple val(meta), path("*.bam")                   , emit: bam
+    tuple val(meta), path("*.bam")    , optional:true, emit: bam
     tuple val(meta), path("*.log")                   , emit: summary
     tuple val(meta), path("*fastq.gz"), optional:true, emit: fastq
     tuple val("${task.process}"), val('hisat2'), eval("hisat2 --version | sed -n '1s/.*version //p'"), emit: versions_hisat2, topic: versions
@@ -69,9 +75,18 @@ process HISAT2_ALIGN_SPLIT {
     def rg = args.contains("--rg-id") ? "" : "--rg-id ${prefix} --rg SM:${prefix}"
 
     if (meta.single_end) {
+        def sink = "| samtools view -bS ${bam_level}-F 256 - > tmp/${prefix}.all.bam"
+        def host_bam = "samtools view -b ${bam_level}-F 4 tmp/${prefix}.all.bam > ${prefix}.bam"
         def unaligned = save_unaligned
             ? "samtools view -u -f 4 tmp/${prefix}.all.bam | samtools fastq ${fq_level}-0 ${prefix}.unmapped.fastq.gz -n -"
             : ''
+        if (!save_bam) {
+            sink = save_unaligned
+                ? "| samtools view -u -f 4 - | samtools fastq ${fq_level}-0 ${prefix}.unmapped.fastq.gz -n -"
+                : '> /dev/null'
+            host_bam = ''
+            unaligned = ''
+        }
         """
         INDEX=`find -L ./ -name "*.1.ht2*" | sed 's/\\.1.ht2.*\$//'`
         mkdir -p tmp
@@ -84,16 +99,26 @@ process HISAT2_ALIGN_SPLIT {
             --threads $task.cpus \\
             $rg \\
             $args \\
-            | samtools view -bS ${bam_level}-F 256 - > tmp/${prefix}.all.bam
+            ${sink}
 
-        samtools view -b ${bam_level}-F 4 tmp/${prefix}.all.bam > ${prefix}.bam
+        ${host_bam}
         ${unaligned}
         """
     } else {
+        def sink = "| samtools view -bS ${bam_level}-F 256 - > tmp/${prefix}.all.bam"
+        def host_bam = "samtools view -b ${bam_level}-F 4 -F 8 tmp/${prefix}.all.bam > ${prefix}.bam"
         def unaligned = save_unaligned
             ? """samtools view -u -f 12 tmp/${prefix}.all.bam \\
             | samtools fastq ${fq_level}-1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n -"""
             : ''
+        if (!save_bam) {
+            sink = save_unaligned
+                ? """| samtools view -u -f 12 - \\
+            | samtools fastq ${fq_level}-1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n -"""
+                : '> /dev/null'
+            host_bam = ''
+            unaligned = ''
+        }
         """
         INDEX=`find -L ./ -name "*.1.ht2*" | sed 's/\\.1.ht2.*\$//'`
         mkdir -p tmp
@@ -107,9 +132,9 @@ process HISAT2_ALIGN_SPLIT {
             --threads $task.cpus \\
             $rg \\
             $args \\
-            | samtools view -bS ${bam_level}-F 256 - > tmp/${prefix}.all.bam
+            ${sink}
 
-        samtools view -b ${bam_level}-F 4 -F 8 tmp/${prefix}.all.bam > ${prefix}.bam
+        ${host_bam}
         ${unaligned}
         """
     }
@@ -117,10 +142,11 @@ process HISAT2_ALIGN_SPLIT {
     stub:
     def prefix = task.ext.prefix ?: "${meta.id}"
     def unaligned = save_unaligned ? "echo '' | gzip >  ${prefix}.unmapped_1.fastq.gz \n echo '' | gzip >  ${prefix}.unmapped_2.fastq.gz" : ''
+    def host_bam = save_bam ? "touch ${prefix}.bam" : ''
     """
     ${unaligned}
 
     touch ${prefix}.hisat2.summary.log
-    touch ${prefix}.bam
+    ${host_bam}
     """
 }

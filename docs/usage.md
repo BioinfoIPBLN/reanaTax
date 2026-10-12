@@ -204,6 +204,8 @@ The non-host FASTQs are HISAT2's `--un-conc-gz` output, i.e. pairs that did not 
 
 This switches to a variant module that drops `--no-mixed --no-discordant` and splits the alignment stream on explicit SAM flags instead: `-F 4 -F 8` is the host BAM, `-f 12` (both mates unmapped) is the non-host FASTQ. Pairing is never broken — HISAT2 emits both mates adjacently and `samtools view` preserves that order, so `samtools fastq` stays in sync without a collate or re-pairing pass.
 
+With `--save_host_bam false` it writes no host BAM at all: HISAT2's output goes through `-f 12` straight into `samtools fastq`, instead of being compressed into a BAM of the whole alignment on one core and read back twice. (The vendored nf-core module that `--require_both_mates_unmapped false` uses still writes its BAM.)
+
 **On by default.** Measured across four vulvar-swab RNA libraries (PRJNA1392516):
 
 | | carry-over before | after | non-host reads lost |
@@ -334,11 +336,13 @@ the target genome rather than against `--host`.
 **`--cleanup_intermediates`** removes two things, each as soon as the pipeline
 can prove nothing else reads it:
 
-- **The per-chunk HISAT2 BAMs**, from inside the merge task once `samtools cat`
-  has returned. Done there rather than in a cleanup process of its own, because
-  "the merge succeeded" is then a property of the script rather than of a
-  channel join — `set -e` is in effect, so a failed merge never reaches those
-  lines. Only with `--hisat2_chunk_size`, since otherwise there are no chunks.
+- **The per-chunk files** — the chunks the library was cut into and, with
+  `--save_host_bam`, the per-chunk BAMs — from inside the merge task, once every
+  chunk has aligned and the merge has returned. Done there rather than in a
+  cleanup process of its own, because "the merge succeeded" is then a property
+  of the script rather than of a channel join — `set -e` is in effect, so a
+  failed merge never reaches those lines. Only with `--hisat2_chunk_size`, since
+  otherwise there are no chunks.
 - **The downloaded FASTQs**, once trimming and raw FastQC have both read them.
   Ordering is enforced by data: the cleanup task takes those tasks' *outputs* as
   inputs, so it cannot be scheduled before them.
@@ -364,19 +368,19 @@ HISAT2's memory grows with how much a single process has aligned, and only a fre
 --hisat2_chunk_size 5000000 --hisat2_chunk_memory 32.GB  # ...and what to request for one
 ```
 
-**The slices are offsets, not files.** HISAT2's `-s/--skip` and `-u/--upto` count reads *or pairs*, so each chunk task opens the same FASTQ and aligns its own window. Nothing is split, recompressed, or written to scratch — which matters, because physically splitting a 70 Gbp library costs a full decompress/recompress pass and doubles the disk while it runs. The price instead is that each task decompresses past its own offset, which is minutes against hours of `--very-sensitive` alignment.
+**The slices are files.** One task per library cuts it in a single streaming pass — decompress, cut every `--hisat2_chunk_size` records, recompress with `bgzip` — and each chunk task aligns one of the files. The slices used to be offsets into the whole FASTQ (HISAT2's `-s/--skip` and `-u/--upto`), which wrote nothing; but every chunk then decompressed and parsed the library up to its own window, so the reading grew with the square of the chunk count. On four libraries of ~540 M pairs, 27 chunks each, the last chunks of a library took about an hour longer than the first. The price now is a second copy of the library on disk until that sample's chunks are merged, which `--cleanup_intermediates` then deletes.
 
-**The bigger win is usually parallelism.** The chunks are independent tasks, so the longest step in the pipeline stops being one very long task and becomes as many short ones as the executor will schedule. A library that took 16 hours in one pass runs in roughly one, given the cores.
+**The bigger win is usually parallelism.** The chunks are independent tasks, so the longest step in the pipeline stops being one very long task and becomes as many short ones as the executor will schedule. A library that took 16 hours in one pass runs in roughly one, given the cores. Each chunk gets an equal share of `--resource_limit_cpus`, as many side by side as fit at about 16 cores each — 32 runs 2 × 16, 64 runs 4 × 16, 40 runs 3 × 13 — so the whole budget is used; unset, a chunk asks for 16.
 
 The per-chunk BAM, summary log and non-host FASTQs are joined back into exactly the files an unchunked run produces, under the same names:
 
-- **BAM** — `samtools cat`, which concatenates without decompressing or re-sorting; the sort happens downstream as it always did. Every chunk is given the same `--rg-id`, because `samtools cat` takes the header of the first file for the whole output and a per-chunk read group would leave later records pointing at an `@RG` that is not in the merged header.
+- **BAM** (with `--save_host_bam`; without it no chunk writes one) — `samtools cat`, which concatenates without decompressing or re-sorting; the sort happens downstream as it always did. Every chunk is given the same `--rg-id`, because `samtools cat` takes the header of the first file for the whole output and a per-chunk read group would leave later records pointing at an `@RG` that is not in the merged header.
 - **Summary log** — summed by `bin/merge_hisat2_summary.py` and re-emitted in HISAT2's own format with the percentages recomputed. Every count is additive because the chunks are disjoint slices of one library. MultiQC and `read_accounting.tsv` therefore see one alignment per sample, not fifty.
 - **Non-host FASTQs** — concatenated. `cat a.gz b.gz` is itself a valid gzip stream, so there is no decompression pass.
 
 Chunking applies to every depletion pass, and composes with multiple `--host` references.
 
-> **Chunk size is a memory knob, not a speed knob.** Smaller chunks bound memory harder and parallelise further, but each task pays the index load and the decompression to reach its offset, so very small chunks waste both. A few million pairs is a reasonable starting point. `--hisat2_chunk_memory` is separate because the peak a chunk reaches scales with the chunk size, which the pipeline cannot infer.
+> **Chunk size is a memory knob, not a speed knob.** Smaller chunks bound memory harder and parallelise further, but each task pays the index load, so very small chunks waste it. A few million pairs is a reasonable starting point. `--hisat2_chunk_memory` is separate because the peak a chunk reaches scales with the chunk size, which the pipeline cannot infer.
 
 ## QC of the host BAM
 

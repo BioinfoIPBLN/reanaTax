@@ -7,7 +7,7 @@ include { HISAT2_ALIGN             } from '../../../modules/nf-core/hisat2/align
 include { HISAT2_ALIGN_SPLIT       } from '../../../modules/local/hisat2/alignsplit/main'
 include { HISAT2_ALIGN as HISAT2_ALIGN_CHUNK             } from '../../../modules/nf-core/hisat2/align/main'
 include { HISAT2_ALIGN_SPLIT as HISAT2_ALIGN_SPLIT_CHUNK } from '../../../modules/local/hisat2/alignsplit/main'
-include { HISAT2_CHUNKPLAN         } from '../../../modules/local/hisat2/chunkplan/main'
+include { HISAT2_CHUNKSPLIT        } from '../../../modules/local/hisat2/chunksplit/main'
 include { HISAT2_MERGECHUNKS       } from '../../../modules/local/hisat2/mergechunks/main'
 include { SAMTOOLS_FAIDX           } from '../../../modules/local/samtools/faidx/main'
 include { BAM_SORT_STATS_SAMTOOLS  } from '../../../subworkflows/local/bam_sort_stats_samtools/main'
@@ -27,7 +27,7 @@ workflow HOST_DEPLETION_HISAT2 {
     require_both_mates_unmapped // boolean: release a pair only if NEITHER mate aligned
     chunk_size // integer: align this many read pairs per task, or 0 to align the library in one
     output_format // string: 'bam' or 'cram' for the sorted host alignment
-    cleanup_intermediates // boolean: delete each chunk BAM once its merge has succeeded
+    cleanup_intermediates // boolean: delete a sample's chunk files once its merge has succeeded
 
     main:
 
@@ -52,37 +52,33 @@ workflow HOST_DEPLETION_HISAT2 {
     // --very-sensitive it can reach the hundreds of GB - and the only thing
     // that resets it is a fresh process. Chunking gives one process per slice.
     //
-    // The slices are offsets, not files: `-s/--skip` and `-u/--upto` count
-    // reads-or-pairs, so each chunk task opens the same FASTQ and aligns its
-    // own window. Nothing is split, recompressed or written to scratch, and
-    // because the chunks are independent tasks they also run in parallel -
-    // which turns the longest step in the pipeline from one very long task into
-    // as many short ones as the executor will schedule.
+    // The slices are files, cut by HISAT2_CHUNKSPLIT in one pass over the
+    // library. They used to be offsets into the whole FASTQ, which made every
+    // chunk read the library up to its own window (see that module). The
+    // chunks are independent tasks, so they also run in parallel - which turns
+    // the longest step in the pipeline from one very long task into as many
+    // short ones as the executor will schedule.
     //
     if (chunk_size && chunk_size > 0) {
-        HISAT2_CHUNKPLAN(ch_reads)
+        HISAT2_CHUNKSPLIT(ch_reads, chunk_size)
 
-        // Ceiling division, and at least one chunk even for an empty library,
-        // so a sample with no surviving reads still produces the summary and the
-        // empty outputs the rest of the pipeline expects.
-        def size = chunk_size as long
-        def ch_plan = HISAT2_CHUNKPLAN.out.plan
-            .map { meta, plan -> [meta, plan.text.trim() as long] }
+        // One list per sample, whether the glob matched one file or several.
+        def ch_split = HISAT2_CHUNKSPLIT.out.reads
+            .map { meta, files -> [meta, files instanceof List ? files : [files]] }
 
-        def ch_chunks = ch_plan
-            .join(ch_reads)
-            .flatMap { meta, total, reads ->
-                def n_chunks = chunkCount(total, size)
-                (0..<n_chunks).collect { index ->
-                    [
-                        meta + [
-                            chunk: String.format('part%03d', index + 1),
-                            chunk_skip: index * size,
-                            chunk_upto: size,
-                        ],
-                        reads,
-                    ]
-                }
+        // One task per chunk, named from its files (`<id>.part0001_1.fastq.gz`
+        // is part0001), mate 1 first. A single-end chunk is handed over as the
+        // file itself, the way the unchunked path hands over the library.
+        // toSorted rather than sort, which would reorder the task's own output
+        // list in place (see ch_unaligned below).
+        def ch_chunks = ch_split
+            .flatMap { meta, files ->
+                files
+                    .groupBy { fastq -> chunkName(fastq) }
+                    .collect { chunk, mates ->
+                        def sorted = mates.toSorted { fastq -> fastq.name }
+                        [meta + [chunk: chunk], meta.single_end ? sorted[0] : sorted]
+                    }
             }
 
         def ch_chunk_bam = channel.empty()
@@ -90,7 +86,7 @@ workflow HOST_DEPLETION_HISAT2 {
         def ch_chunk_fastq = channel.empty()
 
         if (require_both_mates_unmapped) {
-            HISAT2_ALIGN_SPLIT_CHUNK(ch_chunks, ch_index.first(), channel.value([[:], []]), true)
+            HISAT2_ALIGN_SPLIT_CHUNK(ch_chunks, ch_index.first(), channel.value([[:], []]), true, save_host_bam)
             ch_chunk_bam = HISAT2_ALIGN_SPLIT_CHUNK.out.bam
             ch_chunk_summary = HISAT2_ALIGN_SPLIT_CHUNK.out.summary
             ch_chunk_fastq = HISAT2_ALIGN_SPLIT_CHUNK.out.fastq
@@ -102,7 +98,7 @@ workflow HOST_DEPLETION_HISAT2 {
             ch_chunk_fastq = HISAT2_ALIGN_CHUNK.out.fastq
         }
 
-        // Strip the chunk keys to recover the sample's own meta, then regroup on
+        // Strip the chunk key to recover the sample's own meta, then regroup on
         // it. Each list is sorted by name so a resumed run hands the merge task
         // its inputs in the same order as the original one: groupTuple makes no
         // promise about order, and an unsorted list would change the task hash
@@ -112,20 +108,27 @@ workflow HOST_DEPLETION_HISAT2 {
         // groupTuple waits for the channel to close, i.e. for every chunk of
         // every sample, so no merge, no second host pass and no classification
         // could start until the whole cohort had aligned. groupKey carries the
-        // sample's chunk count, from the same plan that created the chunks; an
+        // sample's chunk count, from the same files that made the chunks; an
         // incomplete group is still emitted at the end (remainder), as before.
-        def chunk_keys = ['chunk', 'chunk_skip', 'chunk_upto']
-        def ch_chunk_count = ch_plan.map { meta, total -> [meta, chunkCount(total, size)] }
+        def chunk_keys = ['chunk']
+        def ch_chunk_count = ch_split.map { meta, files -> [meta, files.collect { fastq -> chunkName(fastq) }.unique().size()] }
 
-        def ch_merged_bam = regroupChunks(ch_chunk_bam, ch_chunk_count, chunk_keys)
         def ch_merged_summary = regroupChunks(ch_chunk_summary, ch_chunk_count, chunk_keys)
         def ch_merged_fastq = regroupChunks(ch_chunk_fastq, ch_chunk_count, chunk_keys)
+        // The split aligner writes chunk BAMs only when the host BAM is kept;
+        // the nf-core one always does. With none coming, the merge is handed an
+        // empty list, or the join below would drop every sample.
+        def ch_merged_bam = save_host_bam || !require_both_mates_unmapped
+            ? regroupChunks(ch_chunk_bam, ch_chunk_count, chunk_keys)
+            : ch_merged_summary.map { meta, _summaries -> [meta, []] }
 
         // `true`, like the unchunked calls above: the non-host FASTQs are the
         // pipeline's product, not an optional extra. params.save_unaligned only
-        // decides whether they are also published.
+        // decides whether they are also published. The library's chunk files go
+        // in as well, for --cleanup_intermediates to delete after the merge.
         HISAT2_MERGECHUNKS(
-            ch_merged_bam.join(ch_merged_summary).join(ch_merged_fastq),
+            ch_merged_bam.join(ch_merged_summary).join(ch_merged_fastq).join(ch_split),
+            save_host_bam,
             true,
             cleanup_intermediates,
             workflow.workDir.toString(),
@@ -136,7 +139,7 @@ workflow HOST_DEPLETION_HISAT2 {
         ch_fastq = HISAT2_MERGECHUNKS.out.fastq
     }
     else if (require_both_mates_unmapped) {
-        HISAT2_ALIGN_SPLIT(ch_reads, ch_index.first(), channel.value([[:], []]), true)
+        HISAT2_ALIGN_SPLIT(ch_reads, ch_index.first(), channel.value([[:], []]), true, save_host_bam)
         ch_aligned = HISAT2_ALIGN_SPLIT.out.bam
         ch_summary = HISAT2_ALIGN_SPLIT.out.summary
         ch_fastq = HISAT2_ALIGN_SPLIT.out.fastq
@@ -249,11 +252,15 @@ workflow HOST_DEPLETION_HISAT2 {
     multiqc_files = ch_multiqc_files // channel: path(file)
 }
 
-// Chunks for a library of `total` reads-or-pairs: ceiling division, and at least
-// one even for an empty library. A long, like its inputs; groupKey needs an int,
-// so the call site converts.
-def chunkCount(total, size) {
-    return total > 0 ? (total + size - 1).intdiv(size) : 1
+// The chunk a file belongs to, from the name HISAT2_CHUNKSPLIT gives it:
+// `<id>.part0001_1.fastq.gz` is part0001. Anchored at the end, so dots or
+// underscores in the sample id cannot shift it.
+def chunkName(fastq) {
+    def match = fastq.name =~ /\.(part\d+)_[12]\.fastq\.gz$/
+    if (!match) {
+        error("Unexpected chunk file name '${fastq.name}': HISAT2_CHUNKSPLIT names them <id>.partNNNN_<mate>.fastq.gz.")
+    }
+    return match[0][1]
 }
 
 // Collect one sample's chunk outputs back under the sample's own meta, released

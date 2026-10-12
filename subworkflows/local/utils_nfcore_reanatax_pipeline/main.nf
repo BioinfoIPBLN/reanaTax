@@ -556,14 +556,14 @@ def validateInputParameters() {
     if (params.alignment_output_format == 'cram' && params.quantify_host) {
         error("--alignment_output_format cram cannot run with --quantify_host: featureCounts (Subread) reads SAM and BAM only. Drop --quantify_host to keep CRAM, or leave the format as bam.")
     }
-    // The chunk BAMs are deleted from inside HISAT2_MERGECHUNKS, which only
+    // The chunk files are deleted from inside HISAT2_MERGECHUNKS, which only
     // runs when the library was chunked. Saying so is better than leaving the
     // user to infer that half the flag did nothing.
     if (params.cleanup_intermediates && !params.hisat2_chunk_size && !params.input_accessions) {
-        log.warn("--cleanup_intermediates has nothing to delete on this run: the chunk BAMs it removes only exist with --hisat2_chunk_size, and the raw FASTQs it removes only exist for a downloaded cohort. A samplesheet's own FASTQs are never touched.")
+        log.warn("--cleanup_intermediates has nothing to delete on this run: the chunk files it removes only exist with --hisat2_chunk_size, and the raw FASTQs it removes only exist for a downloaded cohort. A samplesheet's own FASTQs are never touched.")
     }
     if (params.cleanup_intermediates && params.skip_trimming) {
-        log.warn("--cleanup_intermediates will not remove the downloaded FASTQs with --skip_trimming: they are then the working read set, and everything downstream is still reading them. The chunk BAMs are still removed.")
+        log.warn("--cleanup_intermediates will not remove the downloaded FASTQs with --skip_trimming: they are then the working read set, and everything downstream is still reading them. The chunk files are still removed.")
     }
     if (params.compression_level != null && (!(params.compression_level instanceof Integer) || params.compression_level < 0 || params.compression_level > 9)) {
         error("--compression_level must be an integer from 0 to 9, not '${params.compression_level}'. Leave it unset to keep every tool at its own default.")
