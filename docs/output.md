@@ -90,7 +90,7 @@ Published by default so later runs can skip the build with `--hisat2_index <outd
 - `hisat2/`
   - `<sample>.host.sorted.bam`, `.bai`: reads that aligned to the host, sorted and indexed.
 - `hisat2/log/`
-  - `<sample>.host.hisat2.summary.log`: alignment summary, including the overall alignment rate.
+  - `<sample>.host.hisat2.summary.log` (RNA) or `<sample>.host.bowtie2.summary.log` (DNA, see `--host_aligner`): alignment summary, including the overall alignment rate. The two aligners write the same format. The directory keeps its name for both.
 - `hisat2/samtools_stats/`
   - `*.stats`, `*.flagstat`, `*.idxstats`: alignment statistics.
 - `unaligned/`

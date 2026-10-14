@@ -184,16 +184,17 @@ def collect(args):
     for path in args.fastp:
         slot(sample_name(path, [".fastp.json"])).update(read_fastp(path))
 
-    # HISAT2 logs are named <sample>.<label>.hisat2.summary.log, where the label
-    # says which host reference the pass used. Keep the passes apart so a
-    # two-reference run shows what each one removed.
+    # Host-depletion logs are named <sample>.<label>.<aligner>.summary.log, the
+    # aligner being HISAT2 (RNA) or Bowtie2 (DNA), which write the same format.
+    # The label says which host reference the pass used; keep the passes apart
+    # so a two-reference run shows what each one removed.
     for path in args.hisat2:
         name = os.path.basename(path)
-        match = re.match(r"^(.+?)\.([^.]+)\.hisat2\.summary\.log$", name)
+        match = re.match(r"^(.+?)\.([^.]+)\.(?:hisat2|bowtie2)\.summary\.log$", name)
         if match:
             sample, label = match.group(1), match.group(2)
         else:
-            sample, label = sample_name(path, [".hisat2.summary.log"]), "host"
+            sample, label = sample_name(path, [".hisat2.summary.log", ".bowtie2.summary.log"]), "host"
         stats = read_hisat2(path)
         entry = slot(sample)
         for key, value in stats.items():
@@ -386,7 +387,7 @@ def write_mqc_generalstats(path, rows):
 def main():
     parser = argparse.ArgumentParser(description="Per-sample read accounting across the pipeline.")
     parser.add_argument("--fastp", nargs="*", default=[], help="fastp *.fastp.json files")
-    parser.add_argument("--hisat2", nargs="*", default=[], help="HISAT2 *.hisat2.summary.log files")
+    parser.add_argument("--hisat2", nargs="*", default=[], help="host-depletion *.hisat2.summary.log / *.bowtie2.summary.log files")
     parser.add_argument("--sortmerna", nargs="*", default=[], help="SortMeRNA *.sortmerna.log files")
     parser.add_argument("--kraken2", nargs="*", default=[], help="Kraken2 *.report.txt files")
     parser.add_argument("--host-taxid", type=int, default=HOST_DEFAULT_TAXID,

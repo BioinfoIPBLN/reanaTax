@@ -297,18 +297,39 @@
             "fa_icon": "fas fa-filter",
             "description": "HISAT2 alignment against the host genome.",
             "properties": {
+                "host_aligner": {
+                    "type": "string",
+                    "default": "auto",
+                    "enum": ["auto", "hisat2", "bowtie2"],
+                    "description": "Aligner for host depletion: 'auto' (Bowtie2 for DNA libraries, HISAT2 for the rest), or force 'hisat2' or 'bowtie2'.",
+                    "help_text": "HISAT2 is splice-aware, which RNA needs and DNA does not: on genomic reads it splits a read across an 'intron' that is not one, and it has no local mode. Under 'auto' each library is classified by the archive's library strategy (RNA-Seq, WGS, AMPLICON, ...), or by its library source when the strategy is OTHER, and by the samplesheet's optional `molecule` column (dna/rna) for local files. Libraries of unknown kind go to HISAT2. The single-cell route (STARsolo), the UniVec pass and --target_taxid alignment are not affected.",
+                    "fa_icon": "fas fa-random"
+                },
                 "hisat2_args": {
                     "type": "string",
                     "default": "--very-sensitive",
-                    "description": "Arguments passed to hisat2.",
-                    "help_text": "`--very-sensitive` expands to `--bowtie2-dp 2 -k 50 --score-min L,0,-1`. The `-k 50` part reports up to 50 alignments per read, which makes the host BAM large and the run slower; see `--hisat2_max_alignments`.",
+                    "description": "Arguments passed to hisat2 (the RNA libraries, under --host_aligner auto).",
+                    "help_text": "`--very-sensitive` expands to `--bowtie2-dp 2 -k 50 --score-min L,0,-1` and `--sensitive` to `--bowtie2-dp 1 -k 30 --score-min L,0,-0.5`. The `-k` part reports that many alignments per read, which makes the host BAM large and the run slower; see `--hisat2_max_alignments`. HISAT2 has no local mode.",
                     "fa_icon": "fas fa-terminal"
+                },
+                "bowtie2_args": {
+                    "type": "string",
+                    "default": "--very-sensitive",
+                    "description": "Arguments passed to bowtie2 (the DNA libraries, under --host_aligner auto).",
+                    "help_text": "Any Bowtie2 preset or option: `--sensitive`, `--very-sensitive-local`, `--sensitive-local`, ... End-to-end `--very-sensitive` is the default, matching --hisat2_args.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "bowtie2_index": {
+                    "type": "string",
+                    "description": "Prebuilt Bowtie2 index directory or tarball per host reference, comma-separated in the same order.",
+                    "help_text": "Unset, the index is built - from the host FASTA, or from the sequences of a prebuilt HISAT2 index - and only when some library is aligned with Bowtie2.",
+                    "fa_icon": "fas fa-database"
                 },
                 "hisat2_chunk_size": {
                     "type": "integer",
                     "default": 0,
                     "minimum": 0,
-                    "description": "Align this many read pairs per task instead of the whole library at once (0 disables).",
+                    "description": "Align this many read pairs per task, with either aligner, instead of the whole library at once (0, the default, disables it).",
                     "help_text": "HISAT2's memory grows with how much a single process has aligned, and only a fresh process resets it; with `--very-sensitive` on libraries of a few hundred million pairs it has been observed in the hundreds of GB. Chunking runs one HISAT2 process per slice, so the ceiling is set by the chunk rather than by the library.\n\nThe library is cut into chunk files in one streaming pass, and each chunk task aligns one of them; the cut costs a second copy of the library on disk until the sample's chunks are merged, which --cleanup_intermediates then deletes. The chunks are independent tasks, so they also run in parallel, which is usually the larger win: the longest step in the pipeline becomes as many short tasks as the executor will schedule. Each gets an equal share of --resource_limit_cpus, as many side by side as fit at about 16 cores each.\n\nThe per-chunk BAM (only with --save_host_bam), summary and non-host FASTQs are joined back into exactly the files an unchunked run produces, so nothing downstream behaves differently. 5000000 is a reasonable starting point. See also `--hisat2_chunk_memory`.",
                     "fa_icon": "fas fa-cut"
                 },

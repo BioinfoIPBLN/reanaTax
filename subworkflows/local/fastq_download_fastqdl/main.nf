@@ -34,6 +34,9 @@ workflow FASTQ_DOWNLOAD_FASTQDL {
                 study_accession: row.study_accession,
                 title: row.sample_title,
                 organism: row.scientific_name,
+                // 'dna', 'rna' or null: decides the host aligner under
+                // --host_aligner auto (Bowtie2 for DNA, HISAT2 otherwise).
+                molecule: libraryMolecule(row.library_strategy, row.library_source),
                 // Provisional; re-derived below from what actually downloaded.
                 single_end: (row.library_layout ?: '').toUpperCase() != 'PAIRED',
             ]
@@ -92,6 +95,9 @@ workflow FASTQ_DOWNLOAD_FASTQDL {
             if (ordered_metas.collect { meta -> meta.single_end }.unique().size() > 1) {
                 error("Cannot merge runs of '${key}': they are a mix of single- and paired-end (runs: ${ordered_metas.collect { meta -> meta.run_accession }.join(', ')}). Re-run with --group_runs_by run.")
             }
+            if (ordered_metas.collect { meta -> meta.molecule }.unique().size() > 1) {
+                error("Cannot merge runs of '${key}': they are a mix of DNA and RNA libraries (runs: ${ordered_metas.collect { meta -> "${meta.run_accession} ${meta.molecule ?: 'unknown'}" }.join(', ')}), which are depleted with different aligners. Re-run with --group_runs_by run.")
+            }
             def meta = ordered_metas.first() + [id: key, n_runs: ordered_metas.size()]
             [meta, ordered_reads]
         }
@@ -113,6 +119,36 @@ workflow FASTQ_DOWNLOAD_FASTQDL {
     reads = ch_reads // channel: [ val(meta), [ path(fastq) ] ]
     runinfo = FASTQDL_METADATA.out.runinfo // channel: [ val(meta), path(tsv) ]
     runsheet = FASTQDL_METADATA.out.runsheet // channel: [ val(meta), path(csv) ]
+}
+
+// Whether a run's library is DNA or RNA, from the archive's own labels: 'dna',
+// 'rna', or null when neither says. The library strategy decides first, because
+// the source is the less reliable of the two - RNA-seq runs submitted with
+// source GENOMIC are common (20 of PRISM's CLID set). The source decides only
+// when the strategy is OTHER or missing, as for libraries submitted as
+// GENOMIC/OTHER.
+def libraryMolecule(strategy, source) {
+    def rna_strategies = ['RNA-SEQ', 'SSRNA-SEQ', 'SNRNA-SEQ', 'SCRNA-SEQ', 'MIRNA-SEQ', 'NCRNA-SEQ',
+                          'FL-CDNA', 'EST', 'RIBO-SEQ', 'RIP-SEQ', 'MERIP-SEQ']
+    def dna_strategies = ['WGS', 'WGA', 'WXS', 'WCS', 'AMPLICON', 'TARGETED-CAPTURE', 'CLONE', 'POOLCLONE',
+                          'CLONEEND', 'FINISHING', 'CHIP-SEQ', 'ATAC-SEQ', 'MNASE-SEQ', 'DNASE-HYPERSENSITIVITY',
+                          'BISULFITE-SEQ', 'MRE-SEQ', 'MEDIP-SEQ', 'MBD-SEQ', 'HI-C', 'RAD-SEQ', 'GBS', 'TN-SEQ',
+                          'FAIRE-SEQ', 'CHIA-PET', 'NOME-SEQ', 'CHM-SEQ', 'SYNTHETIC-LONG-READ']
+    def strategy_key = (strategy ?: '').toString().trim().toUpperCase()
+    if (strategy_key in rna_strategies) {
+        return 'rna'
+    }
+    if (strategy_key in dna_strategies) {
+        return 'dna'
+    }
+    def source_key = (source ?: '').toString().trim().toUpperCase()
+    if (source_key in ['TRANSCRIPTOMIC', 'TRANSCRIPTOMIC SINGLE CELL', 'METATRANSCRIPTOMIC', 'VIRAL RNA']) {
+        return 'rna'
+    }
+    if (source_key in ['GENOMIC', 'GENOMIC SINGLE CELL', 'METAGENOMIC']) {
+        return 'dna'
+    }
+    return null
 }
 
 // The sample a run belongs to under --group_runs_by.

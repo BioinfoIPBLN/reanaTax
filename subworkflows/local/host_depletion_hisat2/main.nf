@@ -1,12 +1,15 @@
 //
 // Split reads into a host fraction (sorted, indexed BAM) and a non-host
-// fraction (FASTQ) by aligning against the host genome with HISAT2.
+// fraction (FASTQ) by aligning against the host genome: HISAT2 for RNA,
+// Bowtie2 for DNA (--host_aligner; see hostAligner below).
 //
 
 include { HISAT2_ALIGN             } from '../../../modules/nf-core/hisat2/align/main'
 include { HISAT2_ALIGN_SPLIT       } from '../../../modules/local/hisat2/alignsplit/main'
 include { HISAT2_ALIGN as HISAT2_ALIGN_CHUNK             } from '../../../modules/nf-core/hisat2/align/main'
 include { HISAT2_ALIGN_SPLIT as HISAT2_ALIGN_SPLIT_CHUNK } from '../../../modules/local/hisat2/alignsplit/main'
+include { BOWTIE2_ALIGN_SPLIT      } from '../../../modules/local/bowtie2/alignsplit/main'
+include { BOWTIE2_ALIGN_SPLIT as BOWTIE2_ALIGN_SPLIT_CHUNK } from '../../../modules/local/bowtie2/alignsplit/main'
 include { HISAT2_CHUNKSPLIT        } from '../../../modules/local/hisat2/chunksplit/main'
 include { HISAT2_MERGECHUNKS       } from '../../../modules/local/hisat2/mergechunks/main'
 include { SAMTOOLS_FAIDX           } from '../../../modules/local/samtools/faidx/main'
@@ -28,6 +31,8 @@ workflow HOST_DEPLETION_HISAT2 {
     chunk_size // integer: align this many read pairs per task, or 0 to align the library in one
     output_format // string: 'bam' or 'cram' for the sorted host alignment
     cleanup_intermediates // boolean: delete a sample's chunk files once its merge has succeeded
+    ch_bowtie2_index // channel: [ val(meta), path(bowtie2_index_dir) ] - empty unless a library needs it
+    aligner_mode // string: 'auto' (DNA to Bowtie2, the rest to HISAT2), 'hisat2' or 'bowtie2'
 
     main:
 
@@ -85,18 +90,30 @@ workflow HOST_DEPLETION_HISAT2 {
         def ch_chunk_summary = channel.empty()
         def ch_chunk_fastq = channel.empty()
 
+        def ch_chunks_routed = ch_chunks.branch { meta, _reads ->
+            bowtie2: hostAligner(meta, aligner_mode) == 'bowtie2'
+            hisat2: true
+        }
+
         if (require_both_mates_unmapped) {
-            HISAT2_ALIGN_SPLIT_CHUNK(ch_chunks, ch_index.first(), channel.value([[:], []]), true, save_host_bam)
+            HISAT2_ALIGN_SPLIT_CHUNK(ch_chunks_routed.hisat2, ch_index.first(), channel.value([[:], []]), true, save_host_bam)
             ch_chunk_bam = HISAT2_ALIGN_SPLIT_CHUNK.out.bam
             ch_chunk_summary = HISAT2_ALIGN_SPLIT_CHUNK.out.summary
             ch_chunk_fastq = HISAT2_ALIGN_SPLIT_CHUNK.out.fastq
         }
         else {
-            HISAT2_ALIGN_CHUNK(ch_chunks, ch_index.first(), channel.value([[:], []]), true)
+            HISAT2_ALIGN_CHUNK(ch_chunks_routed.hisat2, ch_index.first(), channel.value([[:], []]), true)
             ch_chunk_bam = HISAT2_ALIGN_CHUNK.out.bam
             ch_chunk_summary = HISAT2_ALIGN_CHUNK.out.summary
             ch_chunk_fastq = HISAT2_ALIGN_CHUNK.out.fastq
         }
+
+        // Bowtie2 always releases a pair only when neither mate aligned: there is
+        // no --un-conc variant of it here.
+        BOWTIE2_ALIGN_SPLIT_CHUNK(ch_chunks_routed.bowtie2, ch_bowtie2_index.first(), true, save_host_bam)
+        ch_chunk_bam = ch_chunk_bam.mix(BOWTIE2_ALIGN_SPLIT_CHUNK.out.bam)
+        ch_chunk_summary = ch_chunk_summary.mix(BOWTIE2_ALIGN_SPLIT_CHUNK.out.summary)
+        ch_chunk_fastq = ch_chunk_fastq.mix(BOWTIE2_ALIGN_SPLIT_CHUNK.out.fastq)
 
         // Strip the chunk key to recover the sample's own meta, then regroup on
         // it. Each list is sorted by name so a resumed run hands the merge task
@@ -115,12 +132,18 @@ workflow HOST_DEPLETION_HISAT2 {
 
         def ch_merged_summary = regroupChunks(ch_chunk_summary, ch_chunk_count, chunk_keys)
         def ch_merged_fastq = regroupChunks(ch_chunk_fastq, ch_chunk_count, chunk_keys)
-        // The split aligner writes chunk BAMs only when the host BAM is kept;
-        // the nf-core one always does. With none coming, the merge is handed an
-        // empty list, or the join below would drop every sample.
-        def ch_merged_bam = save_host_bam || !require_both_mates_unmapped
-            ? regroupChunks(ch_chunk_bam, ch_chunk_count, chunk_keys)
-            : ch_merged_summary.map { meta, _summaries -> [meta, []] }
+        // The split aligners write chunk BAMs only when the host BAM is kept;
+        // the nf-core HISAT2 one always does. Decided per library, since a run
+        // can mix both aligners: a library with none coming is handed an empty
+        // list, or the join below would drop it.
+        def ch_bam_routes = ch_merged_summary.branch { meta, _summaries ->
+            with_bam: save_host_bam || (!require_both_mates_unmapped && hostAligner(meta, aligner_mode) == 'hisat2')
+            without: true
+        }
+        def ch_merged_bam = ch_bam_routes.with_bam
+            .join(regroupChunks(ch_chunk_bam, ch_chunk_count, chunk_keys))
+            .map { meta, _summaries, bams -> [meta, bams] }
+            .mix(ch_bam_routes.without.map { meta, _summaries -> [meta, []] })
 
         // `true`, like the unchunked calls above: the non-host FASTQs are the
         // pipeline's product, not an optional extra. params.save_unaligned only
@@ -138,17 +161,29 @@ workflow HOST_DEPLETION_HISAT2 {
         ch_summary = HISAT2_MERGECHUNKS.out.summary
         ch_fastq = HISAT2_MERGECHUNKS.out.fastq
     }
-    else if (require_both_mates_unmapped) {
-        HISAT2_ALIGN_SPLIT(ch_reads, ch_index.first(), channel.value([[:], []]), true, save_host_bam)
-        ch_aligned = HISAT2_ALIGN_SPLIT.out.bam
-        ch_summary = HISAT2_ALIGN_SPLIT.out.summary
-        ch_fastq = HISAT2_ALIGN_SPLIT.out.fastq
-    }
     else {
-        HISAT2_ALIGN(ch_reads, ch_index.first(), channel.value([[:], []]), true)
-        ch_aligned = HISAT2_ALIGN.out.bam
-        ch_summary = HISAT2_ALIGN.out.summary
-        ch_fastq = HISAT2_ALIGN.out.fastq
+        def ch_routed = ch_reads.branch { meta, _reads ->
+            bowtie2: hostAligner(meta, aligner_mode) == 'bowtie2'
+            hisat2: true
+        }
+
+        if (require_both_mates_unmapped) {
+            HISAT2_ALIGN_SPLIT(ch_routed.hisat2, ch_index.first(), channel.value([[:], []]), true, save_host_bam)
+            ch_aligned = HISAT2_ALIGN_SPLIT.out.bam
+            ch_summary = HISAT2_ALIGN_SPLIT.out.summary
+            ch_fastq = HISAT2_ALIGN_SPLIT.out.fastq
+        }
+        else {
+            HISAT2_ALIGN(ch_routed.hisat2, ch_index.first(), channel.value([[:], []]), true)
+            ch_aligned = HISAT2_ALIGN.out.bam
+            ch_summary = HISAT2_ALIGN.out.summary
+            ch_fastq = HISAT2_ALIGN.out.fastq
+        }
+
+        BOWTIE2_ALIGN_SPLIT(ch_routed.bowtie2, ch_bowtie2_index.first(), true, save_host_bam)
+        ch_aligned = ch_aligned.mix(BOWTIE2_ALIGN_SPLIT.out.bam)
+        ch_summary = ch_summary.mix(BOWTIE2_ALIGN_SPLIT.out.summary)
+        ch_fastq = ch_fastq.mix(BOWTIE2_ALIGN_SPLIT.out.fastq)
     }
 
     ch_multiqc_files = ch_multiqc_files.mix(ch_summary.map { _meta, log -> log })
@@ -250,6 +285,19 @@ workflow HOST_DEPLETION_HISAT2 {
     host_counts_summary = ch_host_counts_summary // channel: [ val(meta), path(summary) ]
     summary = ch_summary // channel: [ val(meta), path(log) ]
     multiqc_files = ch_multiqc_files // channel: path(file)
+}
+
+// Which aligner depletes this library. HISAT2 is splice-aware, which RNA needs
+// and DNA does not: it would split a genomic read across an intron that is not
+// one. Under 'auto' a library known to be DNA (meta.molecule, from the archive's
+// library strategy and source or the samplesheet's `molecule` column) goes to
+// Bowtie2, and everything else - RNA, and libraries of unknown kind, since this
+// is an RNA-seq pipeline first - to HISAT2. 'hisat2' or 'bowtie2' forces one.
+def hostAligner(meta, mode) {
+    if (mode && mode != 'auto') {
+        return mode
+    }
+    return meta.molecule == 'dna' ? 'bowtie2' : 'hisat2'
 }
 
 // The chunk a file belongs to, from the name HISAT2_CHUNKSPLIT gives it:

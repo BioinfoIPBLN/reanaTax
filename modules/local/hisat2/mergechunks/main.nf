@@ -34,7 +34,7 @@ process HISAT2_MERGECHUNKS {
 
     output:
     tuple val(meta), path("*.bam")    , optional:true, emit: bam
-    tuple val(meta), path("*.hisat2.summary.log")    , emit: summary
+    tuple val(meta), path("*.summary.log")           , emit: summary
     tuple val(meta), path("*fastq.gz"), optional:true, emit: fastq
     tuple val("${task.process}"), val('samtools'), eval("samtools --version | sed -n '1s/samtools //p'"), emit: versions_samtools, topic: versions
 
@@ -98,7 +98,13 @@ process HISAT2_MERGECHUNKS {
 
     ${merge_bam}
 
-    merge_hisat2_summary.py chunk_log/*.hisat2.summary.log --output ${prefix}.hisat2.summary.log
+    # The chunks were aligned with HISAT2 or Bowtie2, which write the same
+    # summary format; the merged log keeps the aligner's name.
+    aligner=hisat2
+    if compgen -G 'chunk_log/*.bowtie2.summary.log' > /dev/null; then
+        aligner=bowtie2
+    fi
+    merge_hisat2_summary.py chunk_log/*.summary.log --output ${prefix}.\${aligner}.summary.log
 
     ${merge_fastq}
     ${cleanup}

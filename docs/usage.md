@@ -200,6 +200,47 @@ That keeps the sensitivity of the search and only stops HISAT2 hunting for align
 
 The non-host FASTQs are HISAT2's `--un-conc-gz` output, i.e. pairs that did not align **concordantly**. A pair where only one mate hit the host therefore still goes forward to classification, and is then usually classified as host.
 
+### The aligner: HISAT2 for RNA, Bowtie2 for DNA (`--host_aligner`)
+
+HISAT2 is splice-aware: it is built to split an RNA read across an intron. On
+genomic DNA that is a liability - it will split a read across an "intron" that
+is not one - and it has no local alignment mode. So host depletion picks the
+aligner per library:
+
+| `--host_aligner` | what it does |
+| --- | --- |
+| `auto` (default) | Bowtie2 for DNA libraries, HISAT2 for RNA and for libraries of unknown kind |
+| `hisat2` / `bowtie2` | one aligner for every library |
+
+Under `auto` the kind comes from the archive for accessions: the library
+strategy first (RNA-Seq, ssRNA-seq, miRNA-Seq, ... are RNA; WGS, WXS, AMPLICON,
+ChIP-Seq, ... are DNA), and the library source only when the strategy is OTHER
+or missing (TRANSCRIPTOMIC, METATRANSCRIPTOMIC are RNA; GENOMIC, METAGENOMIC are
+DNA). The strategy wins because the source is the less reliable of the two:
+RNA-seq runs submitted as GENOMIC are common. For local files, give the
+samplesheet a `molecule` column (`dna` or `rna`); without it a library is
+treated as RNA.
+
+```csv
+sample,fastq_1,fastq_2,molecule
+blank_1,blank_1_R1.fastq.gz,blank_1_R2.fastq.gz,dna
+tumour_1,tumour_1_R1.fastq.gz,tumour_1_R2.fastq.gz,rna
+```
+
+Each aligner has its own arguments, both `--very-sensitive` by default:
+`--hisat2_args` and `--bowtie2_args`. The presets do not mean the same thing in
+the two (HISAT2's `--very-sensitive` is `--bowtie2-dp 2 -k 50 --score-min
+L,0,-1`), and only Bowtie2 has local modes (`--bowtie2_args
+'--sensitive-local'`). Bowtie2 releases a pair only when neither mate aligned,
+like the HISAT2 default below.
+
+The Bowtie2 index is built only if some library needs it: from the host FASTA,
+or - when `--host` is a prebuilt HISAT2 index - from the sequences that index
+holds (`hisat2-inspect`). `--bowtie2_index` takes prebuilt ones, one per host
+reference in the same order. The HISAT2 index is likewise built only for a run
+that has an RNA library. The single-cell route (STARsolo), the UniVec pass and
+`--target_taxid` alignment are unaffected.
+
 ### `--require_both_mates_unmapped`
 
 This switches to a variant module that drops `--no-mixed --no-discordant` and splits the alignment stream on explicit SAM flags instead: `-F 4 -F 8` is the host BAM, `-f 12` (both mates unmapped) is the non-host FASTQ. Pairing is never broken — HISAT2 emits both mates adjacently and `samtools view` preserves that order, so `samtools fastq` stays in sync without a collate or re-pairing pass.

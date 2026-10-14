@@ -61,6 +61,8 @@ include { softwareVersionsToYAML    } from '../subworkflows/nf-core/utils_nfcore
 include { methodsDescriptionText    } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { aiInsightOptions          } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { hostReferences            } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { bowtie2References         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { hostAligner               } from '../subworkflows/local/host_depletion_hisat2'
 include { minimizerThresholds      } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { hostKmerSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { decontamSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
@@ -181,6 +183,11 @@ workflow REANATAX {
     // synthetic reference such as UniVec; validateInputParameters() caps the
     // count at maxHostPasses().
     def host_refs = hostReferences()
+    def bowtie2_refs = bowtie2References()
+    // Each library's aligner: HISAT2 for RNA, Bowtie2 for DNA under
+    // --host_aligner auto. The reference subworkflows build only the indexes
+    // some library actually needs.
+    def ch_host_aligners = ch_trimmed_reads.map { meta, _reads -> hostAligner(meta, params.host_aligner) }
     def ch_solo = channel.empty()
     def ch_barcode_stats = channel.empty()
 
@@ -210,6 +217,8 @@ workflow REANATAX {
             params.gtf,
             'star',
             params.star_index ?: (primary.kind == 'index' ? primary.value : null),
+            null,
+            channel.empty(),
         )
 
         SINGLECELL_STARSOLO(
@@ -244,6 +253,8 @@ workflow REANATAX {
                 params.gtf,
                 'hisat2',
                 null,
+                bowtie2_refs ? bowtie2_refs[0] : null,
+                ch_host_aligners,
             )
             HOST_DEPLETION_FIRST(
                 ch_trimmed_reads,
@@ -257,6 +268,8 @@ workflow REANATAX {
                 params.hisat2_chunk_size,
                 params.alignment_output_format,
                 params.cleanup_intermediates,
+                PREPARE_HOST_REFERENCE_FIRST.out.bowtie2_index,
+                params.host_aligner,
             )
             ch_nonhost_reads = HOST_DEPLETION_FIRST.out.reads
             ch_qualimap = HOST_DEPLETION_FIRST.out.qualimap
@@ -279,6 +292,8 @@ workflow REANATAX {
                 null,
                 'hisat2',
                 null,
+                bowtie2_refs ? bowtie2_refs[1] : null,
+                ch_host_aligners,
             )
             HOST_DEPLETION_EXTRA1(
                 ch_nonhost_reads,
@@ -292,6 +307,8 @@ workflow REANATAX {
                 params.hisat2_chunk_size,
                 params.alignment_output_format,
                 params.cleanup_intermediates,
+                PREPARE_HOST_REFERENCE_EXTRA1.out.bowtie2_index,
+                params.host_aligner,
             )
             ch_nonhost_reads = HOST_DEPLETION_EXTRA1.out.reads
             ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_EXTRA1.out.summary)
@@ -309,6 +326,8 @@ workflow REANATAX {
                 null,
                 'hisat2',
                 null,
+                bowtie2_refs ? bowtie2_refs[2] : null,
+                ch_host_aligners,
             )
             HOST_DEPLETION_EXTRA2(
                 ch_nonhost_reads,
@@ -322,6 +341,8 @@ workflow REANATAX {
                 params.hisat2_chunk_size,
                 params.alignment_output_format,
                 params.cleanup_intermediates,
+                PREPARE_HOST_REFERENCE_EXTRA2.out.bowtie2_index,
+                params.host_aligner,
             )
             ch_nonhost_reads = HOST_DEPLETION_EXTRA2.out.reads
             ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_EXTRA2.out.summary)
@@ -344,6 +365,8 @@ workflow REANATAX {
             multi_pass ? null : params.gtf,
             'hisat2',
             null,
+            bowtie2_refs ? bowtie2_refs[host_refs.size() - 1] : null,
+            ch_host_aligners,
         )
         HOST_DEPLETION_FINAL(
             ch_nonhost_reads,
@@ -357,6 +380,8 @@ workflow REANATAX {
             params.hisat2_chunk_size,
             params.alignment_output_format,
             params.cleanup_intermediates,
+            PREPARE_HOST_REFERENCE.out.bowtie2_index,
+            params.host_aligner,
         )
         ch_nonhost_reads = HOST_DEPLETION_FINAL.out.reads
         ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_FINAL.out.summary)
@@ -393,6 +418,8 @@ workflow REANATAX {
             null,
             'hisat2',
             null,
+            null,
+            channel.value('hisat2'),
         )
         HOST_DEPLETION_UNIVEC(
             ch_nonhost_reads,
@@ -406,6 +433,8 @@ workflow REANATAX {
             params.hisat2_chunk_size,
             params.alignment_output_format,
             params.cleanup_intermediates,
+            channel.empty(),
+            'hisat2',
         )
         ch_nonhost_reads = HOST_DEPLETION_UNIVEC.out.reads
         ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_UNIVEC.out.summary)

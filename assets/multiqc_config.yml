@@ -17,8 +17,8 @@ export_plots: true
 
 disable_version_detection: true
 
-# HISAT2 writes a Bowtie2-style summary, so it is MultiQC's `bowtie2` module
-# that parses it - renamed here to avoid claiming an aligner that never ran.
+# HISAT2 writes a Bowtie2-style summary, so MultiQC's `bowtie2` module parses
+# both aligners' logs - named here for both, since a run can use either.
 # The order follows the pipeline: raw QC, trimming, host depletion, then
 # classification of what was left over.
 module_order:
@@ -34,8 +34,8 @@ module_order:
       path_filters:
         - "*_trimmed*.zip"
   - bowtie2:
-      name: "HISAT2 (host depletion)"
-      info: "Alignment against the host genome. The overall alignment rate is the host fraction of the library; everything that did not align is what gets classified below."
+      name: "Host depletion (HISAT2 / Bowtie2)"
+      info: "Alignment against the host genome - HISAT2 for RNA libraries, Bowtie2 for DNA. The overall alignment rate is the host fraction of the library; everything that did not align is what gets classified below."
   - samtools
   - featurecounts:
       name: "Host gene counts"

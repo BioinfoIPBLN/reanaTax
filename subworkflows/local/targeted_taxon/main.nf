@@ -90,6 +90,8 @@ workflow TARGETED_TAXON {
         gtf,
         'hisat2',
         null,
+        null,
+        channel.value('hisat2'),
     )
 
     //
@@ -119,6 +121,11 @@ workflow TARGETED_TAXON {
         // there are no chunk BAMs for the cleanup flag to delete either.
         'bam',
         false,
+        // HISAT2 whatever the library: the extracted reads are one taxon's, and
+        // the target's GTF counts them, which needs a splice-aware aligner for
+        // a eukaryotic target.
+        channel.empty(),
+        'hisat2',
     )
     ch_multiqc_files = ch_multiqc_files.mix(TARGET_ALIGNMENT.out.multiqc_files)
     ch_bam = TARGET_ALIGNMENT.out.bam

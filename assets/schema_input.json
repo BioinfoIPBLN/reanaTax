@@ -26,6 +26,12 @@
                 "exists": true,
                 "pattern": "^([\\S\\s]*\\/)?[^\\s\\/]+\\.f(ast)?q\\.gz$",
                 "errorMessage": "FastQ file for reads 2 cannot contain spaces and must have extension '.fq.gz' or '.fastq.gz'"
+            },
+            "molecule": {
+                "type": "string",
+                "enum": ["dna", "rna", "DNA", "RNA"],
+                "errorMessage": "molecule, if given, must be 'dna' or 'rna': it decides the host aligner under --host_aligner auto (Bowtie2 for DNA, HISAT2 for RNA)",
+                "meta": ["molecule"]
             }
         },
         "required": ["sample", "fastq_1"]

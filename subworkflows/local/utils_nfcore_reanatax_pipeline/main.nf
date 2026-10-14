@@ -96,9 +96,11 @@ workflow PIPELINE_INITIALISATION {
         ch_samplesheet = channel
             .fromList(samplesheetToList(input, "${projectDir}/assets/schema_input.json"))
             .map { meta, fastq_1, fastq_2 ->
+                // The optional `molecule` column, lower-cased; null when absent.
+                def molecule = meta.molecule ? meta.molecule.toString().toLowerCase() : null
                 fastq_2
-                    ? [ meta.id, meta + [ single_end: false ], [ fastq_1, fastq_2 ] ]
-                    : [ meta.id, meta + [ single_end: true ], [ fastq_1 ] ]
+                    ? [ meta.id, meta + [ single_end: false, molecule: molecule ], [ fastq_1, fastq_2 ] ]
+                    : [ meta.id, meta + [ single_end: true, molecule: molecule ], [ fastq_1 ] ]
             }
             .groupTuple()
             .map { samplesheet -> validateInputSamplesheet(samplesheet) }
@@ -394,6 +396,14 @@ def validateInputParameters() {
     // synthetic reference such as UniVec or PhiX.
     if (host_refs.size() > maxHostPasses()) {
         error("At most ${maxHostPasses()} host references are supported, but ${host_refs.size()} were given (${host_refs.collect { ref -> ref.value }.join(', ')}). Reads are depleted against each in turn. To go higher, add another HOST_DEPLETION_HISAT2 alias in workflows/reanatax.nf, its PREPARE_HOST_REFERENCE alias, its naming rules in conf/modules.config, and raise maxHostPasses().")
+    }
+
+    def bowtie2_refs = bowtie2References()
+    if (bowtie2_refs && bowtie2_refs.size() != host_refs.size()) {
+        error("--bowtie2_index lists ${bowtie2_refs.size()} index(es) for ${host_refs.size()} host reference(s). Give one per host reference, in the same order, or leave it unset to have them built for the DNA libraries.")
+    }
+    if (params.host_aligner == 'bowtie2' && params.quantify_host) {
+        log.warn("--host_aligner bowtie2 with --quantify_host: Bowtie2 does not split reads across introns, so host gene counts from RNA libraries will miss every spliced read. Use --host_aligner auto (HISAT2 for RNA) for expression.")
     }
 
     // Measured, not assumed: with `--very-sensitive -k 1` on the command line
@@ -1061,6 +1071,15 @@ def hostReferences() {
 }
 
 //
+// Prebuilt Bowtie2 indexes, one per host reference and in the same order, or
+// an empty list to have them built (from the FASTA, or from a prebuilt HISAT2
+// index) for the DNA libraries that need them.
+//
+def bowtie2References() {
+    return commaList(params.bowtie2_index)
+}
+
+//
 // How many depletion passes the workflow declares. See the comment on the
 // check in validateInputParameters() for what raising it involves.
 //
@@ -1166,6 +1185,9 @@ def validateInputSamplesheet(input) {
     def endedness_ok = metas.collect{ meta -> meta.single_end }.unique().size == 1
     if (!endedness_ok) {
         error("Please check input samplesheet -> Multiple runs of a sample must be of the same datatype i.e. single-end or paired-end: ${metas[0].id}")
+    }
+    if (metas.collect { meta -> meta.molecule }.unique().size() > 1) {
+        error("Please check input samplesheet -> Multiple runs of a sample must be the same molecule (all dna or all rna), since it decides the host aligner: ${metas[0].id}")
     }
 
     return [ metas[0], fastqs ]
