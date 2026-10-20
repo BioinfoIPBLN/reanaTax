@@ -100,8 +100,8 @@ process KRAKEN2_DAEMON {
 
     conda "${moduleDir}/environment.yml"
     container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container ?
-        'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/0f/0f827dcea51be6b5c32255167caa2dfb65607caecdc8b067abd6b71c267e2e82/data' :
-        'community.wave.seqera.io/library/kraken2_coreutils_pigz:920ecc6b96e2ba71' }"
+        'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/91/91fc7e1c2f6a8a5dd5b610e7866a6e8b3a47796c74b77a396f5b9a902613516a/data' :
+        'community.wave.seqera.io/library/kraken2_coreutils_pigz_gzip_pruned:20715d87f3311277' }"
 
     input:
     tuple val(meta), path(reads)

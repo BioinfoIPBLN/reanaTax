@@ -69,7 +69,8 @@
                     "kraken2/kraken2": {
                         "branch": "master",
                         "git_sha": "d67d33d5925fcec4691b499670fa2bd926fd2be5",
-                        "installed_by": ["modules"]
+                        "installed_by": ["modules"],
+                        "patch": "modules/nf-core/kraken2/kraken2/kraken2-kraken2.diff"
                     },
                     "krakentools/combinekreports": {
                         "branch": "master",

@@ -1,0 +1,76 @@
+--- modules/nf-core/kraken2/kraken2/environment.yml
++++ modules/nf-core/kraken2/kraken2/environment.yml
+@@ -4,6 +4,12 @@ channels:
+   - conda-forge
+   - bioconda
+ dependencies:
+-  - bioconda::kraken2=2.1.6
++  - bioconda::kraken2=2.17.2
+   - coreutils=9.5
+   - pigz=2.8
++  # The container base no longer ships these. The kraken2 wrapper decompresses
++  # .gz and .bz2 input through gzip and bzip2 (without them it classifies
++  # nothing and exits 0), and the daemon's clients queue on flock.
++  - conda-forge::bzip2=1.0.8
++  - conda-forge::gzip=1.14
++  - conda-forge::util-linux=2.42.4
+--- modules/nf-core/kraken2/kraken2/main.nf
++++ modules/nf-core/kraken2/kraken2/main.nf
+@@ -4,8 +4,8 @@ process KRAKEN2_KRAKEN2 {
+ 
+     conda "${moduleDir}/environment.yml"
+     container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container ?
+-        'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/0f/0f827dcea51be6b5c32255167caa2dfb65607caecdc8b067abd6b71c267e2e82/data' :
+-        'community.wave.seqera.io/library/kraken2_coreutils_pigz:920ecc6b96e2ba71' }"
++        'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/91/91fc7e1c2f6a8a5dd5b610e7866a6e8b3a47796c74b77a396f5b9a902613516a/data' :
++        'community.wave.seqera.io/library/kraken2_coreutils_pigz_gzip_pruned:20715d87f3311277' }"
+ 
+     input:
+     tuple val(meta), path(reads)
+--- modules/nf-core/kraken2/kraken2/tests/main.nf.test.snap
++++ modules/nf-core/kraken2/kraken2/tests/main.nf.test.snap
+@@ -15,7 +15,7 @@
+                     [
+                         "KRAKEN2_KRAKEN2",
+                         "kraken2",
+-                        "2.1.6"
++                        "2.17.2"
+                     ]
+                 ],
+                 "versions_pigz": [
+@@ -49,7 +49,7 @@
+                     [
+                         "KRAKEN2_KRAKEN2",
+                         "kraken2",
+-                        "2.1.6"
++                        "2.17.2"
+                     ]
+                 ],
+                 "versions_pigz": [
+@@ -83,7 +83,7 @@
+                     [
+                         "KRAKEN2_KRAKEN2",
+                         "kraken2",
+-                        "2.1.6"
++                        "2.17.2"
+                     ]
+                 ],
+                 "versions_pigz": [
+@@ -117,7 +117,7 @@
+                     [
+                         "KRAKEN2_KRAKEN2",
+                         "kraken2",
+-                        "2.1.6"
++                        "2.17.2"
+                     ]
+                 ],
+                 "versions_pigz": [
+@@ -160,7 +160,7 @@
+                     [
+                         "KRAKEN2_KRAKEN2",
+                         "kraken2",
+-                        "2.1.6"
++                        "2.17.2"
+                     ]
+                 ],
+                 "versions_pigz": [
