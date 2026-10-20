@@ -224,6 +224,9 @@ def validateInputParameters() {
         log.warn("--kraken2_use_daemon leaves a background process holding the index after this run finishes. Stop it with 'k2 clean --stop-daemon' on the execution node when you are done.")
     }
 
+    if (params.read2_only && params.single_cell) {
+        error("--read2_only drops read 1, which --single_cell needs for the cell barcode and UMI. It is for barcode-read libraries run as bulk; with --single_cell keep both reads.")
+    }
     if (params.single_cell) {
         def chemistry = scChemistry()
         if (params.input_accessions) {
@@ -584,6 +587,9 @@ def validateInputParameters() {
     // the run, which that function cannot see.
     if (params.drop_host_clade && params.skip_kraken2) {
         error("--drop_host_clade has nothing to expand with --skip_kraken2: the host's lineage is read from the Kraken2 reports.")
+    }
+    if (params.drop_non_microbial && params.skip_kraken2) {
+        error("--drop_non_microbial has nothing to read the lineages from with --skip_kraken2: they come from the Kraken2 reports.")
     }
     if (params.drop_host_clade && params.drop_host_clade.toString().toLowerCase() == 'genus') {
         log.warn("--drop_host_clade genus removes very little for most hosts: a database usually holds one species per host genus, so the clade is the host taxon itself. Measured on a human host it was 0.1% of the microbial reads, against 58-66% at family. Use family or wider unless you know the genus is populated.")

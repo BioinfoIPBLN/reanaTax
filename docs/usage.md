@@ -8,7 +8,7 @@ The pipeline runs, in order:
 
 1. **Data retrieval** — [`fastq-dl`](https://github.com/rpetit3/fastq-dl) (only when accessions are given)
 2. **Read QC** — [`FastQC`](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
-3. **Trimming** — [`fastp`](https://github.com/OpenGene/fastp), followed by a second `FastQC`
+3. **Trimming** — [`fastp`](https://github.com/OpenGene/fastp): adapters and poly(A)/poly-X tails, followed by a second `FastQC`
 4. **Host depletion** — [`HISAT2`](https://daehwankimlab.github.io/hisat2/), keeping both the aligned BAM and the unaligned FASTQ
 5. **Classification** — [`Kraken2`](https://ccb.jhu.edu/software/kraken2/) → [`Bracken`](https://github.com/jenniferlu717/Bracken) → [`Krona`](https://github.com/marbl/Krona)
 6. **Reporting** — [`MultiQC`](https://multiqc.info/)
@@ -83,6 +83,47 @@ TREATMENT_REP1,AEG588A4_S4_L003_R1_001.fastq.gz,
 | `fastq_2` | Full path to the FASTQ file for read 2. Leave empty for single-end data.                                             |
 
 All runs of one sample must have the same endedness.
+
+## Trimming (`--trim_poly_x`)
+
+fastp runs on every library with `--detect_adapter_for_pe` (adapter detection
+for paired-end reads too) and, by default, `--trim_poly_x`: a homopolymer tail
+of 10 bases or more is cut from the 3' end of each read. `--fastp_args`
+replaces the first part; `--trim_poly_x` and `--trim_low_complexity` are
+appended to whatever it holds.
+
+**Libraries that read into the 3' end need it.** Their reads run from the last
+stretch of a transcript into its poly(A) tail:
+
+- spatial and droplet cDNA reads: Visium, 10x Chromium, Drop-seq, BD Rhapsody;
+- 3' mRNA-seq: QuantSeq FWD, Lexogen, BRB-seq, 3' Tag-seq;
+- any poly(A)-selected library sequenced longer than its shortest fragments.
+
+The tail is not genome sequence. HISAT2 aligns end to end under the default
+`--hisat2_args` (`--no-softclip`), so such a read can only be placed once the
+tail is gone, and it cannot be placed at all while the tail is there.
+
+On a Visium deposit, PRJNA912890, 73% and 99.8% of read 1 in two of its four
+libraries ended in poly(A): typically 55 bp of other sequence, then 95 bp of
+tail. Untrimmed, HISAT2 placed 80% of those reads on genomic poly(A) tracts,
+with the rest of the read absorbed as insertions
+(`5M8I5M4I5M4I16M1I2M2I98M`), which `--score-min L,0,-1` allows. Hunting for 50
+such placements per read made alignment 23 times slower: 137 s against 6 s per
+100,000 pairs, and 20 M-pair chunks of up to 15 h. Trimmed, the reads align
+where their sequence belongs, or not at all. A BD Rhapsody deposit had a tail
+on 20-27% of its reads; ordinary bulk RNA-seq has 1-4%.
+
+Trimming shortens reads and removes none, apart from those fastp's 15 bp
+minimum then drops. Bacterial mRNA rarely carries a long poly(A) tail, and
+Kraken2 cannot classify a homopolymer, so microbial reads lose nothing.
+`--bracken_read_length auto` is measured after trimming, so it follows the
+shorter reads.
+
+**Not under `--single_cell`.** The droplet route trims the barcode read too, and
+that read can end in poly-T right after the UMI. Trimming the tail would take
+UMI bases with it and leave STARsolo a read shorter than the barcode it expects.
+STARsolo clips the cDNA read's tail by itself. `--trim_poly_x false` turns it
+off everywhere.
 
 ## Removing rRNA (optional)
 
@@ -182,21 +223,17 @@ by 4.x cannot be read by 6.x/7.x. Rebuild it, or drop `--sortmerna_index`.
 
 To skip host depletion entirely and classify the trimmed reads directly, use `--skip_host_removal`.
 
-### A note on `--very-sensitive`
+### A note on the default `--hisat2_args`
 
-The default `--hisat2_args '--very-sensitive'` expands to `--bowtie2-dp 2 -k 50 --score-min L,0,-1`. The `-k 50` part makes HISAT2 look for **up to 50 alignments per read**, which costs alignment time without changing which reads are classified as host.
+The default is `--bowtie2-dp 2 --score-min L,0,-1 --no-softclip -k 5`: HISAT2's `--very-sensitive` preset (`--bowtie2-dp 2 -k 50 --score-min L,0,-1`) spelled out, with soft-clipping off and 5 alignments sought instead of 50.
+
+**Why `--no-softclip`.** HISAT2 soft-clips by default and charges 1 to 2 points per clipped base, scaled by quality: 2 only at Phred 40, so 1 at the Q37-38 ceiling of Illumina data. `--very-sensitive` sets the minimum score to `L,0,-1`, minus the read length. Together they let a read clip all but a seed-length stretch and still pass, so a 9-25 bp chance match to the host (`71S19M60S`, `135S9M6S`) is enough to call a read host. On PRISM's WGS negative controls that removed 14-39% of the reads, and Kraken2 called almost none of them human: they were a random slice of the microbial reads. With `--no-softclip` a read has to align over its whole length, spliced if need be, and those reads are kept. On 70 low-count CLID cell-line runs it found the known infection in 36 instead of 26, losing none. The cost is human reads that genuinely need clipping (adapter remnants, poly(A) tails, short overhangs past an exon): about five times as many reach Kraken2, where `--drop_host_taxon` removes them. Poly(A) tails are now trimmed by fastp beforehand (`--trim_poly_x`, above), so the reads that carry them align end to end instead. HISAT2's default floor (`--hisat2_args '--score-min L,0,-0.2'`) found 39 of the 70, at forty times the human reads.
+
+**Why `-k 5`.** `-k 50` makes HISAT2 look for up to 50 alignments per read, and host depletion uses one. On 1 M reads of three ordinary CLID runs, `-k 5` was 1.25-1.5 times faster and removed the same reads to within 0.004%. On a Visium chunk whose untrimmed poly(A) reads matched many genomic A-tracts it was 3.8 times faster. `-k 1` is faster again but missed 0.01-0.02% more, and would leave every NH tag at 1, hiding the multimappers that `--quantify_host` counts differently.
 
 It does **not** bloat the BAM: the module pipes HISAT2 through `samtools view -F 256`, so secondary alignments are discarded before anything is written and the BAM holds one primary alignment per aligned read. That is also what makes the BAM directly usable for `--gtf`-driven host quantification.
 
-**`--hisat2_max_alignments` does not work with a preset.** It appends `-k N` *after* `--very-sensitive`, and HISAT2 ignores it — measured, not assumed: a run with `--very-sensitive -k 1` produced identical alignment rates (0.44% / 28.77% on Swab 26, to two decimals) and an identical NH-tag distribution to a `-k 50` run. The preset is applied last and wins. The pipeline warns when you combine them.
-
-To actually cap the alignments, replace the preset with its expansion:
-
-```bash
---hisat2_args '--bowtie2-dp 2 --score-min L,0,-1' --hisat2_max_alignments 1
-```
-
-That keeps the sensitivity of the search and only stops HISAT2 hunting for alignments that are thrown away anyway. Untested at the time of writing.
+**`--hisat2_max_alignments` works with the default, not with a preset.** It appends `-k N`. With the default a later `-k` wins (`-k 5 -k 1` wrote NH:i:1 on every read). But if `--hisat2_args` carries a preset again, HISAT2 ignores the appended `-k`. A run with `--very-sensitive -k 1` produced identical alignment rates (0.44% / 28.77% on Swab 26, to two decimals) and an identical NH-tag distribution to a `-k 50` run, because the preset is applied last. The pipeline warns when you combine a preset with `--hisat2_max_alignments`.
 
 The non-host FASTQs are HISAT2's `--un-conc-gz` output, i.e. pairs that did not align **concordantly**. A pair where only one mate hit the host therefore still goes forward to classification, and is then usually classified as host.
 
@@ -227,11 +264,13 @@ blank_1,blank_1_R1.fastq.gz,blank_1_R2.fastq.gz,dna
 tumour_1,tumour_1_R1.fastq.gz,tumour_1_R2.fastq.gz,rna
 ```
 
-Each aligner has its own arguments, both `--very-sensitive` by default:
-`--hisat2_args` and `--bowtie2_args`. The presets do not mean the same thing in
-the two (HISAT2's `--very-sensitive` is `--bowtie2-dp 2 -k 50 --score-min
-L,0,-1`), and only Bowtie2 has local modes (`--bowtie2_args
-'--sensitive-local'`). Bowtie2 releases a pair only when neither mate aligned,
+Each aligner has its own arguments: `--hisat2_args`, `--very-sensitive`'s
+scoring without soft-clipping and with `-k 5` by default (above), and
+`--bowtie2_args`, `--very-sensitive`. The presets
+do not mean the same thing in the two (HISAT2's `--very-sensitive` is
+`--bowtie2-dp 2 -k 50 --score-min L,0,-1`, and soft-clips unless told not to;
+Bowtie2's end-to-end presets never clip), and only Bowtie2 has local modes
+(`--bowtie2_args '--sensitive-local'`). Bowtie2 releases a pair only when neither mate aligned,
 like the HISAT2 default below.
 
 The Bowtie2 index is built only if some library needs it: from the host FASTA,
@@ -798,6 +837,44 @@ It is a prediction from the **taxonomy**, not a measurement of the **reads**. Th
 
 The risk is real above order. Dropping class Mammalia is harmless when the sample is human tissue and the question is bacterial. It is **destructive on a xenograft**, where mouse reads are biology rather than noise, and on any cohort where a second vertebrate is part of the experiment. Nothing in the pipeline can tell those cases apart, which is why there is no default rank and why `class` and `phylum` emit a warning.
 
+### Microbes only in the final tables (`--drop_non_microbial`)
+
+Host reads that escape depletion do not all land on the host's relatives. Kraken2
+puts them on whatever eukaryote they match: an animal or plant whose assembly
+holds a conserved gene or contaminating host sequence. With `--drop_host_clade
+order` the final tables still held, per run or library:
+
+| cohort | microbial species | non-microbial | with `--drop_host_clade phylum` |
+| --- | --- | --- | --- |
+| CLID, human cell lines (70 runs) | 12.5 | 4.5 | 2.0 |
+| mouse stroke, single-cell GSE225948 | 65 | 590 | 219 |
+| mouse stroke, single-cell GSE197731 | 45 | 427 | 84 |
+
+They are mouse, zebrafish and turkey in human cells; and human, rabbit and
+livestock in mouse brain, then moths, *Drosophila*, sea urchins and grasses.
+The phylum drop removes the chordates, safely: across those cohorts its lists
+held no microbial taxon. The invertebrates and plants lie outside any rank of
+the host lineage.
+
+`--drop_non_microbial` drops every taxon in the run's own reports under:
+- Metazoa;
+- Viridiplantae;
+- other sequences (synthetic constructs, vectors);
+- unclassified sequences (metagenome placeholders).
+
+Bacteria, archaea, viruses, fungi and protists stay. Like `--drop_host_clade` it
+travels on the shared drop list, so the combined tables, the differential
+abundance and the single-cell matrix all lose the same rows. What went is listed
+in `non_microbial/reanatax.non_microbial_evidence.tsv`.
+
+It is off by default, because some animals belong in the results:
+- helminths are Metazoa, so a parasitic worm is dropped with the moths;
+- a mosquito's blood meal, a xenograft's mouse cells or a co-culture are animals
+  that are the point of the experiment.
+
+For a bacterial, viral or fungal question on host tissue, set it with
+`--drop_host_clade phylum`.
+
 ### De novo assembly of the non-host fraction (`--assembly`)
 
 Every filter above judges a taxon by counting things about its reads — how many, how many distinct minimizers, how they behave under shuffling, how they compare to a blank. Not one of them ever produces a longer sequence. That is the gap this fills: a 1 kb contig that classifies to a taxon is categorically stronger evidence than fifty 100 bp reads that do, because reads placed by index hopping, or piled on one conserved locus, do not assemble into anything.
@@ -850,6 +927,26 @@ Contigs **roll up the taxonomy**. A contig assigned to *Fusobacterium nucleatum*
 The gate is the honest part. **Absence of a contig is weak evidence of absence** — a genuinely rare organism does not assemble either. So a taxon below `--contig_min_reads` (50) is recorded as `not_judged` and never condemned, exactly as `--minimizer_filter` does. Lowering that gate is how you start deleting real rare organisms, and the pipeline warns if you set it below 50 with `--contig_filter` on.
 
 One consequence of pooling worth stating: a taxon spread thinly across many libraries may have thousands of reads in total and still never reach assembly depth in any single pool. Coarser pooling mitigates it; `--contig_filter` on `--assembly_pool sample` is the combination most likely to condemn something real.
+
+## Barcode-read libraries run as bulk (`--read2_only`)
+
+Not every single-cell or spatial deposit can go through `--single_cell`. Visium
+needs its spot whitelist, and BD Rhapsody splits its cell label in three. Run as
+bulk, their read 1 is still a barcode + UMI, often followed by poly-T, and only
+read 2 is transcript.
+- **Host depletion:** read 1 cannot align to the host. A trimmed Visium read 1
+  aligned 0.2% end to end, and with clipping allowed its first 26-31 bases
+  were always clipped. So whether a pair is removed is decided by read 2 alone.
+- **Classification:** read 1 adds k-mers that are not transcript. On a BD
+  Rhapsody deposit, 13.6% of the pairs assigned to microbial species owed it to
+  read 1 alone. Five species were mostly read-1-driven, and phage φ29 entirely.
+- **Run time:** a poly-T after the barcode is not at the 3' end, so
+  `--trim_poly_x` leaves it. HISAT2 then spends long on the read: 246 min per
+  20 M-pair chunk on one Visium library, against about 20 min for its others.
+
+`--read2_only` drops read 1 before trimming and takes each paired library on as
+single-end read 2. Single-end libraries are left as they are. It cannot be
+combined with `--single_cell`, which needs read 1 for the cell barcode.
 
 ## Single-cell data (`--single_cell`)
 

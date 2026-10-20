@@ -114,6 +114,19 @@ workflow REANATAX {
     def ch_raw_reads = ch_samplesheet.mix(FASTQ_DOWNLOAD_FASTQDL.out.reads)
 
     //
+    // --read2_only: a barcode-read library run without --single_cell (Visium,
+    // BD Rhapsody, 10x, Drop-seq) has a cell or spot barcode + UMI, often then
+    // poly-T, as read 1. That read cannot align to the host, so it decides
+    // nothing in depletion, and in classification it adds k-mers that are not
+    // transcript. Read 2 goes on alone, as a single-end library.
+    //
+    if (params.read2_only) {
+        ch_raw_reads = ch_raw_reads.map { meta, reads ->
+            meta.single_end ? [meta, reads] : [meta + [single_end: true], [reads[1]]]
+        }
+    }
+
+    //
     // SUBWORKFLOW: Raw read QC, adapter/quality trimming, post-trim QC
     //
     FASTQ_QC_TRIM(
@@ -139,7 +152,12 @@ workflow REANATAX {
     //
     if (params.cleanup_intermediates) {
         CLEANUP_INTERMEDIATES(
-            FASTQ_DOWNLOAD_FASTQDL.out.reads.join(FASTQ_QC_TRIM.out.raw_finished),
+            // Keyed on the id, not the whole meta: --read2_only changes
+            // single_end between the download and the trimming.
+            FASTQ_DOWNLOAD_FASTQDL.out.reads
+                .map { meta, reads -> [meta.id, meta, reads] }
+                .join(FASTQ_QC_TRIM.out.raw_finished.map { meta, sentinels -> [meta.id, sentinels] })
+                .map { _id, meta, reads, sentinels -> [meta, reads, sentinels] },
             workflow.workDir.toString(),
         )
     }
@@ -518,6 +536,7 @@ workflow REANATAX {
             controlSettings(),
             assemblySettings(),
             hostCladeSettings(),
+            params.drop_non_microbial,
             params.drop_host_taxon,
             params.host_carryover_taxid,
             params.kraken2_use_daemon,

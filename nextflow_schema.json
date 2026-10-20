@@ -250,7 +250,15 @@
                 "fastp_args": {
                     "type": "string",
                     "description": "Replace the default fastp arguments (`--detect_adapter_for_pe`).",
+                    "help_text": "`--trim_poly_x` and `--trim_low_complexity` are appended to whatever this holds.",
                     "fa_icon": "fas fa-terminal"
+                },
+                "trim_poly_x": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Trim homopolymer tails (poly(A) above all) from the 3' end of every read with fastp's `--trim_poly_x`.",
+                    "help_text": "For libraries whose reads run into the poly(A) tail: 3'-end and poly(A)-capture protocols such as Visium, 10x and Drop-seq cDNA reads, 3' mRNA-seq (QuantSeq, Lexogen), and poly(A)-selected reads from short transcripts. The tail is not genome sequence, so HISAT2, which aligns end to end under the default `--no-softclip`, can only place the read once it is gone. Not applied under `--single_cell`, whose barcode read can end in poly-T next to the UMI. See docs/usage.md.",
+                    "fa_icon": "fas fa-cut"
                 },
                 "save_trimmed": {
                     "type": "boolean",
@@ -300,23 +308,27 @@
                 "host_aligner": {
                     "type": "string",
                     "default": "auto",
-                    "enum": ["auto", "hisat2", "bowtie2"],
+                    "enum": [
+                        "auto",
+                        "hisat2",
+                        "bowtie2"
+                    ],
                     "description": "Aligner for host depletion: 'auto' (Bowtie2 for DNA libraries, HISAT2 for the rest), or force 'hisat2' or 'bowtie2'.",
                     "help_text": "HISAT2 is splice-aware, which RNA needs and DNA does not: on genomic reads it splits a read across an 'intron' that is not one, and it has no local mode. Under 'auto' each library is classified by the archive's library strategy (RNA-Seq, WGS, AMPLICON, ...), or by its library source when the strategy is OTHER, and by the samplesheet's optional `molecule` column (dna/rna) for local files. Libraries of unknown kind go to HISAT2. The single-cell route (STARsolo), the UniVec pass and --target_taxid alignment are not affected.",
                     "fa_icon": "fas fa-random"
                 },
                 "hisat2_args": {
                     "type": "string",
-                    "default": "--very-sensitive",
+                    "default": "--bowtie2-dp 2 --score-min L,0,-1 --no-softclip -k 5",
                     "description": "Arguments passed to hisat2 (the RNA libraries, under --host_aligner auto).",
-                    "help_text": "`--very-sensitive` expands to `--bowtie2-dp 2 -k 50 --score-min L,0,-1` and `--sensitive` to `--bowtie2-dp 1 -k 30 --score-min L,0,-0.5`. The `-k` part reports that many alignments per read, which makes the host BAM large and the run slower; see `--hisat2_max_alignments`. HISAT2 has no local mode.",
+                    "help_text": "The default is HISAT2's `--very-sensitive` preset (`--bowtie2-dp 2 -k 50 --score-min L,0,-1`) spelled out, with soft-clipping off and `-k 5` instead of `-k 50`. `--no-softclip` because a floor of `L,0,-1` with HISAT2's soft-clip penalty (1 per base at Illumina qualities) lets a read clip all but a 9-25 bp chance match and still count as host: on PRISM's WGS blanks that removed 14-39% of the reads, almost none of them human, and on 70 CLID runs dropping the clipping found the known infection in 36 instead of 26. `-k 5` because host depletion uses one alignment per read: on ordinary libraries it was 1.25-1.5 times faster than `-k 50` and removed the same reads to within 0.004%, and NH still flags multimappers for --quantify_host. A preset in this string overrides a later `-k`, so --hisat2_max_alignments only works without one. HISAT2 has no local mode. See docs/usage.md.",
                     "fa_icon": "fas fa-terminal"
                 },
                 "bowtie2_args": {
                     "type": "string",
                     "default": "--very-sensitive",
                     "description": "Arguments passed to bowtie2 (the DNA libraries, under --host_aligner auto).",
-                    "help_text": "Any Bowtie2 preset or option: `--sensitive`, `--very-sensitive-local`, `--sensitive-local`, ... End-to-end `--very-sensitive` is the default, matching --hisat2_args.",
+                    "help_text": "Any Bowtie2 preset or option: `--sensitive`, `--very-sensitive-local`, `--sensitive-local`, ... End-to-end `--very-sensitive` is the default; end-to-end means no soft-clipping, which is what `--no-softclip` gives HISAT2.",
                     "fa_icon": "fas fa-terminal"
                 },
                 "bowtie2_index": {
@@ -693,6 +705,12 @@
                     "description": "Also drop every taxon under the host's own clade at this rank.",
                     "help_text": "Host leakage does not stop at the host taxid: a host read that misses the host genome is assigned to the nearest relative the database holds. Measured on the CSI-Microbes 10x cohort with Homo sapiens already dropped, Pan/Pongo/Gorilla/Macaca/Tupaia were still 84% of everything called microbial in the uninfected library -- 0.1% at genus, 58-66% at family, 71-88% at class. The lineage is read from the run's own Kraken2 reports. This is a prediction from the taxonomy, not a measurement of the reads, so leakage landing outside the clade (conserved or low-complexity matches to unrelated genomes) is untouched -- that is what --host_kmer_filter is for. High ranks are destructive by design: class on a xenograft deletes the mouse.",
                     "fa_icon": "fas fa-sitemap"
+                },
+                "drop_non_microbial": {
+                    "type": "boolean",
+                    "description": "Keep only microbes in the final tables: drop animals, plants and synthetic or unclassified sequences.",
+                    "help_text": "Host reads that escape depletion land on whatever eukaryote they match, not only on the host's relatives: with a human or mouse host and --drop_host_clade order, the final tables held mouse, zebrafish and turkey in human cell lines, and human, moths, sea urchins and grasses in mouse brain - on a mouse single-cell cohort 590 such calls per library against 65 microbial. --drop_host_clade phylum removes the chordates only. This drops every taxon under Metazoa, Viridiplantae, other sequences (synthetic constructs, vectors) and unclassified sequences (metagenome placeholders), read from the run's own Kraken2 reports; bacteria, archaea, viruses, fungi and protists stay. Off by default: helminths are animals, and so is a blood meal or a xenograft's mouse cells. Evidence in <outdir>/non_microbial/.",
+                    "fa_icon": "fas fa-bacterium"
                 },
                 "exploremetatax_bundle": {
                     "type": "boolean",
@@ -1215,6 +1233,12 @@
                     "description": "Single-cell route: barcode-aware host alignment with STARsolo, and a cell-by-taxon matrix.",
                     "help_text": "REPLACES HISAT2 host depletion rather than supplementing it. In bulk, host depletion discards the host reads; in single cell they are the other half of the experiment (the cell-by-gene matrix) and the cell barcode is the only thing joining them to the microbial reads, so one barcode-aware aligner has to do both jobs in one pass. The non-host reads come out as an ordinary single-end FASTQ with the corrected barcode folded into each read name, so Kraken2, Bracken, Krona, the evidence filters and the exploreMetaTax bundle all run on them unchanged - the pseudobulk profile and the cell-by-taxon matrix come from the same classification and cannot disagree. fastq_1 must be the barcode+UMI read and fastq_2 the cDNA read. Requires --gtf and --kraken2_save_readclassifications.",
                     "fa_icon": "fas fa-th"
+                },
+                "read2_only": {
+                    "type": "boolean",
+                    "description": "Use only read 2 of each pair, as a single-end library: for barcode-read libraries run without --single_cell.",
+                    "help_text": "Visium, BD Rhapsody, 10x and Drop-seq libraries carry a cell or spot barcode + UMI, often followed by poly-T, as read 1. Run as bulk, that read cannot align to the host (a trimmed Visium read 1 aligned 0.2% end to end), so whether a pair is removed is decided by read 2 alone; in classification it adds k-mers that are not transcript (on a BD Rhapsody deposit, 13.6% of the pairs assigned to microbial species owed it to read 1 alone, and five species mostly so, phage phi29 entirely). An internal poly-T after the barcode also made HISAT2 slow on it: 246 min per chunk against about 20 for libraries without it. Not for --single_cell, which needs read 1.",
+                    "fa_icon": "fas fa-barcode"
                 },
                 "star_index": {
                     "type": "string",

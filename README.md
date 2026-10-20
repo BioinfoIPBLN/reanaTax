@@ -21,7 +21,7 @@ Given a BioProject/SRA/ENA accession, a folder of FASTQ files, or a samplesheet,
 2. Read QC ([`FastQC`](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/))
 3. Adapter and quality trimming ([`fastp`](https://github.com/OpenGene/fastp)), followed by a second `FastQC`
 4. Host genome retrieval ([`ncbi-genome-download`](https://github.com/kblin/ncbi-genome-download)) and indexing ([`HISAT2`](https://daehwankimlab.github.io/hisat2/))
-5. Host depletion (`HISAT2 --very-sensitive`), saving the aligned reads as sorted, indexed BAM ([`SAMtools`](http://www.htslib.org/)) and the unaligned reads as FASTQ
+5. Host depletion (HISAT2 with `--very-sensitive` scoring, no soft-clipping and `-k 5` for RNA; `Bowtie2 --very-sensitive` for DNA), saving the aligned reads as sorted, indexed BAM ([`SAMtools`](http://www.htslib.org/)) and the unaligned reads as FASTQ
 6. Alignment QC of the host BAM ([`SAMtools`](http://www.htslib.org/) stats/flagstat/idxstats and [`Qualimap`](http://qualimap.conesalab.org/) BamQC)
 7. Taxonomic classification of the non-host fraction ([`Kraken2`](https://ccb.jhu.edu/software/kraken2/))
 8. Abundance re-estimation ([`Bracken`](https://github.com/jenniferlu717/Bracken)) and interactive charts ([`Krona`](https://github.com/marbl/Krona))

@@ -31,6 +31,7 @@ include { KRAKEN2_KRAKEN2 as KRAKEN2_CONTIGS } from '../../../modules/nf-core/kr
 include { KRAKEN2_DAEMON as KRAKEN2_DAEMON_CONTIGS } from '../../../modules/local/kraken2/daemon/main'
 include { CONTIG_EVIDENCE                   } from '../../../modules/local/contig/evidence/main'
 include { HOSTCLADE_EXPAND                  } from '../../../modules/local/hostclade/main'
+include { NONMICROBIAL_EXPAND               } from '../../../modules/local/nonmicrobial/main'
 
 workflow TAXONOMY_KRAKEN2_BRACKEN {
 
@@ -52,6 +53,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     control_settings // map: controls, ratio, statistic, min_reads, floor_reads, prevalence, prevalence_min_reads - or null
     assembly_settings // map: assembler, pool, groups, min_reads, min_length, min_contigs, filter - or null
     host_clade // map: taxid, rank - or null
+    drop_non_microbial // boolean: drop animals, plants and synthetic/unclassified sequences
     drop_host_taxon // boolean: remove the host taxon from both the tables and the matrix
     host_taxon // the taxid that names the host
     use_daemon // boolean: classify through `k2 classify --use-daemon`
@@ -445,6 +447,23 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         ch_multiqc_files = ch_multiqc_files.mix(HOSTCLADE_EXPAND.out.mqc.map { _meta, mqc -> mqc })
     }
 
+    //
+    // MODULE: what is not a microbe - animals, plants, synthetic and
+    // unclassified sequences - for a final table of microbes only.
+    //
+    def ch_nonmicrobial_drop = channel.empty()
+
+    if (drop_non_microbial) {
+        NONMICROBIAL_EXPAND(
+            ch_report_classified
+                .map { _meta, report -> report }
+                .collect(sort: true)
+                .map { reports -> [[id: 'kraken2_non_microbial'], reports] }
+        )
+        ch_nonmicrobial_drop = NONMICROBIAL_EXPAND.out.drop_list.map { _meta, list -> list }
+        ch_multiqc_files = ch_multiqc_files.mix(NONMICROBIAL_EXPAND.out.mqc.map { _meta, mqc -> mqc })
+    }
+
     def ch_contig_drop = channel.empty()
     def ch_contig_evidence = channel.empty()
     def ch_contigs = channel.empty()
@@ -592,8 +611,8 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     // Union of every list: each condemns a taxon for its own reason, and
     // surviving one is no argument against the others. `collect` gives the
     // filter a single list, and emits an empty one when no filter ran.
-    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || control_settings || host_clade || drop_host_taxon || (assembly_settings && assembly_settings.filter) || (decontam_settings && !skip_bracken)
-        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).mix(ch_contig_drop).mix(ch_hostclade_drop).mix(ch_host_taxon_drop).collect(sort: true)
+    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || control_settings || host_clade || drop_non_microbial || drop_host_taxon || (assembly_settings && assembly_settings.filter) || (decontam_settings && !skip_bracken)
+        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).mix(ch_contig_drop).mix(ch_hostclade_drop).mix(ch_nonmicrobial_drop).mix(ch_host_taxon_drop).collect(sort: true)
         : channel.value([])
 
     FILTER_KRAKEN2(ch_kraken2_for_filter, ch_drop_list, min_rel_abundance, min_samples, min_reads)
