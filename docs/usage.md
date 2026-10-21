@@ -121,8 +121,11 @@ shorter reads.
 
 **Very short reads are flagged.** When trimmed reads average 60 bp or less, the
 run says so once, naming the samples: each such read holds only a few of
-Kraken2's 35-mers, and MetaPhlAn and sylph lose most of their sensitivity at that
-length (Ma et al., *J Mol Diagn* 2026, benchmarking 50 bp clinical libraries).
+Kraken2's 35-mers, sylph loses most of its sensitivity at that length (Ma et al.,
+*J Mol Diagn* 2026, benchmarking 50 bp clinical libraries), and MetaPhlAn
+discards every read shorter than 70 bp by default. Pass
+`--metaphlan_args '-t rel_ab_w_read_stats --read_min_len 40'` to keep them, at
+the cost of more ambiguous marker hits.
 Nothing is changed; rely on Kraken2 with `--minimizer_filter`, and check that the
 Bracken database ships a 50mers distribution.
 

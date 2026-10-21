@@ -145,10 +145,11 @@ workflow REANATAX {
 
     //
     // Very short reads, said once for the cohort. At 60 bp or less a read holds
-    // only a handful of Kraken2's 35-mers, and marker-gene and sketch profilers
-    // lose most of their sensitivity (Ma et al., J Mol Diagn 2026, benchmarking
-    // 50 bp single-end clinical metagenomics). Nothing is changed; the warning
-    // says which samples and what to rely on.
+    // only a handful of Kraken2's 35-mers, sketch profilers lose most of their
+    // sensitivity (Ma et al., J Mol Diagn 2026, benchmarking 50 bp single-end
+    // clinical metagenomics), and MetaPhlAn drops reads under 70 bp outright
+    // (--read_min_len). Nothing is changed; the warning says which samples and
+    // what to rely on.
     //
     FASTQ_QC_TRIM.out.fastp_json
         .map { meta, json -> [meta.id, meanReadLength(json)] }
@@ -158,8 +159,11 @@ workflow REANATAX {
             if (short_samples) {
                 def listed = short_samples.take(5).collect { id, length -> "${id} (${length} bp)" }.join(', ')
                 def more = short_samples.size() > 5 ? ", and ${short_samples.size() - 5} more" : ''
-                def profilers = [params.run_metaphlan ? 'MetaPhlAn' : null, params.run_sylph ? 'sylph' : null].findAll { name -> name }
-                log.warn("Trimmed reads average 60 bp or less in ${short_samples.size()} sample(s): ${listed}${more}. Each read holds only a few of Kraken2's 35-mers" + (profilers ? ", and ${profilers.join(' and ')} lose most of their sensitivity at this length" : '') + ". Rely on Kraken2 with --minimizer_filter, and check that the Bracken database ships a 50mers distribution.")
+                def notes = [
+                    params.run_metaphlan ? "MetaPhlAn discards every read shorter than 70 bp unless --metaphlan_args lowers its --read_min_len" : null,
+                    params.run_sylph ? "sylph loses most of its sensitivity at this length" : null,
+                ].findAll { note -> note }
+                log.warn("Trimmed reads average 60 bp or less in ${short_samples.size()} sample(s): ${listed}${more}. Each read holds only a few of Kraken2's 35-mers" + (notes ? "; ${notes.join('; ')}" : '') + ". Rely on Kraken2 with --minimizer_filter, and check that the Bracken database ships a 50mers distribution.")
             }
             short_samples
         }

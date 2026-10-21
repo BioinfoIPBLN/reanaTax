@@ -60,14 +60,22 @@ def read_host(path):
 
 
 def read_microbial(path):
-    """The combined Bracken/Kraken table, which does NOT have one column per
-    sample: Bracken writes `<sample>_num` and `<sample>_frac` side by side and
-    combine_kreports writes `<sample>_all` and `<sample>_lvl`. The same
-    convention bin/filter_abundance.py follows is used here - prefer the
-    fractions, because a correlation wants abundance free of library size, and
-    fall back to counts only when no fractions are present."""
+    """The combined Bracken table, which does NOT have one column per sample:
+    Bracken writes `<sample>_num` and `<sample>_frac` side by side. The fractions
+    are used, because a correlation wants abundance free of library size; a
+    Bracken-shaped table without them falls back to the `_num` counts.
+
+    Rows are keyed on the taxon name, which is unique here: Bracken's
+    combine_bracken_outputs.py stops on a name shared by two taxids rather than
+    writing both. A combine_kreports table is refused. It is a hierarchy, so
+    its most abundant rows are root, the domains and the phyla, each holding
+    the same reads again, and a top-N cut on it would correlate those.
+    """
     with open(path, encoding="utf-8") as handle:
         header = handle.readline().rstrip("\n").split("\t")
+        if header and header[0].startswith("#"):
+            sys.exit(f"[host_microbe] {path} looks like a combine_kreports table (it opens with "
+                     f"'{header[0][:40]}'). Give the combined Bracken table: one rank, each read once.")
 
         def candidates(suffixes):
             return [

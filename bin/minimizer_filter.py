@@ -95,6 +95,43 @@ RANK_WORDS = {
 }
 
 
+def report_line(line):
+    """(fields, clade reads, taxid, rank, is KrakenUniq) for one report line, or None."""
+    if line.startswith("#") or line.startswith("%"):
+        return None
+    fields = [f.strip() for f in line.rstrip("\n").split("\t")]
+    if len(fields) < 8:
+        return None
+    try:
+        clade_reads = int(fields[1])
+    except ValueError:
+        return None
+    krakenuniq = fields[-2].lower() in RANK_WORDS
+    try:
+        taxid = int(fields[-3]) if krakenuniq else int(fields[-2])
+    except ValueError:
+        return None
+    rank = fields[-2] if krakenuniq else fields[-3]
+    return fields, clade_reads, taxid, rank, krakenuniq
+
+
+def classified_reads(path):
+    """The reads one report classified: the root's clade count, 0 without a root.
+
+    The root holds each classified read exactly once. Summing clade counts over
+    a set of ranks instead counts a read again at every rank of the set that
+    holds it: a species and its strains (S, S1, S2) in a Kraken2 report, and in
+    a KrakenUniq report, whose ranks are words, superkingdom, species group and
+    species alike.
+    """
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            parsed = report_line(line)
+            if parsed is not None and parsed[2] == 1:
+                return parsed[1]
+    return 0
+
+
 def parse_report(path):
     """Return {taxid: {...}} for one Kraken2-minimizer or KrakenUniq report.
 
@@ -110,23 +147,11 @@ def parse_report(path):
     rows = {}
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            if line.startswith("#") or line.startswith("%"):
+            parsed = report_line(line)
+            if parsed is None:
                 continue
-            fields = [f.strip() for f in line.rstrip("\n").split("\t")]
-            if len(fields) < 8:
-                continue
-            try:
-                clade_reads = int(fields[1])
-            except ValueError:
-                continue
-
+            fields, clade_reads, taxid, rank, krakenuniq = parsed
             name = fields[-1].strip()
-            krakenuniq = fields[-2].lower() in RANK_WORDS
-            try:
-                taxid = int(fields[-3]) if krakenuniq else int(fields[-2])
-            except ValueError:
-                continue
-            rank = fields[-2] if krakenuniq else fields[-3]
 
             if krakenuniq:
                 # kmers, dup, cov are columns 4, 5, 6.
@@ -338,7 +363,8 @@ def main():
     parser.add_argument("--distinct-scale", type=float, default=0.0,
                         help="scale the distinct threshold with library depth: the effective "
                              "threshold becomes max(--min-distinct, scale x classified reads). "
-                             "0 disables. See the module docstring for the benchmarked value.")
+                             "0 disables. The published optimum is about 0.002 per read (Sun et al.), "
+                             "see the --minimizer_distinct_scale help in nextflow_schema.json.")
     parser.add_argument("--max-duplication", type=float, default=100,
                         help="...and its observed/distinct ratio must stay below this")
     parser.add_argument("--duplication-coverage", type=float, default=0.01,
@@ -385,8 +411,7 @@ def main():
     if args.distinct_scale > 0:
         depths = []
         for path in args.reports:
-            rows = parse_report(path)
-            depths.append(sum(row["reads"] for row in rows.values() if row["rank"].upper().startswith("S")))
+            depths.append(classified_reads(path))
         if depths:
             scaled_floor = args.distinct_scale * (sum(depths) / len(depths))
             args.min_distinct = max(args.min_distinct, scaled_floor)

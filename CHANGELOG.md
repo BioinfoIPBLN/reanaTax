@@ -37,6 +37,14 @@ Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-
 
 ### `Fixed`
 
+- **The `_frac` columns of a filtered Bracken table depended on which filter last removed a taxon.** A filter that dropped something rescaled the fractions to sum to 1 over the rows in front of it, and one that dropped nothing left them alone. So the PRISM and gene-diversity passes, which run on the already-thresholded table, scaled every fraction up by the mass the abundance thresholds had removed, but only when their own drop list matched something. Likewise, cells zeroed by the negative-control filter left the denominator only if some drop list matched. The denominator is now read back from the table and carried: drop lists and control zeroing remove their reads from it, and the abundance thresholds never do (`fraction_state()`/`rescale_fractions()` in `bin/filter_abundance.py`, also used by `bin/control_filter.py`). docs/output.md says what `_frac` means.
+
+- **`filter_abundance.py` skipped a `--drop-taxids` file that did not exist** and filtered nothing; it now stops and names the path.
+
+- **`--minimizer_distinct_scale` counted reads more than once.** Library depth was the sum of clade reads over every rank beginning with S, which counted a species again in each of its strain rows (S1, S2) and, in KrakenUniq reports, also counted superkingdom and species group, raising the scaled threshold accordingly. Depth is now the root's clade count, the classified reads the help text always described. The option is off by default.
+
+- **`host_microbe_correlation.py`'s docstring said it read combine_kreports tables**; it never did, and now refuses one by name. Its taxon-name row keys cannot collide on the Bracken table it is given, because Bracken's own combiner stops on a name shared by two taxids.
+
 From an independent code audit of 3f8bc51, each finding checked against the code first:
 
 - **HUMAnN profiled samples against other samples' taxa.** Reads and taxonomic profiles reached `HUMANN3_HUMANN` as two queue channels, paired by arrival order. A library in which Kraken2 classified nothing has no Bracken report, so from that library on, every sample was profiled against the next sample's taxa. They are now joined on the sample id, and a library without a profile is left out with a warning.
@@ -125,7 +133,7 @@ From an independent code audit of 3f8bc51, each finding checked against the code
 
 - Reads per million of the whole library: `kraken2/kraken2_combined_report.filtered.rpm_total.tsv` and `bracken/bracken_combined_<level>.filtered.rpm_total.tsv` restate the filtered tables against each sample's trimmed read total from the read accounting (`bin/rpm_total.py`). Every other fraction is a share of what was classified and kept, which in host RNA-seq hides the scale.
 
-- A warning, once per run, when trimmed reads average 60 bp or less, naming the samples: Kraken2's 35-mers are few per read at that length, and MetaPhlAn and sylph lose most of their sensitivity (Ma et al., J Mol Diagn 2026).
+- A warning, once per run, when trimmed reads average 60 bp or less, naming the samples: Kraken2's 35-mers are few per read at that length, sylph loses most of its sensitivity (Ma et al., J Mol Diagn 2026), and MetaPhlAn discards reads under 70 bp by default (`--read_min_len`).
 
 - Unit tests for the Python helpers in `bin/` (`tests/bin/`, pytest, standard library only), run by a new `bin-tests` GitHub Actions job.
 

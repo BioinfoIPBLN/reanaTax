@@ -109,3 +109,27 @@ def test_cohort_too_small_for_any_significant_pair_is_refused(tmp_path, run_scri
     assert forced.returncode == 0, forced.stderr
     _comments, _header, rows = read_results(out)
     assert len(rows) == 3 * 2
+
+
+def test_combine_kreports_table_is_refused(tmp_path, run_script):
+    """A hierarchical kreport table is refused by name instead of failing on
+    its preamble; the correlation wants the flat Bracken table."""
+    write_host(tmp_path / "host.tsv", HOST_SAMPLES, HOST)
+    kreport = tmp_path / "kraken2_combined_report.txt"
+    kreport.write_text(
+        "#Number of Samples: 2\n#Total Number of Reads: 2000\n"
+        "#perc\ttot_all\ttot_lvl\tS1_all\tS1_lvl\tS2_all\tS2_lvl\tlvl_type\ttaxid\tname\n"
+        "100.00\t2000\t0\t1000\t0\t1000\t0\tR\t1\troot\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(
+        "host_microbe_correlation.py",
+        "--host", tmp_path / "host.tsv",
+        "--microbial", kreport,
+        "--output", tmp_path / "correlation.tsv",
+    )
+
+    assert result.returncode != 0
+    assert "combine_kreports" in result.stderr
+    assert not (tmp_path / "correlation.tsv").exists()

@@ -139,6 +139,64 @@ def column_totals(header, rows, cols):
     return totals
 
 
+def fraction_state(header, rows):
+    """What each `<s>_frac` column was computed against, read back from the table.
+
+    One entry per fraction column: (its index, the index of the `<s>_num` beside
+    it or None, the denominator its values imply, the reads and the share the
+    column holds now). The denominator is sum(_num) / sum(_frac) over the rows
+    holding at least 0.1% - their fractions carry the most significant digits,
+    Bracken printing five decimals - or over every row when none does. Taken
+    before anything is removed, for rescale_fractions().
+    """
+    index = {h.strip(): i for i, h in enumerate(header)}
+    state = []
+    for column, field in enumerate(header):
+        name = field.strip()
+        if name.lower() in ANNOTATION_COLUMNS or not name.endswith("_frac"):
+            continue
+        counts = index.get(name[: -len("_frac")] + "_num")
+        cells = [(to_float(row[counts]) if counts is not None and counts < len(row) else 0.0,
+                  to_float(row[column]) if column < len(row) else 0.0) for row in rows]
+        basis = [cell for cell in cells if cell[1] >= 1e-3] or cells
+        reads, share = sum(cell[0] for cell in basis), sum(cell[1] for cell in basis)
+        denominator = reads / share if counts is not None and reads > 0 and share > 0 else None
+        state.append((column, counts, denominator,
+                      sum(cell[0] for cell in cells), sum(cell[1] for cell in cells)))
+    return state
+
+
+def rescale_fractions(state, rows):
+    """Recompute the `_frac` columns once rows or cells have been removed.
+
+    Each count is divided by the denominator the table was read with, less the
+    reads removed since. The denominator is carried, not re-summed from the
+    surviving rows, because after the abundance thresholds the rows no longer
+    add up to the sample: a later pass that re-summed them - the PRISM and
+    gene-diversity filters run on the filtered table - rescaled every fraction
+    by whatever the thresholds had removed, and only when its own drop list
+    happened to match something, so whether a table summed to 1 depended on
+    which filter had last removed a taxon. A `_frac` column without counts
+    beside it is divided by the share it kept.
+    """
+    for column, counts, denominator, reads_before, share_before in state:
+        if denominator is not None:
+            reads_after = sum(to_float(row[counts]) for row in rows if counts < len(row))
+            remaining = denominator - (reads_before - reads_after)
+            if remaining <= 0:
+                continue
+            for row in rows:
+                if max(column, counts) < len(row):
+                    row[column] = f"{to_float(row[counts]) / remaining:.10g}"
+        elif share_before > 0:
+            kept = 1.0 - (share_before - sum(to_float(row[column]) for row in rows if column < len(row)))
+            if kept <= 0 or kept >= 1:
+                continue
+            for row in rows:
+                if column < len(row):
+                    row[column] = f"{to_float(row[column]) / kept:.10g}"
+
+
 def taxid_column(header):
     """Bracken calls it `taxonomy_id`, combine_kreports calls it `taxid`."""
     for name in ("taxonomy_id", "taxid"):
@@ -218,6 +276,7 @@ def main():
     args = parser.parse_args()
 
     comments, header_line, header, rows = read_table(args.input)
+    fractions = fraction_state(header, rows)
     dropped_host = []
     # The host taxon and anything the minimizer evidence condemned are removed
     # together: both are "this is not part of the microbial profile", and both
@@ -226,8 +285,10 @@ def main():
     if args.drop_taxid is not None:
         drop.add(str(args.drop_taxid))
     for path in args.drop_taxids:
-        if not os.path.exists(path):
-            continue
+        # A list that is not there is an error, not an empty list: a mistyped
+        # path would otherwise turn the filter into a silent no-op.
+        if not os.path.isfile(path):
+            sys.exit(f"[filter_abundance] --drop-taxids: '{path}' does not exist.")
         with open(path, encoding="utf-8") as handle:
             drop.update(line.strip() for line in handle if line.strip() and not line.startswith("#"))
     if drop:
@@ -247,18 +308,18 @@ def main():
     # threshold would mean something different in every column.
     totals = {} if already_frac else column_totals(header, rows, cols)
 
-    # With the host gone the fraction columns no longer sum to 1, so rescale
-    # them against the surviving total. Count columns need no rescaling: they
-    # are turned into fractions above, against a total that already excludes
-    # the dropped rows.
+    # The dropped taxa are not part of the microbial profile, so their reads
+    # leave the denominator and the fractions are recomputed; see
+    # rescale_fractions(). Count columns need no rescaling: they are turned into
+    # fractions above, against a total that already excludes the dropped rows.
+    #
+    # The abundance thresholds below do NOT rescale. A taxon they remove is too
+    # sparse to keep, not shown to be absent, so its reads stay in the
+    # denominator: a filtered column sums to less than 1 by the share of the
+    # taxa below the thresholds, and a kept taxon's fraction does not grow
+    # because its neighbours were sparse.
     if dropped_host and already_frac:
-        for col in cols:
-            total = sum(to_float(row[col]) for row in rows if col < len(row))
-            if total <= 0:
-                continue
-            for row in rows:
-                if col < len(row):
-                    row[col] = f"{to_float(row[col]) / total:.10g}"
+        rescale_fractions(fractions, rows)
 
     # An absolute floor alongside the relative one, applied as AND. Every
     # careful reanalysis in this area imposes one: Gihawi et al. (mBio 2023)

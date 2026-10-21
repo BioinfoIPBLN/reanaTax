@@ -340,7 +340,9 @@ See [usage](usage.md#diversity-and-what-explains-it---run_diversity) for the cav
 
 [Bracken](https://github.com/jenniferlu717/Bracken) redistributes reads that Kraken2 could only place at a higher rank down to the requested level (`--bracken_level`, default species). **Use the Bracken table, not the raw Kraken2 report, for abundance comparisons between samples.**
 
-`*.rpm_total.tsv` (unless `--skip_read_accounting`) is the filtered table again with every count as reads per million of the **whole library**: divided by the sample's trimmed reads from the read accounting, not by what was classified or kept. The fractions in the other tables are shares of the microbial reads that survived, which in host RNA-seq hides the scale - one read can be 1% of what is left. It is a unit, not a filter.
+**What `_frac` means in the filtered tables.** A taxon's reads over the sample's Bracken reads, less the reads of every taxon a drop list removed (host, host clade, evidence filters, PRISM, gene diversity) and of every cell the negative-control filter zeroed. Those are judged not to be the sample's microbes, so they leave the denominator. The abundance thresholds (`--min_rel_abundance`, `--min_reads`) do not change it: a taxon too sparse to keep is not shown to be absent, so a filtered column sums to less than 1 by the share of the sparse taxa, and a kept taxon's fraction does not grow because its neighbours were sparse. The same denominator carries through every later pass, so a taxon has the same fraction in `bracken_combined_<level>.filtered.tsv` and in the PRISM- and gene-diversity-filtered tables unless the later pass dropped something.
+
+`*.rpm_total.tsv` (unless `--skip_read_accounting`) is the filtered table again with every count as reads per million of the **whole library**: divided by the sample's trimmed reads from the read accounting, not by what was classified or kept. The fractions above are shares of the microbial reads, which in host RNA-seq hides the scale - one read can be 1% of what is left. It is a unit, not a filter.
 
 ### Krona
 

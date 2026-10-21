@@ -108,3 +108,42 @@ def test_flat_duplication_limit_condemns_the_genome_scale_taxon(tmp_path, run_sc
     assert rows["1004"]["verdict"] == "high_duplication"
     assert float(rows["1004"]["duplication_limit"]) == 100.0
     assert sorted(dropped) == ["1002", "1003", "1004"]
+
+
+def test_depth_scaling_counts_each_classified_read_once(tmp_path, run_script):
+    """--distinct-scale takes depth from the root's clade count. A species and the
+    strain under it hold the same 6,000 reads; summing every S-rank row counted
+    them twice and raised the threshold from 1,000 to 1,600 distinct minimizers,
+    which would have dropped a species with 1,200."""
+    report = tmp_path / "S1.kraken2.report.txt"
+    rows = [
+        ("4.76", 500, 500, 0, 0, "U", 0, "unclassified"),
+        ("95.24", 10000, 0, 70000, 4200, "R", 1, "root"),
+        ("57.14", 6000, 0, 50000, 1200, "S", 1005, "Clean"),
+        ("57.14", 6000, 6000, 50000, 1200, "S1", 2001, "Clean strain"),
+        ("38.10", 4000, 4000, 20000, 3000, "S", 1006, "Other"),
+    ]
+    report.write_text(
+        "".join(
+            f"{pct}\t{clade}\t{direct}\t{minimizers}\t{distinct}\t{rank}\t{taxid}\t    {name}\n"
+            for pct, clade, direct, minimizers, distinct, rank, taxid, name in rows
+        ),
+        encoding="utf-8",
+    )
+    evidence = tmp_path / "evidence.tsv"
+    result = run_script(
+        "minimizer_filter.py",
+        "--reports", report,
+        "--evidence", evidence,
+        "--drop-list", tmp_path / "drop.txt",
+        "--min-reads", 50,
+        "--min-distinct", 10,
+        "--distinct-scale", 0.1,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "mean 10000 classified reads x 0.1 -> distinct threshold 1000" in result.stderr
+    with open(evidence, encoding="utf-8", newline="") as handle:
+        verdicts = {row["taxid"]: row["verdict"] for row in csv.DictReader(handle, delimiter="\t")}
+    assert verdicts["1005"] == "kept"
+    assert verdicts["1006"] == "kept"

@@ -51,3 +51,65 @@ def test_drop_lists_remove_taxa_and_renormalise_fractions(tmp_path, run_script):
     with open(tmp_path / "removed.tsv", encoding="utf-8", newline="") as handle:
         removed = {row["taxonomy_id"] for row in csv.DictReader(handle, delimiter="\t")}
     assert removed == {"9606", "1003"}
+
+
+def test_missing_drop_list_is_an_error(tmp_path, run_script):
+    """A drop list that is not there stops the run instead of filtering nothing."""
+    table = tmp_path / "bracken_combined.tsv"
+    table.write_text("\n".join("\t".join(row) for row in [HEADER] + ROWS) + "\n", encoding="utf-8")
+
+    result = run_script(
+        "filter_abundance.py",
+        "--input", table,
+        "--output", tmp_path / "filtered.tsv",
+        "--drop-taxids", tmp_path / "no_such_list.txt",
+    )
+
+    assert result.returncode != 0
+    assert "no_such_list.txt" in result.stderr
+    assert not (tmp_path / "filtered.tsv").exists()
+
+
+def test_fractions_keep_one_denominator_across_passes(tmp_path, run_script):
+    """The thresholds remove rows without rescaling, and a second pass on the
+    filtered table (as the PRISM and gene-diversity filters run) rescales against
+    the first pass's denominator rather than re-summing what the thresholds left:
+    a kept taxon's fraction is its reads over the sample's reads less the
+    dropped ones, whichever pass dropped them."""
+    header = ["name", "taxonomy_id", "taxonomy_lvl", "S1_num", "S1_frac"]
+    rows = [
+        ["Alpha bacterium", "1001", "S", "6000", "0.6"],
+        ["Beta bacterium", "1002", "S", "3000", "0.3"],
+        ["Sparse bacterium", "1003", "S", "5", "0.0005"],
+        ["Gamma bacterium", "1004", "S", "995", "0.0995"],
+    ]
+    table = tmp_path / "bracken_combined.tsv"
+    table.write_text("\n".join("\t".join(row) for row in [header] + rows) + "\n", encoding="utf-8")
+
+    first = run_script(
+        "filter_abundance.py",
+        "--input", table,
+        "--output", tmp_path / "pass1.tsv",
+        "--min-rel-abundance", 0.001,
+    )
+    assert first.returncode == 0, first.stderr
+    with open(tmp_path / "pass1.tsv", encoding="utf-8", newline="") as handle:
+        pass1 = {row["taxonomy_id"]: row for row in csv.DictReader(handle, delimiter="\t")}
+    assert set(pass1) == {"1001", "1002", "1004"}
+    assert pass1["1001"]["S1_frac"] == "0.6"
+
+    drop = tmp_path / "prism_drop.txt"
+    drop.write_text("1004\n", encoding="utf-8")
+    second = run_script(
+        "filter_abundance.py",
+        "--input", tmp_path / "pass1.tsv",
+        "--output", tmp_path / "pass2.tsv",
+        "--drop-taxids", drop,
+        "--min-rel-abundance", 0,
+    )
+    assert second.returncode == 0, second.stderr
+    with open(tmp_path / "pass2.tsv", encoding="utf-8", newline="") as handle:
+        pass2 = {row["taxonomy_id"]: row for row in csv.DictReader(handle, delimiter="\t")}
+    # 10,000 reads, 995 dropped: the sparse taxon's 5 stay in the denominator.
+    assert float(pass2["1001"]["S1_frac"]) == pytest.approx(6000 / 9005)
+    assert float(pass2["1002"]["S1_frac"]) == pytest.approx(3000 / 9005)

@@ -74,7 +74,7 @@ import statistics
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from filter_abundance import column_totals, read_table, taxid_column, to_float
+from filter_abundance import column_totals, fraction_state, read_table, rescale_fractions, taxid_column, to_float
 
 # Per-sample column suffixes across the two combined layouts this pipeline
 # produces. `_num`/`_all` carry the counts; `_frac`/`_lvl` travel with them and
@@ -241,6 +241,7 @@ def main():
     n_libraries = len(samples)
     prevalence_floor = args.prevalence * n_libraries if args.prevalence > 0 else None
 
+    fractions = fraction_state(header, rows)
     condemned, evidence, zeroed_cells, zeroed_reads, total_reads = [], [], 0, 0.0, 0.0
     zeroed_pairs = []
     counts = {}
@@ -316,6 +317,13 @@ def main():
             len(zeroed_in) if judged else "NA",
             verdict,
         ])
+
+    # A zeroed cell is carry-over, not this library's organism, so its reads
+    # leave that library's denominator and the surviving fractions are
+    # recomputed here, once, rather than left for a later step that would do it
+    # only if its own drop list matched something.
+    if zeroed_cells:
+        rescale_fractions(fractions, rows)
 
     with open(args.output, "w", encoding="utf-8") as handle:
         for line in comments:

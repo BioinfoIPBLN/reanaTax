@@ -2,6 +2,8 @@
 
 import csv
 
+import pytest
+
 SAMPLES = ["S1", "S2", "NC1", "NC2"]
 
 # Real libraries hold 1,000,000 classified reads, the blanks 10,000.
@@ -80,6 +82,13 @@ def test_taxa_are_judged_per_sample_against_the_controls(tmp_path, run_script):
     assert filtered["400"]["S1_num"] == "50000"
     assert filtered["400"]["S2_num"] == "0"
     assert filtered["400"]["S2_frac"] == "0"
+    # The zeroed reads leave the library's denominator: S1 lost 450,000 of its
+    # million, S2 600,000.
+    assert float(filtered["100"]["S1_frac"]) == pytest.approx(500000 / 550000)
+    assert float(filtered["400"]["S1_frac"]) == pytest.approx(50000 / 550000)
+    assert float(filtered["100"]["S2_frac"]) == pytest.approx(1.0)
+    # A control is never zeroed, so its fractions keep their denominator.
+    assert float(filtered["300"]["NC1_frac"]) == pytest.approx(0.9948)
 
     assert sorted((tmp_path / "drop.txt").read_text(encoding="utf-8").split()) == ["200", "300"]
 
