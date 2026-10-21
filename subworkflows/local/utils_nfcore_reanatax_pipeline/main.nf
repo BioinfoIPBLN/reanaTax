@@ -197,10 +197,51 @@ workflow PIPELINE_COMPLETION {
 */
 
 //
+// The databases --build_databases asks for, checked against what can be built.
+//
+def buildDatabaseTools(build_databases) {
+    def known = ['kraken2', 'bracken', 'krakenuniq', 'sylph']
+    def chosen = commaList((build_databases ?: '').toString().toLowerCase())
+    def unknown = chosen.findAll { tool -> !known.contains(tool) }
+    if (unknown) {
+        error("--build_databases: ${unknown.join(', ')} cannot be built here. Choose from ${known.join(', ')}; docs/usage.md says where the other classifiers' databases come from.")
+    }
+    return chosen.unique()
+}
+
+def validateBuildParameters() {
+    def tools = buildDatabaseTools(params.build_databases)
+    if (!tools) {
+        error("--build_databases names no database. Give a comma-separated list of ${['kraken2', 'bracken', 'krakenuniq', 'sylph'].join(', ')}.")
+    }
+    if (tools.contains('bracken') && !tools.contains('kraken2')) {
+        error("--build_databases bracken needs kraken2 in the same list: Bracken's distributions are estimated by classifying the Kraken2 database's own library, which only exists while that database is being built.")
+    }
+    if (!params.db_input) {
+        error("--build_databases needs --db_input: a CSV with one row per genome (id, taxid, and a fasta or an NCBI assembly accession).")
+    }
+    def analysis = ['--input': params.input, '--input_dir': params.input_dir, '--input_accessions': params.input_accessions].findAll { _flag, value -> value }.keySet()
+    if (analysis) {
+        error("--build_databases is a run of its own and reads no sequencing data, but ${analysis.join(' and ')} ${analysis.size() == 1 ? 'was' : 'were'} given. Build the databases first, then point the analysis at them.")
+    }
+    def lengths = params.db_bracken_read_lengths.toString().tokenize(',').collect { length -> length.trim() }
+    if (tools.contains('bracken') && (!lengths || lengths.any { length -> !(length ==~ /^[0-9]+$/) })) {
+        error("--db_bracken_read_lengths: '${params.db_bracken_read_lengths}' is not a comma-separated list of read lengths, e.g. 50,75,100,150.")
+    }
+}
+
+//
 // Check that the combination of parameters actually describes a runnable job.
 // These are cross-parameter rules that the JSON schema cannot express.
 //
 def validateInputParameters() {
+    // Building databases is a run of its own: no reads, no host, no database to
+    // read. Its parameters are checked here, and nothing else is.
+    if (params.build_databases) {
+        validateBuildParameters()
+        return
+    }
+
     def routes = ['--input': params.input, '--input_dir': params.input_dir, '--input_accessions': params.input_accessions]
     def given = routes.findAll { _flag, value -> value }.keySet()
     if (given.size() != 1) {
@@ -222,6 +263,12 @@ def validateInputParameters() {
             error("--kraken2_use_daemon cannot work under Docker: every task gets its own PID namespace and its own /tmp, so the daemon and the FIFOs it is addressed through do not survive the task that started them. Use -profile singularity/apptainer, or drop the flag.")
         }
         log.warn("--kraken2_use_daemon leaves a background process holding the index after this run finishes. Stop it with 'k2 clean --stop-daemon' on the execution node when you are done.")
+        // The end-of-run cleanup (stopKraken2Daemon) runs where Nextflow runs.
+        // Under SLURM that is the submit host, and the daemons are on whichever
+        // compute nodes the Kraken2 tasks landed on - one per node.
+        if (workflow.profile.tokenize(',').contains('slurm')) {
+            log.warn("--kraken2_use_daemon under -profile slurm starts a daemon on every compute node a Kraken2 task lands on, and the end-of-run cleanup runs on the submit host, where it cannot reach them. Stop each with 'k2 clean --stop-daemon' on that node, or classify on one machine (-profile local).")
+        }
     }
 
     if (params.read2_only && params.single_cell) {
@@ -268,6 +315,10 @@ def validateInputParameters() {
         if (!params.sc_cell_metadata && !params.sc_host_de_force_pooled) {
             error("--sc_host_de needs --sc_cell_metadata. Which cell types carry a taxon is itself a result - it is what the enrichment step measures - so infection is not distributed at random over cell types, and a pooled infected-vs-uninfected test recovers the difference BETWEEN cell types and reports it as a response TO infection. Supply the annotations, or pass --sc_host_de_force_pooled to accept a pooled comparison; every row of the output is then stamped ALL_POOLED.")
         }
+    }
+
+    if (params.sc_host_de_pseudobulk && !params.sc_host_de) {
+        error("--sc_host_de_pseudobulk sums the cells --sc_host_de compares, so it needs --sc_host_de.")
     }
 
     if (params.sc_plate_based) {
@@ -427,18 +478,31 @@ def validateInputParameters() {
     // typo fails in seconds instead of after the classification has run.
     hostDeMethods(params.host_de_method)
 
-    if (params.host_de_method && params.da_metadata && !params.quantify_host) {
-        log.warn("--host_de_method is set and --da_metadata was given, but --quantify_host is not: there are no host gene counts to test. Add --quantify_host (which also needs --gtf), or set --host_de_method null.")
+    // Host gene counts come from either route: featureCounts on the host BAM
+    // (--quantify_host) or kallisto on the trimmed reads (--host_transcripts).
+    def host_counts = params.quantify_host || params.host_transcripts
+
+    if (params.host_de_method && params.da_metadata && !host_counts) {
+        log.warn("--host_de_method is set and --da_metadata was given, but neither --quantify_host nor --host_transcripts is: there are no host gene counts to test. Add --quantify_host (which also needs --gtf) or --host_transcripts, or set --host_de_method null.")
     }
 
-    if (params.host_microbe_correlation && !(params.quantify_host && params.da_metadata)) {
-        error("--host_microbe_correlation needs host gene counts and the sample metadata: add --quantify_host (with --gtf) and --da_metadata.")
+    if (params.host_microbe_correlation && !(host_counts && params.da_metadata)) {
+        error("--host_microbe_correlation needs host gene counts and the sample metadata: add --quantify_host (with --gtf) or --host_transcripts, and --da_metadata.")
+    }
+
+    // The microbial side of the correlation is the combined Bracken table.
+    // Without Bracken the step used to be skipped without a word.
+    if (params.host_microbe_correlation && (params.skip_kraken2 || params.skip_bracken)) {
+        error("--host_microbe_correlation correlates host expression against the combined Bracken table, so it cannot be combined with --skip_kraken2 or --skip_bracken.")
     }
 
     if (params.target_taxid) {
         hostDeMethods(params.target_de_method)
-        if (!params.target_reference) {
-            error("--target_taxid needs --target_reference: extracting a taxon's reads is only useful if they can then be aligned to that organism's genome. Give an accession (GCF_*/GCA_*), a taxid, a FASTA or a HISAT2 index.")
+        if (!params.target_reference && !params.target_transcripts) {
+            error("--target_taxid needs --target_reference or --target_transcripts: extracting a taxon's reads is only useful if they can then be quantified against that organism. Give a genome (an accession GCF_*/GCA_*, a taxid, a FASTA or a HISAT2 index) or its transcriptome FASTA for kallisto.")
+        }
+        if (params.target_reference && params.target_transcripts) {
+            log.warn("--target_transcripts replaces the align-and-count route for the targeted taxon, so --target_reference is not used.")
         }
         if (!params.kraken2_save_readclassifications) {
             error("--target_taxid needs --kraken2_save_readclassifications: the per-read output is the record of which read Kraken2 put on which taxon, and without it there is nothing to extract from.")
@@ -446,10 +510,10 @@ def validateInputParameters() {
         if (params.skip_kraken2) {
             error("--target_taxid needs Kraken2; it cannot be combined with --skip_kraken2.")
         }
-        if (params.target_de_method && !params.target_gtf) {
+        if (params.target_de_method && !params.target_gtf && !params.target_transcripts) {
             log.warn("--target_taxid is set without --target_gtf: the branch will align the extracted reads and stop at the BAM, because gene counts need an annotation.")
         }
-        if (params.target_de_method && params.target_gtf && !params.da_metadata) {
+        if (params.target_de_method && (params.target_gtf || params.target_transcripts) && !params.da_metadata) {
             log.warn("--target_taxid will count genes but not test them: differential expression needs --da_metadata and a --da_grouping contrast.")
         }
         if (params.target_include_parents) {
@@ -481,8 +545,8 @@ def validateInputParameters() {
         error("--run_humann needs the Kraken2 report to build HUMAnN's taxonomic profile; it cannot be combined with --skip_kraken2.")
     }
 
-    if (params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan && !params.run_sylph && !params.run_metax) {
-        log.warn("--skip_kraken2 with none of --krakenuniq_db, --run_metaphlan, --run_sylph or --run_metax leaves nothing to classify the non-host reads with.")
+    if (params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan && !params.run_sylph && !params.run_metax && !params.pathseq_microbe_bwa_image && !params.run_prism) {
+        log.warn("--skip_kraken2 with none of --krakenuniq_db, --run_metaphlan, --run_sylph, --run_metax, --pathseq_microbe_bwa_image or --run_prism leaves nothing to classify the non-host reads with.")
     }
 
     if (params.run_metax && (!params.metax_db || !params.metax_dmp_dir)) {
@@ -1345,14 +1409,41 @@ def methodsDescriptionText(mqc_methods_yaml) {
 
 
 //
+// When a process started, in seconds since the epoch: its start time in clock
+// ticks after boot (/proc/<pid>/stat, field 22) plus the boot time (/proc/stat,
+// btime), at Linux's fixed 100 ticks per second. Null when unreadable.
+//
+def processStartEpoch(pid) {
+    try {
+        def stat = new File("/proc/${pid}/stat").text
+        // The command name (field 2) is in parentheses and may contain spaces,
+        // so fields are counted from after it: field 3 is index 0.
+        def fields = stat.substring(stat.lastIndexOf(')') + 2).tokenize(' ')
+        def ticks = fields[19] as Long
+        def btime = new File('/proc/stat').readLines().find { line -> line.startsWith('btime ') }.tokenize(' ')[1] as Long
+        return btime + ticks.intdiv(100)
+    }
+    catch (Exception e) {
+        log.debug("Could not read the start time of PID ${pid}: ${e.message}")
+        return null
+    }
+}
+
+//
 // Stop the resident `k2 classify --use-daemon` process at the end of a run.
 //
-// Two things this is careful about. It kills only a PID that is currently a
+// Three things this is careful about. It kills only a PID that is currently a
 // `classify` process AND owned by whoever owns the pid file, because /tmp is
 // shared node-wide and a stale pid file can name a PID the kernel has since
 // handed to something else - that exact confusion is what wedged earlier runs,
-// where /tmp/classify.pid named a live kernel thread. And it never throws:
-// failing to tidy up must not turn a successful run into a failed one.
+// where /tmp/classify.pid named a live kernel thread. It kills only a daemon
+// started after this run began: one started earlier belongs to another run of
+// the same user on this machine, possibly still classifying, or was left by an
+// earlier run. And it never throws: failing to tidy up must not turn a
+// successful run into a failed one.
+//
+// It runs where Nextflow runs. Under SLURM that is the submit host, not the
+// compute nodes the daemons are on; validateInputParameters() says so.
 //
 def stopKraken2Daemon() {
     if (!params.kraken2_use_daemon) {
@@ -1375,6 +1466,11 @@ def stopKraken2Daemon() {
         def us = fileOwner('/tmp/classify.pid')
         if (us == null || fileOwner("/proc/${pid}") != us) {
             log.warn("Kraken2 daemon: PID ${pid} is not owned by ${us}, so it belongs to another user's run. Not stopping it.")
+            return
+        }
+        def started = processStartEpoch(pid)
+        if (started != null && started < workflow.start.toEpochSecond() - 5) {
+            log.warn("Kraken2 daemon (PID ${pid}) was started before this run, so it belongs to another run or was left by an earlier one. Not stopping it; stop it with `k2 clean --stop-daemon` once nothing is using it.")
             return
         }
         log.info("Stopping the Kraken2 daemon (PID ${pid}) so it does not hold the index after this run.")

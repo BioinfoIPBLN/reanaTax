@@ -52,6 +52,11 @@ include { SCTAXA_DENOISE            } from '../modules/local/sctaxa/denoise/main
 include { SCTAXA_ENRICHMENT         } from '../modules/local/sctaxa/enrichment/main'
 include { SCTAXA_FILTER             } from '../modules/local/sctaxa/filter/main'
 include { SCTAXA_HOSTDE             } from '../modules/local/sctaxa/hostde/main'
+include { SCTAXA_PSEUDOBULK         } from '../modules/local/sctaxa/pseudobulk/main'
+include { ABUNDANCE_RPM as RPM_KRAKEN2 } from '../modules/local/abundance/rpm/main'
+include { ABUNDANCE_RPM as RPM_BRACKEN } from '../modules/local/abundance/rpm/main'
+include { GENE_DE_DESEQ2 as SC_PSEUDOBULK_DESEQ2 } from '../modules/local/genede/deseq2/main'
+include { GENE_DE_EDGER as SC_PSEUDOBULK_EDGER   } from '../modules/local/genede/edger/main'
 include { SCTAXA_AMBIENT            } from '../modules/local/sctaxa/ambient/main'
 include { SCTAXA_PLATE              } from '../modules/local/sctaxa/plate/main'
 include { MULTIQC                   } from '../modules/nf-core/multiqc/main'
@@ -137,6 +142,27 @@ workflow REANATAX {
         params.save_trimmed_fail,
     )
     ch_multiqc_files = ch_multiqc_files.mix(FASTQ_QC_TRIM.out.multiqc_files)
+
+    //
+    // Very short reads, said once for the cohort. At 60 bp or less a read holds
+    // only a handful of Kraken2's 35-mers, and marker-gene and sketch profilers
+    // lose most of their sensitivity (Ma et al., J Mol Diagn 2026, benchmarking
+    // 50 bp single-end clinical metagenomics). Nothing is changed; the warning
+    // says which samples and what to rely on.
+    //
+    FASTQ_QC_TRIM.out.fastp_json
+        .map { meta, json -> [meta.id, meanReadLength(json)] }
+        .filter { _id, length -> length && length <= 60 }
+        .toSortedList { entry_a, entry_b -> entry_a[0] <=> entry_b[0] }
+        .map { short_samples ->
+            if (short_samples) {
+                def listed = short_samples.take(5).collect { id, length -> "${id} (${length} bp)" }.join(', ')
+                def more = short_samples.size() > 5 ? ", and ${short_samples.size() - 5} more" : ''
+                def profilers = [params.run_metaphlan ? 'MetaPhlAn' : null, params.run_sylph ? 'sylph' : null].findAll { name -> name }
+                log.warn("Trimmed reads average 60 bp or less in ${short_samples.size()} sample(s): ${listed}${more}. Each read holds only a few of Kraken2's 35-mers" + (profilers ? ", and ${profilers.join(' and ')} lose most of their sensitivity at this length" : '') + ". Rely on Kraken2 with --minimizer_filter, and check that the Bracken database ships a 50mers distribution.")
+            }
+            short_samples
+        }
 
     //
     // --cleanup_intermediates: drop the downloaded FASTQ once trimming and raw
@@ -515,7 +541,14 @@ workflow REANATAX {
             .filter { _id, _meta, reads, _json -> reads }
             .map { _id, meta, reads, json ->
                 def observed = json ? meanReadLength(json) : null
-                [meta + [bracken_r: resolveBrackenReadLength(observed, bracken_dists, params.bracken_read_length)], reads]
+                // An archived database cannot be listed until it is unpacked, so
+                // its distributions are unknown here; the length is snapped inside
+                // TAXONOMY_KRAKEN2_BRACKEN, after UNTAR.
+                def deferred = !bracken_dists && observed && params.bracken_read_length?.toString()?.toLowerCase() == 'auto'
+                def length = deferred
+                    ? [bracken_r: null, bracken_r_observed: observed]
+                    : [bracken_r: resolveBrackenReadLength(observed, bracken_dists, params.bracken_read_length)]
+                [meta + length, reads]
             }
 
         TAXONOMY_KRAKEN2_BRACKEN(
@@ -545,6 +578,7 @@ workflow REANATAX {
             params.min_reads,
             params.export_biom,
             params.biom_metadata ?: params.da_metadata,
+            params.virus_min_rel_abundance,
         )
         ch_multiqc_files = ch_multiqc_files.mix(TAXONOMY_KRAKEN2_BRACKEN.out.multiqc_files)
         ch_kraken2_report = TAXONOMY_KRAKEN2_BRACKEN.out.report
@@ -652,6 +686,38 @@ workflow REANATAX {
                 params.sc_host_de_force_pooled,
             )
             ch_multiqc_files = ch_multiqc_files.mix(SCTAXA_HOSTDE.out.mqc.map { _meta, mqc -> mqc })
+
+            //
+            // The same comparison across donors. Each library above is tested
+            // with its cells as the units; here the per-library sums are tested
+            // with the donor as the unit, in a paired design (~ donor + state).
+            //
+            if (params.sc_host_de_pseudobulk) {
+                SCTAXA_PSEUDOBULK(
+                    SCTAXA_HOSTDE.out.pseudobulk
+                        .map { _meta, table -> table }
+                        .collect(sort: true)
+                        .map { tables -> [[id: 'reanatax'], tables] },
+                    params.sc_host_de_min_donors,
+                    params.host_de_min_count,
+                    params.host_de_min_samples,
+                )
+                // One matrix per taxon x cell type, named <prefix>.<taxid>.<cell
+                // type>.pseudobulk_counts.tsv; the group becomes the meta id.
+                def ch_pseudobulk_groups = SCTAXA_PSEUDOBULK.out.counts
+                    .transpose()
+                    .map { _meta, table -> [[id: table.name.replaceAll(/^reanatax\.|\.pseudobulk_counts\.tsv$/, '')], table] }
+                def ch_pseudobulk_metadata = SCTAXA_PSEUDOBULK.out.metadata.map { _meta, table -> table }.first()
+                // Results go to singlecell/host_de_pseudobulk/ only: one MultiQC
+                // section per group would bury the report.
+                def pseudobulk_methods = hostDeMethods(params.host_de_method ?: 'edger')
+                if (pseudobulk_methods.contains('deseq2')) {
+                    SC_PSEUDOBULK_DESEQ2(ch_pseudobulk_groups, ch_pseudobulk_metadata)
+                }
+                if (pseudobulk_methods.contains('edger')) {
+                    SC_PSEUDOBULK_EDGER(ch_pseudobulk_groups, ch_pseudobulk_metadata)
+                }
+            }
         }
     }
 
@@ -762,6 +828,7 @@ workflow REANATAX {
             params.min_rel_abundance,
             params.min_samples,
             params.min_reads,
+            params.skip_kraken2 ? channel.empty() : TAXONOMY_KRAKEN2_BRACKEN.out.taxonomy_drop,
         )
         ch_krakenuniq_report = TAXONOMY_KRAKENUNIQ.out.report
         ch_multiqc_files = ch_multiqc_files.mix(TAXONOMY_KRAKENUNIQ.out.multiqc_files)
@@ -818,6 +885,7 @@ workflow REANATAX {
             FILTER_PRISM(
                 TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined_filtered,
                 PRISM_COMBINE.out.drop_list.map { _meta, list -> list }.collect(sort: true),
+                [],
                 0,
                 1,
                 0,
@@ -844,6 +912,7 @@ workflow REANATAX {
             params.pathseq_host_kmers,
             params.pathseq_save_bam,
             params.pathseq_rank,
+            params.skip_kraken2 ? channel.empty() : TAXONOMY_KRAKEN2_BRACKEN.out.taxonomy_drop,
         )
         ch_multiqc_files = ch_multiqc_files.mix(TAXONOMY_PATHSEQ.out.multiqc_files)
     }
@@ -910,6 +979,7 @@ workflow REANATAX {
             params.metax_db,
             params.metax_dmp_dir,
             params.metax_save_readclassifications,
+            params.skip_kraken2 ? channel.empty() : TAXONOMY_KRAKEN2_BRACKEN.out.taxonomy_drop,
         )
     }
 
@@ -1021,6 +1091,7 @@ workflow REANATAX {
             FILTER_GENEDIV(
                 TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined_filtered,
                 ch_genediv_drop.collect(sort: true),
+                [],
                 0,
                 1,
                 0,
@@ -1157,10 +1228,14 @@ workflow REANATAX {
         host_quantified = true
     }
 
-    if (host_quantified && params.da_metadata && params.host_de_method) {
+    // Either half is enough to run the subworkflow: a run may ask for the
+    // correlation without host DE. The microbial table is only read when
+    // Kraken2 ran, because an uninvoked subworkflow's outputs cannot be
+    // referenced; validation refuses the correlation without Bracken.
+    if (host_quantified && params.da_metadata && (params.host_de_method || params.host_microbe_correlation)) {
         HOST_EXPRESSION(
             ch_host_matrix,
-            TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined_verdicts,
+            params.skip_kraken2 || params.skip_bracken ? channel.empty() : TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined_verdicts,
             params.da_metadata,
             hostDeMethods(params.host_de_method),
             params.host_microbe_correlation,
@@ -1280,6 +1355,19 @@ workflow REANATAX {
             params.host_carryover_taxid,
         )
         ch_multiqc_files = ch_multiqc_files.mix(READ_ACCOUNTING.out.mqc.map { _meta, mqc -> mqc }.flatten())
+
+        //
+        // MODULE: the filtered tables again, as reads per million of the whole
+        // library. Their fractions are shares of what was classified and kept;
+        // this is the scale against everything that was sequenced.
+        //
+        if (!params.skip_kraken2) {
+            def ch_library_sizes = READ_ACCOUNTING.out.tsv.map { _meta, table -> table }.first()
+            RPM_KRAKEN2(TAXONOMY_KRAKEN2_BRACKEN.out.report_combined_filtered, ch_library_sizes)
+            if (!params.skip_bracken) {
+                RPM_BRACKEN(TAXONOMY_KRAKEN2_BRACKEN.out.bracken_combined_filtered, ch_library_sizes)
+            }
+        }
     }
 
     //

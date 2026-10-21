@@ -311,6 +311,7 @@ def main():
             handle.write(f"{taxid}\n")
 
     if args.mqc:
+        correction = "Holm" if args.adjust == "holm" else "BH"
         with open(args.mqc, "w", encoding="utf-8") as handle:
             handle.write(
                 "# id: 'reanatax_sc_kmer'\n"
@@ -318,7 +319,7 @@ def main():
                 "# description: 'Taxa judged on whether their evidence SCALES across cells: a barcode\n"
                 "#     carrying more of a real organism carries proportionally more distinct k-mers too,\n"
                 "#     while ambient contamination smeared over every droplet, or reads piling on one\n"
-                "#     conserved locus, saturates. Spearman over barcodes, BH-adjusted. Taxa on three or\n"
+                f"#     conserved locus, saturates. Spearman over barcodes, {correction}-adjusted. Taxa on three or\n"
                 "#     fewer barcodes are not tested.'\n"
                 "# plot_type: 'bargraph'\n"
                 "# pconfig:\n"

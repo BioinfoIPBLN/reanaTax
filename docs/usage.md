@@ -119,6 +119,13 @@ Kraken2 cannot classify a homopolymer, so microbial reads lose nothing.
 `--bracken_read_length auto` is measured after trimming, so it follows the
 shorter reads.
 
+**Very short reads are flagged.** When trimmed reads average 60 bp or less, the
+run says so once, naming the samples: each such read holds only a few of
+Kraken2's 35-mers, and MetaPhlAn and sylph lose most of their sensitivity at that
+length (Ma et al., *J Mol Diagn* 2026, benchmarking 50 bp clinical libraries).
+Nothing is changed; rely on Kraken2 with `--minimizer_filter`, and check that the
+Bracken database ships a 50mers distribution.
+
 **Not under `--single_cell`.** The droplet route trims the barcode read too, and
 that read can end in poly-T right after the UMI. Trimming the tail would take
 UMI bases with it and leave STARsolo a read shorter than the barcode it expects.
@@ -505,7 +512,7 @@ or read the database from disk instead:
 
 Memory mapping drops the request to 16 GB. It is slower in the worst case, but when the database already sits in the page cache — a fast shared filesystem on a node with plenty of free RAM — it costs almost nothing and is what makes many-sample runs against a large database practical.
 
-**Bracken** re-estimates abundances from the Kraken2 report. It needs a `databaseNmers.kmer_distrib` file in the database matching `--bracken_read_length` (default `auto`, which measures the trimmed length from fastp and snaps it to the nearest distribution the database ships); pass a number to pin it instead. Point `--bracken_db` elsewhere if the distributions live outside the Kraken2 database directory. `--skip_bracken` turns the step off.
+**Bracken** re-estimates abundances from the Kraken2 report. It needs a `databaseNmers.kmer_distrib` file in the database matching `--bracken_read_length` (default `auto`, which measures the trimmed length from fastp and snaps it to the nearest distribution the database ships); pass a number to pin it instead. With a database given as a `.tar.gz` the distributions are only known once it is unpacked, so the length is snapped then, before classification. Point `--bracken_db` elsewhere if the distributions live outside the Kraken2 database directory. `--skip_bracken` turns the step off.
 
 **Choosing `--bracken_threshold`.** This is required whenever Bracken runs. There is no default because the value changes what the Bracken tables contain, and neither obvious choice suits all data.
 
@@ -524,7 +531,7 @@ Neither setting touches the per-sample Kraken2 reports in `kraken2/`, which rema
 
 Each hit group is a run of consecutive k-mers matching the same taxon, so requiring more of them demands that a classification rest on more than one lucky k-mer. It costs sensitivity for rare taxa; that is the trade you are making.
 
-**Sparse taxa.** The combined tables are filtered to taxa exceeding `--min_rel_abundance` (default `0.001`, i.e. 0.1%) in at least `--min_samples` samples, following the same paper. Per-sample reports are left untouched — prevalence is a cross-sample property. This is a sparsity filter, **not** a contamination caller: with no negative controls it cannot tell a reagent contaminant from a rare real organism, it only removes taxa too sparse for any statistic to speak about. What it dropped is written to a `.removed.tsv` beside each filtered table.
+**Sparse taxa.** The combined tables are filtered to taxa exceeding `--min_rel_abundance` (default `0.001`, i.e. 0.1%) in at least `--min_samples` samples, following the same paper. **Viruses can have a floor of their own** with `--virus_min_rel_abundance` (unset: one floor for everything; 0 exempts viruses). A virus genome is kilobases against a bacterium's megabases, so at the same load it draws a far smaller share of the reads: on the benchmarks the 0.1% cohort floor removed wastewater *Mamastrovirus* from all 35 libraries that carried it, and exempting viruses kept them, at the cost of more viral false positives on PRISM's CLID (RNA-virus specificity 60.9% → 49.1%; bacteria and fungi unchanged). The rule Ma et al. (*J Mol Diagn* 2026) use for RNA viruses, z > 3 against the other samples, removed SARS-CoV-2 from all nine infected BAL libraries on the same benchmarks and is not offered. Per-sample reports are left untouched — prevalence is a cross-sample property. This is a sparsity filter, **not** a contamination caller: with no negative controls it cannot tell a reagent contaminant from a rare real organism, it only removes taxa too sparse for any statistic to speak about. What it dropped is written to a `.removed.tsv` beside each filtered table.
 
 `--kraken2_report_minimizer_data` adds distinct-minimizer columns that are useful for filtering false positives, but neither Bracken nor MultiQC can read the resulting report — the pipeline requires `--skip_bracken` alongside it.
 
@@ -1217,6 +1224,27 @@ separate question asked of a separate set of cells, and pooling them would let a
 group with thousands of tested genes set the threshold for a group with a
 hundred.
 
+**Across donors (`--sc_host_de_pseudobulk`).** The test above runs once per
+library with cells as the units, so its p-values describe that library: a
+thousand cells from one donor are not a thousand replicates (Squair et al.,
+*Nat Commun* 2021). With this flag each library's infected and bystander cells
+of every tested taxon × cell type are also summed, and the sums are tested
+across libraries with DESeq2/edgeR in a paired design, `~ donor + state`, so a
+response has to recur across donors to count. The donor is the library; merge
+libraries of one donor upstream.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `--sc_host_de_pseudobulk` | `false` | also run the donor-level test |
+| `--sc_host_de_min_donors` | 3 | donors that need both infected and bystander cells for a group to be tested |
+
+It uses `--host_de_method` (edgeR when unset), `--host_de_min_count`,
+`--host_de_min_samples`, `--da_p_threshold` and `--da_lfc_threshold`. A group
+that would not survive the expression filter is listed and skipped rather than
+failing the run. Results, one table per taxon × cell type and engine, and the
+list of groups with why each was or was not tested, land in
+`singlecell/host_de_pseudobulk/`.
+
 ### Plate-based data (`--sc_plate_based`)
 
 CSI-Microbes runs on two kinds of single-cell data and treats them differently,
@@ -1298,6 +1326,8 @@ The third layer Monteleone et al. describe, and the analysis `--quantify_host` e
 >
 > The step computes that arithmetic up front and **refuses**, quoting it, rather than producing the empty table. On a real four-sample cohort a gene with a perfect rho of -1.0 came back at q = 0.449. Cut the grid with `--host_microbe_top_genes`/`--host_microbe_top_taxa`, add samples, or pass the step `--force` through `ext.args` if you want the table regardless.
 
+Host gene counts can come from either route, `--quantify_host` (featureCounts on the host BAM) or `--host_transcripts` (kallisto); the correlation runs on whichever produced them, and it runs without host DE when `--host_de_method` is unset. The microbial side is the combined Bracken table, so the run refuses `--host_microbe_correlation` with `--skip_bracken` or `--skip_kraken2` rather than skipping it without a word.
+
 Output lands in `host_expression/`: the count matrix, gene lengths, one results table per engine, and the correlation table with the feasibility arithmetic in its header.
 
 ### One taxon, followed to its own differential expression (`--target_taxid`)
@@ -1318,7 +1348,7 @@ Kraken2's per-read output records which read it put on which taxon, so those rea
 | Parameter | Default | Meaning |
 |---|---|---|
 | `--target_taxid` | — | taxon to extract; comma-separated for several |
-| `--target_reference` | — | its genome: accession, taxid, FASTA or HISAT2 index |
+| `--target_reference` | — | its genome: accession, taxid, FASTA or HISAT2 index (or give `--target_transcripts` instead, below) |
 | `--target_gtf` | — | its annotation; without it the branch stops at the BAM |
 | `--target_include_children` | `true` | also take reads assigned below the taxon |
 | `--target_include_parents` | `false` | ...and above it |
@@ -1769,7 +1799,10 @@ Kraken2, minimap2, STAR, BLAST and SeqKit, and no biocontainer carries that
 set. Under `-profile conda` the module's `environment.yml` builds it. Under
 docker or singularity you must supply `--prism_container` pointing at an image
 you built — the run refuses to start otherwise, rather than trying to pull
-something that does not exist.
+something that does not exist. The four databases are mounted into it read-only
+(the Kraken2 and STAR directories, and the directories holding the BLAST
+database and the minimap2 index): they are passed as paths rather than staged,
+because they run to hundreds of gigabytes, so nothing else would mount them.
 
 If you build that image yourself, two things about the dependency list are
 worth knowing, because both were found by reading the code rather than the
@@ -1873,6 +1906,8 @@ instead of being averaged away by the format. Four matrices come out — `score`
 `score_normalized`, `reads` and `unambiguous` — and `unambiguous` is the one to
 set beside a Kraken2 species count.
 
+The taxonomy verdicts of the Kraken2 route - `--drop_host_clade`, `--drop_non_microbial` and `--drop_host_taxon` - are applied to this route's cohort tables too, so the classifiers can be compared on the same footing. The lists come from the Kraken2 reports, so they name the taxa Kraken2 saw: a host relative only this classifier reports is not on them. Without Kraken2 (`--skip_kraken2`) there are no lists.
+
 ### KrakenUniq (`--krakenuniq_db`)
 
 Kraken2 tells you how MANY reads landed on a taxon. KrakenUniq also tells you how
@@ -1930,6 +1965,8 @@ So reach for KrakenUniq when you need confident calls at low abundance, where
 the minimizer count gets too thin to discriminate; the minimizer columns cover
 the rest at no extra cost.
 
+The taxonomy verdicts of the Kraken2 route - `--drop_host_clade`, `--drop_non_microbial` and `--drop_host_taxon` - are applied to this route's cohort tables too, so the classifiers can be compared on the same footing. The lists come from the Kraken2 reports, so they name the taxa Kraken2 saw: a host relative only this classifier reports is not on them. Without Kraken2 (`--skip_kraken2`) there are no lists.
+
 ### Keeping the database in memory (`--kraken2_use_daemon`)
 
 The legacy `kraken2` wrapper reads the entire hash into the process on **every**
@@ -1978,6 +2015,13 @@ it when you are done:
 ```bash
 k2 clean --stop-daemon
 ```
+
+The end of a run stops the daemon itself, but only one it started: a daemon
+already running when the run began belongs to another run on that node, or was
+left by an earlier one, and is left alone with a warning. That cleanup runs
+where Nextflow runs. Under `-profile slurm` that is the submit host, while the
+daemons are on whichever compute nodes the Kraken2 tasks landed on, one per
+node; the run warns, and each has to be stopped on its node.
 
 It is also addressed through hardcoded paths in `/tmp` (`classify.pid`,
 `classify_stdin`, `classify_stdout`), which means it is shared with anything
@@ -2038,6 +2082,86 @@ The `.kmer_distrib` files come along because `--bracken_db` defaults to
 Note that memory-mapping is only a good idea over tmpfs or fast local disk - over
 NFS every page fault becomes a network round-trip and it is far slower than
 simply loading the database.
+
+## Building databases
+
+Prebuilt databases are where most analyses start, and what leaves the gaps: a
+parasite only VEuPathDB holds, a microsporidian like the malaria-blocking
+*Microsporidia* MB (28 minimizers in core_nt), a symbiont described last year, a
+vector's insect-specific viruses. `--build_databases` builds the classifiers'
+databases from genomes you choose, as a run of its own: it reads no sequencing
+data, and writes the databases in exactly the layout the analysis parameters
+read.
+
+```bash
+nextflow run BioinfoIPBLN/reanatax -profile singularity \
+    --build_databases kraken2,bracken,krakenuniq,sylph \
+    --db_input genomes.csv \
+    --outdir mydb
+```
+
+`genomes.csv` has one row per genome, with a local FASTA or an NCBI assembly
+accession (downloaded with ncbi-genome-download):
+
+```csv
+id,taxid,fasta,accession
+pfalciparum,5833,refs/PlasmoDB-68_Pfalciparum3D7_Genome.fasta,
+mb,2715920,refs/microsporidia_MB.fa.gz,
+ecoli_k12,511145,,GCF_000005845.2
+```
+
+| Column | Meaning |
+|---|---|
+| `id` | names the genome's files (letters, digits, `_`, `-`) |
+| `taxid` | the NCBI taxid every sequence of the genome is assigned to |
+| `fasta` | a FASTA, optionally gzipped |
+| `accession` | or an assembly accession, GCF_* (RefSeq) or GCA_* (GenBank) |
+
+Every header is rewritten to carry its taxid (`kraken:taxid|<n>`), so no
+accession-to-taxid table is needed and genomes NCBI does not hold are as easy as
+those it does. Every taxid is checked against the taxonomy before anything is
+built, and the run stops on any it does not know. The taxonomy is
+`--db_taxonomy` (a directory with `names.dmp`, `nodes.dmp` and `merged.dmp`) or,
+when that is unset, NCBI's taxdump downloaded for the run. Use the taxonomy of
+any database you will analyse alongside, so the taxids agree.
+
+| Tool | Built | Use it with |
+|---|---|---|
+| `kraken2` | `kraken2-build` with Kraken2 2.17.2, the version the analysis runs; low-complexity masking on, as by default; `inspect.txt` written for the minimizer filter's coverage figure | `--kraken2_db <outdir>/databases/kraken2` |
+| `bracken` | one k-mer distribution per `--db_bracken_read_lengths` (default 50,75,100,150), into the Kraken2 directory | found there by `--bracken_read_length auto` |
+| `krakenuniq` | `krakenuniq-build` with KrakenUniq 1.0.4 | `--krakenuniq_db <outdir>/databases/krakenuniq` |
+| `sylph` | `sylph sketch` of the genomes (`-c 200`), plus a sylph-tax table with each genome's NCBI lineage in GTDB-style prefixes | `--run_sylph --sylph_db <outdir>/databases/sylph/<db_name>.syldb --sylph_taxonomy <outdir>/databases/<db_name>.sylph_taxonomy.tsv` |
+
+`--db_kraken2_args`, `--db_kraken2_library_args`, `--db_krakenuniq_args` and
+`--db_sylph_args` pass anything else to the builders - for example
+`--db_kraken2_library_args '--no-masking'`, or `--db_sylph_args '-c 100'` for
+genomes under ~10 kb (then profile with `--sylph_args '-c 100'`).
+
+> **This builds a database of the genomes you list, and only those.** A Kraken2
+> database holding a parasite and nothing else assigns every read that shares a
+> k-mer with it to that parasite, because there is nothing else to assign it to.
+> For discovery, include the genomes a read could otherwise belong to - the
+> host, its relatives, the common bacteria of the tissue - or classify against
+> a broad database as well and treat the custom one as a second opinion.
+
+> **Sizes.** Building needs memory on the order of the finished database and
+> the library together, and Bracken classifies the whole library once; both run
+> under `process_high_memory`. A few hundred genomes build in minutes to hours.
+> Rebuilding core_nt this way is not what this is for.
+
+**What is not built here, and why:**
+
+- **MetaPhlAn and HUMAnN** use marker-gene and pangenome databases made by their
+  authors' own pipelines from curated genome sets; they are downloaded
+  (`metaphlan --install`, `humann_databases`), not built from a genome list.
+- **PathSeq** needs a BWA index image, a sequence dictionary and a taxonomy
+  database built from GenBank accessions (`BwaMemIndexImageCreator`,
+  `PathSeqBuildReferenceTaxonomy`); Broad distributes them prebuilt, and the
+  GATK documentation covers building them.
+- **Metax** databases are built with the authors' own tools; see the
+  [Metax repository](https://github.com/hzi-bifo/Metax).
+- **PRISM** takes a Kraken2 database (build one here), a BLAST nt database, and
+  STAR and minimap2 host indexes; see its section.
 
 ## Functional profiling (optional)
 
@@ -2102,7 +2226,10 @@ pathabundance / genefamilies / KO tables. `--da_metadata` is added as
 
 The HUMAnN `_renorm` table is deliberately excluded: what it contains depends on
 `--humann_regroup`, so its name alone cannot say whether it holds KOs or gene
-families.
+families. The regrouped table goes in under the slot of its grouping, which the
+bundle is told: `*_ko` groupings as KEGG orthologs, `*_rxn` as reactions. Other
+groupings (EC, Pfam, GO, eggNOG) have no slot in the app and are left out
+rather than shown under the wrong name.
 
 ## Read accounting and diagnostics
 
@@ -2349,6 +2476,8 @@ Read these before relying on it:
 
 Pre-built databases (GTDB, IMG/VR, RefSeq fungi and others) and the sylph-tax tables that go with them are listed in the [sylph documentation](https://sylph-docs.github.io/). The pipeline runs sylph 1.0.0, so the two-stage `.syl2db` format works. Pass the taxonomy tables as files: sylph-tax's built-in names (`GTDB_r232`, `IMGVR_4.1`, ...) resolve through a folder under `$HOME` that a container does not have. `--sylph_taxonomy` is optional; without it you get sylph's genome-level output only.
 
+A database of your own genomes, with the sylph-tax table to go with it, can be built with `--build_databases sylph` (see [Building databases](#building-databases)).
+
 Per-sample profiles and cohort tables land in `sylph/`.
 
 ## Metax
@@ -2371,6 +2500,8 @@ Read these before relying on it:
 - **The database is used as a directory.** `maCMD` finds the index files through `metax_db.json`, so `--metax_db` may name the JSON or the directory holding it; either way the whole directory is staged.
 
 Databases: pre-built cross-domain databases from NCBI RefSeq (the 2025 one holds 33,533 genomes) and instructions for custom ones are in the [Metax repository](https://github.com/hzi-bifo/Metax). `--metax_dmp_dir` is an unpacked NCBI [taxdump](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz). `--metax_args` passes anything else to `metax profile`, for example `--mode recall` or `--mode precision`.
+
+The taxonomy verdicts of the Kraken2 route - `--drop_host_clade`, `--drop_non_microbial` and `--drop_host_taxon` - are applied to the merged abundance and read tables too (the long per-sample table keeps every row), so the classifiers can be compared on the same footing. The lists come from the Kraken2 reports, so they name the taxa Kraken2 saw: a host relative only this classifier reports is not on them. Without Kraken2 (`--skip_kraken2`) there are no lists.
 
 Per-sample profiles and cohort tables land in `metax/`.
 

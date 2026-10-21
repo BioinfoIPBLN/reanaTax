@@ -31,6 +31,29 @@ process PRISM_RUN {
     conda "${moduleDir}/environment.yml"
     container "${params.prism_container ?: ''}"
 
+    // The four databases arrive as values, not staged paths - they run to
+    // hundreds of gigabytes - so nothing mounts them into a container and
+    // PRISM would find none of them under --prism_container. Bound read-only:
+    // the Kraken2 and STAR directories themselves, and the directory holding
+    // the BLAST database prefix and the minimap2 index file.
+    containerOptions {
+        def dirs = [
+            kraken_db,
+            star_genome_dir,
+            blast_db ? file(blast_db).parent : null,
+            minimap2_index ? file(minimap2_index).parent : null,
+        ].findAll { dir -> dir }.collect { dir -> dir.toString() }.unique()
+        if (workflow.containerEngine in ['singularity', 'apptainer']) {
+            dirs.collect { dir -> "-B ${dir}:${dir}:ro" }.join(' ')
+        }
+        else if (workflow.containerEngine == 'docker') {
+            dirs.collect { dir -> "-v ${dir}:${dir}:ro" }.join(' ')
+        }
+        else {
+            ''
+        }
+    }
+
     input:
     tuple val(meta), path(reads)
     path prism_dir

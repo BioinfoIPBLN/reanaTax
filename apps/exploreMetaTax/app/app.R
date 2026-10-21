@@ -863,17 +863,19 @@ parse_humann_uploaded_files <- function(paths, names) {
   out <- list()
   for (slot in unique(slots)) {
     idx <- which(slots == slot)
+    # Read and joined exactly as load_humann_tables() does for a dataset.tsv:
+    # the gene-family table without quote handling and with fixed column types,
+    # and every slot through join_humann_wide() rather than a Reduce(merge) fold,
+    # which re-sorts the whole key on every step.
+    is_gf    <- identical(slot, "gene_families")
+    rd_quote <- if (is_gf) "" else "\""
+    rd_cc    <- if (is_gf) c("character", "numeric") else NULL
     per_sample <- mapply(read_humann_tsv, paths[idx], samples[idx],
+                         MoreArgs = list(quote = rd_quote, colClasses = rd_cc),
                          SIMPLIFY = FALSE)
     per_sample <- per_sample[!vapply(per_sample, is.null, logical(1))]
     if (length(per_sample) == 0) next
-    joined <- Reduce(function(a, b) merge(a, b, by = "Feature", all = TRUE),
-                     per_sample)
-    for (j in setdiff(colnames(joined), "Feature")) {
-      v <- joined[[j]]; v[is.na(v)] <- 0
-      joined[[j]] <- v
-    }
-    out[[slot]] <- joined
+    out[[slot]] <- join_humann_wide(per_sample)
   }
   canon <- c("pathways", "reactions", "kegg_kos", "gene_families")
   out[intersect(canon, names(out))]

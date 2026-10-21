@@ -15,6 +15,7 @@ process ABUNDANCE_FILTER {
     input:
     tuple val(meta), path(table, stageAs: 'input/*')
     path drop_list
+    path virus_taxids, stageAs: 'viruses/*'
     val min_rel_abundance
     val min_samples
     val min_reads
@@ -34,10 +35,12 @@ process ABUNDANCE_FILTER {
     // their own list and a taxon condemned by either is removed.
     def drop_files = (drop_list instanceof List ? drop_list : [drop_list]).findAll { entry -> entry }
     def drop_arg = drop_files ? "--drop-taxids ${drop_files.join(' ')}" : ''
+    def virus_arg = virus_taxids ? "--virus-taxids ${virus_taxids}" : ''
     """
     filter_abundance.py \\
         ${args} \\
         ${drop_arg} \\
+        ${virus_arg} \\
         --input ${table} \\
         --output ${prefix}.filtered.tsv \\
         --removed ${prefix}.removed.tsv \\

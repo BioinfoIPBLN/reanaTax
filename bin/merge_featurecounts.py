@@ -18,13 +18,15 @@ import sys
 def sample_name(path):
     """`SRX8592588.host.featureCounts.tsv` -> `SRX8592588`. The `.host` label is
     the depletion pass the BAM came from (see conf/modules.config), not part of
-    the sample id, so it is stripped along with the extension."""
+    the sample id, so it is stripped along with the extension. So is `.target`,
+    the label of the targeted-taxon alignment (--target_taxid): left on, no
+    column matched --da_metadata and the target's gene DE stopped."""
     name = os.path.basename(path)
     for suffix in (".featureCounts.tsv", ".featureCounts.txt", ".tsv", ".txt"):
         if name.endswith(suffix):
             name = name[: -len(suffix)]
             break
-    for label in (".host", ".host1", ".host2", ".host3"):
+    for label in (".host", ".host1", ".host2", ".host3", ".target"):
         if name.endswith(label):
             name = name[: -len(label)]
             break

@@ -9,6 +9,10 @@ Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-
 
 ### `Changed`
 
+- The taxonomy verdicts of the Kraken2 route - `--drop_host_clade`, `--drop_non_microbial`, `--drop_host_taxon` - now also apply to the KrakenUniq, PathSeq and Metax cohort tables (`taxonomy_drop`; `merge_pathseq.py` and `metax_merge.py` gain `--drop-list`), so the classifiers are compared on the same footing. The lists name the taxa Kraken2 saw.
+
+- The end-of-run cleanup stops the Kraken2 daemon only if it started after the run began; one already running belongs to another run on the node, or was left by an earlier one, and is left alone with a warning. Under `-profile slurm` the run warns that the cleanup, which runs on the submit host, cannot reach the daemons on the compute nodes.
+
 - Kraken2 is 2.17.2 (was 2.1.6), in both `KRAKEN2_KRAKEN2` and `KRAKEN2_DAEMON`. Every read gets the same call as before: the per-read output was identical on three CLID libraries, 2.23 M reads against core_nt, and so was the speed. Two things in the report change.
   - **Minimizer counts.** Column 4 (minimizers observed) now counts hits that 2.1 undercounted: 1.5 to 5 times as many, 3 on the median.
   - **Domain rank.** Domains are ranked `D`, not `R2`.
@@ -32,6 +36,37 @@ Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-
 - Samples now move through the pipeline one at a time instead of in cohort-wide steps. Two `groupTuple` calls without an expected size held every sample back until the whole cohort had reached the same point: the run grouping after download, so trimming waited for the slowest download, and the chunk merge after host alignment, so no merge, second host pass or Kraken2 run could start until every chunk of every sample had aligned. Both now carry the expected count with `groupKey`: runs per sample from the run sheet, and chunks per sample from the chunk files. So a sample is merged, depleted and classified while others are still downloading or aligning. Kraken2 still classifies one sample at a time, since the daemon takes one client, but it starts early. Incomplete groups are still emitted at the end (`remainder: true`). Task inputs are unchanged, so existing caches still resume.
 
 ### `Fixed`
+
+From an independent code audit of 3f8bc51, each finding checked against the code first:
+
+- **HUMAnN profiled samples against other samples' taxa.** Reads and taxonomic profiles reached `HUMANN3_HUMANN` as two queue channels, paired by arrival order. A library in which Kraken2 classified nothing has no Bracken report, so from that library on, every sample was profiled against the next sample's taxa. They are now joined on the sample id, and a library without a profile is left out with a warning.
+
+- **`--target_taxid` extracted nothing.** Its join of the non-host reads with Kraken2's per-read output was keyed on the whole meta map, and the taxonomy step adds `bracken_r` to its meta, so the two never matched. It now joins on the sample id.
+
+- **The target's gene DE stopped.** `merge_featurecounts.py` left the `.target` label on the targeted taxon's count columns, so no sample matched `--da_metadata`.
+
+- **`--target_transcripts` was refused without `--target_reference`**, although it needs no genome. It is now accepted on its own (with a warning when both are given), and the warnings about `--target_gtf` no longer fire on the kallisto route.
+
+- **`--host_microbe_correlation` was refused with `--host_transcripts`** and only accepted `--quantify_host`.
+  - **Without host DE:** it now runs with either host-count route, and without host DE when `--host_de_method` is unset.
+  - **Without Bracken:** it is refused with `--skip_bracken` or `--skip_kraken2`, where it used to be skipped without a word.
+  - **Host DE with `--skip_kraken2`:** this no longer refers to the outputs of a Kraken2 subworkflow that never ran.
+
+- **PRISM could not see its databases** under `--prism_container`. They are passed as paths rather than staged, so nothing mounted them; they are now bound read-only.
+
+- **Bracken failed on an archived database** under `--bracken_read_length auto`. A `.tar.gz` database cannot be listed before it is unpacked, so the measured read length (143, say) reached `bracken -r`, and no database ships that distribution. The length is now snapped after UNTAR, before classification.
+
+- **The UniVec pass got the wrong alignment settings** under `--hisat2_chunk_size`. Its chunks took the host chunk rule, which applies `--hisat2_args` - the `--score-min L,0,-1` the UniVec rule exists to keep away from a plasmid backbone - and a `.host` read group.
+
+- **exploreMetaTax:**
+  - **Uploads:** the upload path merged HUMAnN tables with a `Reduce(merge)` fold that re-sorts the whole key on every step; it now uses `join_humann_wide()`, as the dataset path does.
+  - **Docs:** its README, and docs/output.md, told users to upload `--outdir` directly, whose file names the app skips or misreads; they now point to the `--exploremetatax_bundle` archive.
+
+- **The bundle labelled every regrouped HUMAnN table as KEGG orthologs.** It now follows `--humann_regroup`: reactions for `*_rxn`, left out for groupings the app has no slot for.
+
+- **The `sc_kmer_denoise.py` MultiQC section said "BH-adjusted"** when the default correction is Holm; it now names the correction used.
+
+- **The `--skip_kraken2` warning that nothing classifies the reads** ignored PathSeq and PRISM.
 
 - A run stopped when one library had classified reads but no taxon at `--bracken_level` with `--bracken_threshold` of them. Bracken exits 1 with "no reads found" on such a report, and that is what a blank looks like: on PRISM's WGS negative controls, SRR28772246 had 226 classified reads with no species above 4, and the run died ten minutes in. These libraries are now left out of Bracken and the Bracken tables with a warning, as all-unclassified ones already were, and stay in the Kraken2 tables.
 
@@ -72,6 +107,27 @@ Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-
 - A `--kraken2_db` given as a `.tar.gz` produced a queue channel holding one item, which a process pairs element-by-element against the reads: the cohort would classify its first sample and silently stop. Unpacked-directory databases were unaffected, which is why every benchmark run was correct and the two-sample `test` profile never asserted on it. Now `.first()`, so the database is a value channel available to every task.
 
 ### `Added`
+
+- `--build_databases` (with `--db_input`): builds the classifiers' databases from your own genomes, as a run of its own instead of an analysis (`workflows/build_databases.nf`). A CSV gives one genome per row - an id, its NCBI taxid, and a FASTA or an assembly accession fetched with ncbi-genome-download.
+  - **Headers:** every header is rewritten to carry the taxid (`kraken:taxid|<n>`), so no accession-to-taxid table is needed.
+  - **Taxonomy check:** every taxid is checked against the NCBI taxonomy (`--db_taxonomy`, or the taxdump fetched for the run) before anything is built.
+  - **Builds:** `kraken2` (with Kraken2 2.17.2, the version the analysis runs, and `inspect.txt` for the minimizer filter's coverage), `bracken` (one distribution per `--db_bracken_read_lengths`, default 50,75,100,150), `krakenuniq` and `sylph` (with a sylph-tax lineage table).
+  - **Output:** everything lands in `<outdir>/databases/` in the layout `--kraken2_db`, `--krakenuniq_db`, `--sylph_db` and `--sylph_taxonomy` read.
+  - **Container:** Kraken2 and Bracken build in a new image (`kraken2_bracken_coreutils_findutils_pruned`). The classification image lacks `find` and `xargs`, which `build_kraken2_db.sh` calls, and Bracken's own image carries Kraken2 2.1.3.
+  - **Not built here:** MetaPhlAn/HUMAnN, PathSeq and Metax databases; docs/usage.md says where they come from.
+
+- `--sc_host_de_pseudobulk` (with `--sc_host_de_min_donors`, default 3): the infected-vs-bystander host response tested across donors as well as within each library. `--sc_host_de` tests each library with its cells as the units, which says nothing about the cohort (Squair et al., Nat Commun 2021). Each library's infected and bystander cells are now also summed per taxon x cell type, and the sums are tested with DESeq2/edgeR, `~ donor + state` (`bin/sc_pseudobulk.py`, `SCTAXA_PSEUDOBULK`). A group too thin for the expression filter is listed and skipped, not failed.
+
+- `--virus_min_rel_abundance` (unset by default): a separate relative-abundance floor for viruses, the descendants of 10239 in the run's reports (`VIRUS_EXPAND`). A virus genome draws a far smaller share of the reads than a bacterium at the same load. On the benchmarks (benchmark/filters_8x):
+  - **The cost of one floor:** the 0.1% cohort floor removed wastewater *Mamastrovirus* from all 35 libraries carrying it; exempting viruses (`0`) kept them.
+  - **The cost of exempting:** viral specificity on PRISM's CLID (RNA viruses 60.9% to 49.1%), with bacteria and fungi unchanged.
+  - **Ma et al.'s RNA-virus rule:** the per-kingdom scheme of Ma et al. (J Mol Diagn 2026) was benchmarked too and is not offered. Its rule, z > 3 against the other samples, removed SARS-CoV-2 from all nine infected BAL libraries. Their z-score rule for negative controls matched the ratio rule's specificity on the CSI-Microbes plate and the PRISM blanks while leaving more background, so `--control_statistic` is unchanged.
+
+- Reads per million of the whole library: `kraken2/kraken2_combined_report.filtered.rpm_total.tsv` and `bracken/bracken_combined_<level>.filtered.rpm_total.tsv` restate the filtered tables against each sample's trimmed read total from the read accounting (`bin/rpm_total.py`). Every other fraction is a share of what was classified and kept, which in host RNA-seq hides the scale.
+
+- A warning, once per run, when trimmed reads average 60 bp or less, naming the samples: Kraken2's 35-mers are few per read at that length, and MetaPhlAn and sylph lose most of their sensitivity (Ma et al., J Mol Diagn 2026).
+
+- Unit tests for the Python helpers in `bin/` (`tests/bin/`, pytest, standard library only), run by a new `bin-tests` GitHub Actions job.
 
 - `--read2_only` (off by default): drops read 1 of each pair before trimming and takes the library on as single-end read 2, for barcode-read libraries (Visium, BD Rhapsody, 10x, Drop-seq) run without `--single_cell`. Their read 1 is barcode + UMI (+ poly-T). It cannot align to the host, and in classification it adds k-mers that are not transcript: on a BD Rhapsody deposit 13.6% of microbial assignments owed it to read 1 alone, and phage phi29 entirely. An internal poly-T also made HISAT2 slow on it, 246 against about 20 min per chunk. The cleanup of downloaded reads now joins on the sample id, since the layout changes in between.
 

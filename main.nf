@@ -14,6 +14,7 @@
 */
 
 include { REANATAX  } from './workflows/reanatax'
+include { BUILD_DATABASES } from './workflows/build_databases'
 include { PIPELINE_INITIALISATION } from './subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_reanatax_pipeline'
 /*
@@ -72,23 +73,39 @@ workflow {
     )
 
     //
-    // WORKFLOW: Run main workflow
+    // WORKFLOW: Build databases instead of analysing reads (--build_databases)
     //
-    BIOINFOIPBLN_REANATAX (
-        PIPELINE_INITIALISATION.out.samplesheet,
-        PIPELINE_INITIALISATION.out.accessions
-    )
-    //
-    // SUBWORKFLOW: Run completion tasks
-    //
-    PIPELINE_COMPLETION (
-        params.email,
-        params.email_on_fail,
-        params.plaintext_email,
-        params.outdir,
-        params.monochrome_logs,
-        BIOINFOIPBLN_REANATAX.out.multiqc_report
-    )
+    if (params.build_databases) {
+        BUILD_DATABASES ()
+        PIPELINE_COMPLETION (
+            params.email,
+            params.email_on_fail,
+            params.plaintext_email,
+            params.outdir,
+            params.monochrome_logs,
+            channel.empty()
+        )
+    }
+    else {
+        //
+        // WORKFLOW: Run main workflow
+        //
+        BIOINFOIPBLN_REANATAX (
+            PIPELINE_INITIALISATION.out.samplesheet,
+            PIPELINE_INITIALISATION.out.accessions
+        )
+        //
+        // SUBWORKFLOW: Run completion tasks
+        //
+        PIPELINE_COMPLETION (
+            params.email,
+            params.email_on_fail,
+            params.plaintext_email,
+            params.outdir,
+            params.monochrome_logs,
+            BIOINFOIPBLN_REANATAX.out.multiqc_report
+        )
+    }
 }
 
 /*

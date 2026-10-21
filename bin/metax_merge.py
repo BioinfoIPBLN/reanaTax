@@ -69,11 +69,26 @@ def rank_key(rank):
     return RANK_ORDER.index(rank) if rank in RANK_ORDER else len(RANK_ORDER)
 
 
+def read_drop_lists(paths):
+    """Taxids from the pipeline's drop lists, one per line; '#' lines ignored."""
+    drop = set()
+    for path in paths or []:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                value = line.strip()
+                if value and not value.startswith("#"):
+                    drop.add(value)
+    return drop
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     parser.add_argument("--profiles", nargs="+", required=True,
                         help="per-sample Metax profiles (<sample>.profile.txt)")
     parser.add_argument("--prefix", required=True)
+    parser.add_argument("--drop-list", nargs="*", default=[],
+                        help="taxid lists to leave out of the merged tables (the Kraken2 route's taxonomy "
+                             "verdicts: host clade, non-microbial, host taxon); the long table keeps every row")
     args = parser.parse_args()
 
     samples = {}
@@ -100,7 +115,11 @@ def main():
             taxa.setdefault(taxid, (name, rank))
             values["abundance"][(taxid, sid)] = row[COLUMNS.index("abundance")]
             values["reads"][(taxid, sid)] = row[COLUMNS.index("reads")]
-    rows = sorted(taxa, key=lambda t: (rank_key(taxa[t][1]), taxa[t][0], t))
+    drop = read_drop_lists(args.drop_list)
+    rows = sorted((t for t in taxa if t not in drop), key=lambda t: (rank_key(taxa[t][1]), taxa[t][0], t))
+    if drop:
+        print(f"[metax_merge] {len(taxa) - len(rows)} taxa left out of the merged tables by the drop lists.",
+              file=sys.stderr)
     for kind, table in values.items():
         with open(f"{args.prefix}.{kind}.tsv", "w", encoding="utf-8") as sink:
             sink.write("\t".join(["taxid", "taxon_name", "rank", *order]) + "\n")

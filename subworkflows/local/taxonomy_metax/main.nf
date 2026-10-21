@@ -13,6 +13,7 @@ workflow TAXONOMY_METAX {
     metax_db // string: the database's metax_db.json, or the directory holding it
     metax_dmp_dir // string: taxonomy dump directory (nodes.dmp, names.dmp, merged.dmp)
     save_classify // boolean: publish the per-read classify.txt
+    ch_taxonomy_drop // channel: path(txt) - the Kraken2 route's taxonomy verdicts (host clade, non-microbial, host taxon), or empty
 
     main:
 
@@ -38,7 +39,8 @@ workflow TAXONOMY_METAX {
         METAX_PROFILE.out.profile
             .map { _meta, profile -> profile }
             .collect(sort: true)
-            .map { profiles -> [[id: 'metax_combined'], profiles] }
+            .map { profiles -> [[id: 'metax_combined'], profiles] },
+        ch_taxonomy_drop.collect(sort: true).ifEmpty([]),
     )
 
     emit:

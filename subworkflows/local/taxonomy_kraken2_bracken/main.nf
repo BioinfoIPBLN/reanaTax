@@ -4,6 +4,8 @@
 //
 
 include { UNTAR                          } from '../../../modules/nf-core/untar/main'
+include { brackenDistributions           } from '../utils_nfcore_reanatax_pipeline'
+include { resolveBrackenReadLength       } from '../utils_nfcore_reanatax_pipeline'
 include { KRAKEN2_KRAKEN2                } from '../../../modules/nf-core/kraken2/kraken2/main'
 include { KRAKEN2_DAEMON                } from '../../../modules/local/kraken2/daemon/main'
 include { BRACKEN_BRACKEN                } from '../../../modules/nf-core/bracken/bracken/main'
@@ -22,6 +24,7 @@ include { KRAKEN2_DAEMON as KRAKEN2_DAEMON_SHUFFLED } from '../../../modules/loc
 include { ABUNDANCE_CONTROL as CONTROL_KRAKEN2 } from '../../../modules/local/abundance/control/main'
 include { ABUNDANCE_CONTROL as CONTROL_BRACKEN } from '../../../modules/local/abundance/control/main'
 include { ABUNDANCE_FILTER as FILTER_KRAKEN2 } from '../../../modules/local/abundance/filter/main'
+include { NONMICROBIAL_EXPAND as VIRUS_EXPAND } from '../../../modules/local/nonmicrobial/main'
 include { ABUNDANCE_FILTER as FILTER_BRACKEN } from '../../../modules/local/abundance/filter/main'
 include { ABUNDANCE_FILTER as VERDICT_BRACKEN } from '../../../modules/local/abundance/filter/main'
 include { KRAKENBIOM                        } from '../../../modules/local/krakenbiom/main'
@@ -62,6 +65,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     min_reads // number: ...and this many reads in total, 0 to disable
     export_biom // boolean: also write the combined counts as a BIOM table
     biom_metadata // path: sample metadata to embed in the BIOM, or null
+    virus_min_rel_abundance // float: a separate relative-abundance floor for viruses, or null for one floor
 
     main:
 
@@ -91,6 +95,25 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         : ch_kraken2_db
 
     //
+    // --bracken_read_length auto snaps each sample's measured read length to a
+    // k-mer distribution the database ships. The caller lists those up front,
+    // which it cannot do for an archived database: that is only unpacked here,
+    // by UNTAR. Such samples arrive with bracken_r unset and the measured length
+    // in bracken_r_observed, and are resolved against the unpacked directory -
+    // before classification, so that every channel from here on carries the
+    // same meta. Left to the raw length (143, say), Bracken looked for a
+    // database143mers.kmer_distrib that no database ships, and failed.
+    //
+    def ch_reads_tax = ch_reads
+        .combine(ch_bracken_db)
+        .map { meta, reads, db ->
+            def resolved = meta.bracken_r != null
+                ? meta
+                : meta.findAll { key, _value -> key != 'bracken_r_observed' } + [bracken_r: resolveBrackenReadLength(meta.bracken_r_observed, brackenDistributions(db.toString()), 'auto')]
+            [resolved, reads]
+        }
+
+    //
     // MODULE: Kraken2.
     //
     // The daemon variant hands the database to a resident background process
@@ -104,7 +127,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
 
     if (use_daemon) {
         KRAKEN2_DAEMON(
-            ch_reads,
+            ch_reads_tax,
             file(kraken2_db, checkIfExists: true).toAbsolutePath().toString(),
             save_output_fastqs,
             save_reads_assignment,
@@ -114,7 +137,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     }
     else {
         KRAKEN2_KRAKEN2(
-            ch_reads,
+            ch_reads_tax,
             ch_kraken2_db,
             save_output_fastqs,
             save_reads_assignment,
@@ -163,7 +186,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
 
     if (shuffle_settings) {
         SHUFFLE_READS(
-            ch_reads,
+            ch_reads_tax,
             shuffle_settings.method,
             shuffle_settings.seed,
             shuffle_settings.max_reads,
@@ -469,7 +492,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     def ch_contigs = channel.empty()
 
     if (assembly_settings) {
-        def ch_pools = ch_reads
+        def ch_pools = ch_reads_tax
             .map { meta, reads ->
                 def files = reads instanceof List ? reads : [reads]
                 def key = assembly_settings.pool == 'sample'
@@ -615,13 +638,32 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).mix(ch_contig_drop).mix(ch_hostclade_drop).mix(ch_nonmicrobial_drop).mix(ch_host_taxon_drop).collect(sort: true)
         : channel.value([])
 
-    FILTER_KRAKEN2(ch_kraken2_for_filter, ch_drop_list, min_rel_abundance, min_samples, min_reads)
+    //
+    // A separate relative-abundance floor for viruses (--virus_min_rel_abundance).
+    // A virus genome is kilobases against a bacterium's megabases, so at the
+    // same load it draws a far smaller share of the reads, and one floor set for
+    // cellular organisms removes it: across the benchmarks the 0.1% cohort floor
+    // dropped wastewater Mamastrovirus from 35 libraries to none. The viruses are
+    // the descendants of 10239 in the reports, expanded as for --drop_non_microbial.
+    //
+    def ch_virus_taxids = channel.value([])
+    if (virus_min_rel_abundance != null) {
+        VIRUS_EXPAND(
+            ch_report_classified
+                .map { _meta, report -> report }
+                .collect(sort: true)
+                .map { reports -> [[id: 'kraken2_viruses'], reports] }
+        )
+        ch_virus_taxids = VIRUS_EXPAND.out.drop_list.map { _meta, list -> list }.first()
+    }
+
+    FILTER_KRAKEN2(ch_kraken2_for_filter, ch_drop_list, ch_virus_taxids, min_rel_abundance, min_samples, min_reads)
 
     def ch_bracken_combined_filtered = channel.empty()
     def ch_bracken_combined_verdicts = channel.empty()
 
     if (!skip_bracken) {
-        FILTER_BRACKEN(ch_bracken_for_filter, ch_drop_list, min_rel_abundance, min_samples, min_reads)
+        FILTER_BRACKEN(ch_bracken_for_filter, ch_drop_list, ch_virus_taxids, min_rel_abundance, min_samples, min_reads)
         ch_bracken_combined_filtered = FILTER_BRACKEN.out.filtered
 
         // The same verdicts with every abundance threshold at zero, for the
@@ -629,7 +671,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         // abundance, the host-microbe correlation). Handing those the raw
         // combined table instead would test the host taxon, its clade and
         // every taxon an evidence filter condemned as if it were a microbe.
-        VERDICT_BRACKEN(ch_bracken_for_filter, ch_drop_list, 0, 0, 0)
+        VERDICT_BRACKEN(ch_bracken_for_filter, ch_drop_list, [], 0, 0, 0)
         ch_bracken_combined_verdicts = VERDICT_BRACKEN.out.filtered
     }
 
@@ -698,6 +740,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     contig_evidence = ch_contig_evidence // channel: [ val(meta), path(tsv) ]
     host_clade_evidence = ch_hostclade_evidence // channel: [ val(meta), path(tsv) ]
     drop_list = ch_drop_list // channel: [ path(txt) ] - every filter's verdict, for consumers outside this subworkflow
+    taxonomy_drop = ch_hostclade_drop.mix(ch_nonmicrobial_drop).mix(ch_host_taxon_drop) // channel: path(txt) - the verdicts that rest on taxonomy alone, for the other classifiers
     minimizer_evidence = minimizer_filter ? ABUNDANCE_MINIMIZER.out.evidence : channel.empty() // channel: [ val(meta), path(tsv) ]
     host_kmer_evidence = ch_hostkmer_evidence // channel: [ val(meta), path(tsv) ]
     decontam_evidence = ch_decontam_evidence // channel: [ val(meta), path(tsv) ]

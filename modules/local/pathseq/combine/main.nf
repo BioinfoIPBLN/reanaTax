@@ -17,6 +17,7 @@ process PATHSEQ_COMBINE {
     input:
     tuple val(meta), path(scores, stageAs: 'scores/*')
     val rank
+    path drop_lists, stageAs: 'drop/*'
 
     output:
     tuple val(meta), path("*_reads.tsv"), emit: reads
@@ -34,11 +35,13 @@ process PATHSEQ_COMBINE {
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
     def rank_arg = rank ? "--rank ${rank}" : ''
+    def drop_arg = drop_lists ? "--drop-list ${drop_lists}" : ''
     """
     merge_pathseq.py \\
         ${args} \\
         --scores scores/* \\
         ${rank_arg} \\
+        ${drop_arg} \\
         --prefix ${prefix}
     """
 

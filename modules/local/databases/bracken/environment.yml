@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/modules/environment-schema.json
+# The same Kraken2 the classification modules run (2.17.2), with Bracken 3.1
+# built against it, so kraken2-build, kraken2-inspect and bracken-build share
+# one Kraken2. findutils, coreutils and gzip are explicit because the Seqera
+# community images now build on a minimal base without them, and
+# build_kraken2_db.sh and mask_low_complexity.sh call find and xargs.
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::bracken=3.1
+  - bioconda::kraken2=2.17.2
+  - conda-forge::bzip2=1.0.8
+  - conda-forge::coreutils=9.5
+  - conda-forge::findutils=4.10.0
+  - conda-forge::gzip=1.14
+  - conda-forge::pigz=2.8

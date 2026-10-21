@@ -51,12 +51,19 @@ workflow TARGETED_TAXON {
     // MODULE: the reads Kraken2 put on this taxon.
     //
     // Joined rather than combined: the three inputs are per sample and must line
-    // up sample by sample. `join` keys on the meta and drops anything unmatched,
-    // which is the behaviour wanted - a sample whose classification is missing
-    // must not be silently paired with another sample's reads.
+    // up sample by sample. `join` drops anything unmatched, which is the
+    // behaviour wanted - a sample whose classification is missing must not be
+    // silently paired with another sample's reads. It is keyed on the sample id,
+    // not on the meta map: the taxonomy step adds bracken_r to its meta, so the
+    // classification's meta never equalled the reads', and keyed on the whole
+    // map the join matched nothing and the branch extracted no reads at all.
     //
     KRAKENTOOLS_EXTRACTREADS(
-        ch_reads.join(ch_classifiedreads).join(ch_report),
+        ch_reads
+            .map { meta, reads -> [meta.id, meta, reads] }
+            .join(ch_classifiedreads.map { meta, classified -> [meta.id, classified] })
+            .join(ch_report.map { meta, report -> [meta.id, report] })
+            .map { _id, meta, reads, classified, report -> [meta, reads, classified, report] },
         taxid,
     )
     ch_multiqc_files = ch_multiqc_files.mix(KRAKENTOOLS_EXTRACTREADS.out.log.map { _meta, log_file -> log_file })

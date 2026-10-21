@@ -18,6 +18,7 @@ This document describes the output produced by the pipeline. All paths are relat
 - [BIOM](#biom) — the same counts in BIOM format, for tools outside this pipeline
 - [MultiQC](#multiqc) — aggregate report
 - [Pipeline information](#pipeline-information) — run metadata, versions and reports
+- [Databases](#databases) — with `--build_databases`, the databases built instead of an analysis
 
 ### Download
 
@@ -146,6 +147,7 @@ Only written with `--quantify_host` and `--gtf`. These come from the same librar
 - `kraken2/`
   - `<sample>.kraken2.report.txt`: per-sample classification report.
   - `kraken2_combined_report.txt`: all samples in one table.
+  - `kraken2_combined_report.filtered.rpm_total.tsv`: the filtered combined table as reads per million of each library (see below).
 - `kraken2/reads/` (with `--kraken2_save_reads`)
   - `<sample>.classified*.fastq.gz`, `<sample>.unclassified*.fastq.gz`
 - `kraken2/read_assignments/` (with `--kraken2_save_readclassifications`)
@@ -244,6 +246,10 @@ The barcode-level verdicts are **per sample and are not applied** to the combine
 - `singlecell/host_de/` (with `--sc_host_de`)
   - `<sample>.sc_host_de.tsv`: per taxon, cell type and gene — detection rates and mean expression on both sides, log2 fold change, Wilcoxon p and the q adjusted within that taxon x cell type.
   - `<sample>.sc_host_de_groups.tsv`: which taxon x cell-type groups were testable at all, with the number of infected and bystander cells behind each. Read this first: a group missing from it had too few cells on one side, which is a different statement from finding nothing.
+  - `<sample>.sc_host_de_pseudobulk.tsv` (with `--sc_host_de_pseudobulk`): the summed raw counts of each tested group's infected and bystander cells, the input of the donor-level test.
+- `singlecell/host_de_pseudobulk/` (with `--sc_host_de_pseudobulk`)
+  - `reanatax.pseudobulk_groups.tsv`: every taxon x cell type, how many donors carry both infected and bystander cells, and whether it was tested or why not.
+  - `<taxid>.<cell type>.pseudobulk.{deseq2,edger}.results.tsv`: infected against bystander across donors, `~ donor + state`, one table per group and engine. This is the result to read as a statement about the cohort; the per-library tables above are statements about one library each.
 - `singlecell/reanatax.cell_taxa.tsv` (with `--sc_plate_based`): the same long-format matrix, built from the per-cell Kraken2 reports instead of from barcodes. `barcode` holds the cell id and `sample` holds the patient.
 
 A `cell_type` of `ALL_POOLED` in `sc_host_de.tsv` means `--sc_host_de_force_pooled` was used and the comparison is **not** within cell type — the difference between the cell types that carry the taxon is inseparable from the response to carrying it.
@@ -328,10 +334,13 @@ See [usage](usage.md#diversity-and-what-explains-it---run_diversity) for the cav
   - `<sample>.bracken_<level>.tsv`: re-estimated abundances for that sample.
   - `<sample>.bracken_<level>.kraken2.report_bracken.txt`: the same estimate in Kraken2 report format.
   - `bracken_combined_<level>.txt`: all samples in one table — this is the file to take into R or Python.
+  - `bracken_combined_<level>.filtered.rpm_total.tsv`: the filtered table as reads per million of each library.
 
 </details>
 
 [Bracken](https://github.com/jenniferlu717/Bracken) redistributes reads that Kraken2 could only place at a higher rank down to the requested level (`--bracken_level`, default species). **Use the Bracken table, not the raw Kraken2 report, for abundance comparisons between samples.**
+
+`*.rpm_total.tsv` (unless `--skip_read_accounting`) is the filtered table again with every count as reads per million of the **whole library**: divided by the sample's trimmed reads from the read accounting, not by what was classified or kept. The fractions in the other tables are shares of the microbial reads that survived, which in host RNA-seq hides the scale - one read can be 1% of what is left. It is a unit, not a filter.
 
 ### Krona
 
@@ -495,10 +504,12 @@ A sample whose summary reads `AI summary timed out. Please try again` was attemp
 ## Exploring the results interactively
 
 The taxonomic tables are meant to be explored, not just read. **exploreMetaTax**
-is a Shiny app for exactly that — upload the `kraken2/` and `bracken/` tables
-from your `--outdir`, add a metadata sheet, and get filtering, alpha and beta
-diversity, rarefaction, PCA, a LifemapR taxonomy tree and publication-ready
-exports.
+is a Shiny app for exactly that — run with `--exploremetatax_bundle`, extract
+`exploremetatax/reanatax.exploreMetaTax.tar.gz` and upload the extracted folder,
+and get filtering, alpha and beta diversity, rarefaction, PCA, a LifemapR
+taxonomy tree and publication-ready exports. Upload the bundle rather than the
+`kraken2/` and `bracken/` folders themselves: the app recognises files by name,
+and several of the pipeline's names would be skipped or misread.
 
 Two ways to run it:
 
@@ -515,6 +526,20 @@ Two ways to run it:
 > version feels slow or misbehaves, try the hosted one before reporting a
 > problem: R compiled to WebAssembly is several times slower than native R, and
 > large datasets feel it.
+
+### Databases
+
+<details markdown="1">
+<summary>Output files</summary>
+
+Only with `--build_databases`, which writes these instead of an analysis:
+
+- `databases/kraken2/`: `hash.k2d`, `opts.k2d`, `taxo.k2d`, `inspect.txt` and `seqid2taxid.map`, plus `database<N>mers.kmer_distrib` for each Bracken read length. Pass the directory as `--kraken2_db`.
+- `databases/krakenuniq/`: `database.kdb`, `database.idx`, `taxDB` and their companions. Pass the directory as `--krakenuniq_db`.
+- `databases/sylph/<db_name>.syldb`: the sketched genomes, for `--sylph_db`.
+- `databases/<db_name>.sylph_taxonomy.tsv`: each genome's NCBI lineage, for `--sylph_taxonomy`, and a record of where every genome sits on the taxonomy.
+
+</details>
 
 ### Pipeline information
 

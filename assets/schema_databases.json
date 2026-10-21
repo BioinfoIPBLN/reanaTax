@@ -1,0 +1,37 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/BioinfoIPBLN/reanatax/master/assets/schema_databases.json",
+    "title": "BioinfoIPBLN/reanatax pipeline - params.db_input schema",
+    "description": "Schema for the genome sheet given with --db_input under --build_databases: one row per genome",
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "errorMessage": "id must be given and use only letters, digits, '_' and '-': it names the genome's files, and sylph-tax matches genomes by file name",
+                "meta": ["id"]
+            },
+            "taxid": {
+                "type": "integer",
+                "minimum": 1,
+                "errorMessage": "taxid must be a positive NCBI taxonomy id: every sequence of the genome is assigned to it",
+                "meta": ["taxid"]
+            },
+            "fasta": {
+                "type": "string",
+                "format": "file-path",
+                "exists": true,
+                "pattern": "^([\\S\\s]*\\/)?[^\\s\\/]+\\.(fa|fasta|fna|fas)(\\.gz)?$",
+                "errorMessage": "fasta must be an existing FASTA (.fa, .fasta, .fna or .fas, optionally gzipped) without spaces in its name"
+            },
+            "accession": {
+                "type": "string",
+                "pattern": "^GC[AF]_[0-9]+(\\.[0-9]+)?$",
+                "errorMessage": "accession must be an NCBI assembly accession (GCF_* or GCA_*), downloaded with ncbi-genome-download"
+            }
+        },
+        "required": ["id", "taxid"]
+    }
+}

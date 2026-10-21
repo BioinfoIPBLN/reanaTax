@@ -44,13 +44,22 @@ therefore slow (tens of seconds); afterwards the browser caches them.
 
 ## Feeding it pipeline output
 
-The app is upload-driven, which is what makes a serverless build possible. Point
-it at the files in your `--outdir`:
+The app is upload-driven, which is what makes a serverless build possible. Its
+folder upload keeps only files whose NAME matches the format chosen, and several
+of the pipeline's own file names do not: `<sample>.bracken_S.tsv` matches no
+format and is skipped, and `kraken2_combined_report.txt` is loaded as if it were
+one more sample. So do not point it at `--outdir` directly. Run the pipeline with
+`--exploremetatax_bundle`, then:
 
-- `kraken2/*.kraken2.report.txt` — per-sample Kraken2 reports
-- `bracken/*.bracken_S.tsv` — per-sample Bracken tables
-- `bracken/bracken_combined_S.txt`, `kraken2/kraken2_combined_report.txt` — the combined tables
-- a metadata TSV/CSV of your own, to group and colour samples
+```bash
+tar -xzf <outdir>/exploremetatax/reanatax.exploreMetaTax.tar.gz
+```
+
+and point the app's "Browse a folder" upload at the extracted
+`reanatax_exploreMetaTax/` directory. It holds the per-sample Kraken2 reports,
+Bracken tables, the combined tables and the HUMAnN tables under names the app
+recognises, plus the metadata sheet when `--da_metadata` was given. See
+`bin/exploremetatax_bundle.py` for the renaming.
 
 ## Rebuilding
 

@@ -40,6 +40,15 @@ Reads STARsolo's MatrixMarket output directly. No Seurat, no scanpy, no
 AnnData: the single-cell modules here run in a plain Python container and
 adding a whole single-cell framework to run one rank-sum test would be a
 strange trade - the same reasoning that produced bin/sahmi_stats.py.
+
+The test above answers a question about ONE library: its cells are the units,
+so its p-values say nothing about whether the response holds across donors
+(Squair et al., Nat Commun 2021, on pseudoreplication). --pseudobulk adds the
+raw material for that question: for every group tested, the summed raw counts
+of its infected cells and of its bystander cells, one row per gene. The cohort
+step (bin/sc_pseudobulk.py) sets these side by side across libraries and tests
+infected against bystander with the donor as a blocking factor, so the donor
+is the unit of replication.
 """
 import argparse
 import csv
@@ -243,6 +252,9 @@ def main():
     parser.add_argument("--top-taxa", type=int, default=20, help="most-infecting taxa to test (0 = all)")
     parser.add_argument("--p-threshold", type=float, default=0.05)
     parser.add_argument("--prefix", default="sc_host_de")
+    parser.add_argument("--pseudobulk", action="store_true",
+                        help="also write the summed raw counts of each tested group's infected "
+                             "and bystander cells, for the cohort-level test (see the docstring)")
     args = parser.parse_args()
 
     if not args.cells and not args.force_pooled:
@@ -294,6 +306,7 @@ def main():
 
     rows = []
     tested_groups = []
+    pseudobulk = []
     for taxid in ordering:
         carriers = positive[taxid]
         for cell_type, members in sorted(by_type.items()):
@@ -314,12 +327,21 @@ def main():
             for gene in range(len(genes)):
                 hits_infected = 0
                 hits_bystander = 0
+                sum_infected = 0.0
+                sum_bystander = 0.0
                 for offset in range(offsets[gene], offsets[gene + 1]):
                     column = cells[offset]
                     if column in infected_columns:
                         hits_infected += 1
+                        sum_infected += values[offset]
                     elif column in group_set:
                         hits_bystander += 1
+                        sum_bystander += values[offset]
+                if args.pseudobulk:
+                    for state, total, n_cells in (("infected", sum_infected, len(infected)),
+                                                  ("bystander", sum_bystander, len(bystander))):
+                        if total > 0:
+                            pseudobulk.append((taxid, cell_type, state, n_cells, genes[gene], int(round(total))))
                 pct_infected = hits_infected / len(infected)
                 pct_bystander = hits_bystander / len(bystander)
                 if max(pct_infected, pct_bystander) >= args.min_pct:
@@ -382,6 +404,13 @@ def main():
             )
             handle.write(f"{taxid}\t{names.get(taxid, '')}\t{cell_type}\t{n_infected}\t"
                          f"{n_bystander}\t{hits}\n")
+
+    if args.pseudobulk:
+        with open(f"{args.prefix}.sc_host_de_pseudobulk.tsv", "w", encoding="utf-8") as handle:
+            handle.write("sample\ttaxid\ttaxon\tcell_type\tstate\tn_cells\tgene\tcount\n")
+            for taxid, cell_type, state, n_cells, gene, count in pseudobulk:
+                handle.write(f"{args.sample or args.prefix}\t{taxid}\t{names.get(taxid, '')}\t{cell_type}\t"
+                             f"{state}\t{n_cells}\t{gene}\t{count}\n")
 
     significant = sum(1 for row in rows if row["q"] is not None and row["q"] < args.p_threshold)
     with open(f"{args.prefix}_sc_host_de_mqc.tsv", "w", encoding="utf-8") as handle:

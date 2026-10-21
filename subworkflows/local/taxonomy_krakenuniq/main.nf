@@ -42,6 +42,7 @@ workflow TAXONOMY_KRAKENUNIQ {
     min_rel_abundance // float
     min_samples // integer
     min_reads // number: ...and this many reads in total, 0 to disable
+    ch_taxonomy_drop // channel: path(txt) - the Kraken2 route's taxonomy verdicts (host clade, non-microbial, host taxon), or empty
 
     main:
 
@@ -128,7 +129,7 @@ workflow TAXONOMY_KRAKENUNIQ {
     // no database lookup for this - it reports distinct k-mers, duplication and
     // reference coverage in the report itself.
     //
-    def ch_drop_list = channel.value([])
+    def ch_minimizer_drop = channel.empty()
     def ch_evidence = channel.empty()
 
     if (minimizer_filter) {
@@ -146,11 +147,16 @@ workflow TAXONOMY_KRAKENUNIQ {
             minimizer_thresholds.duplication_coverage,
             minimizer_thresholds.duplication_min_distinct,
         )
-        ch_drop_list = MINIMIZER_KRAKENUNIQ.out.drop_list.map { _meta, list -> list }.first()
+        ch_minimizer_drop = MINIMIZER_KRAKENUNIQ.out.drop_list.map { _meta, list -> list }
         ch_evidence = MINIMIZER_KRAKENUNIQ.out.evidence
     }
 
-    FILTER_KRAKENUNIQ(COMBINE_KRAKENUNIQ.out.txt, ch_drop_list, min_rel_abundance, min_samples, min_reads)
+    // The taxonomy verdicts come from the Kraken2 reports, so they name the
+    // taxa Kraken2 saw: a host relative only KrakenUniq reports is not on them.
+    // Both classifiers use NCBI taxids, so the lists apply as they are.
+    def ch_drop_list = ch_minimizer_drop.mix(ch_taxonomy_drop).collect(sort: true).ifEmpty([])
+
+    FILTER_KRAKENUNIQ(COMBINE_KRAKENUNIQ.out.txt, ch_drop_list, [], min_rel_abundance, min_samples, min_reads)
 
     def ch_krona = channel.empty()
 

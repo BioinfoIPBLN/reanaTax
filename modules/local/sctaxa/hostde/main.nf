@@ -36,6 +36,7 @@ process SCTAXA_HOSTDE {
     output:
     tuple val(meta), path("*.sc_host_de.tsv"), emit: de
     tuple val(meta), path("*.sc_host_de_groups.tsv"), emit: groups
+    tuple val(meta), path("*.sc_host_de_pseudobulk.tsv"), emit: pseudobulk, optional: true
     tuple val(meta), path("*_mqc.tsv"), emit: mqc, optional: true
     tuple val("${task.process}"), val('python'), eval('python3 --version | sed "s/Python //"'), emit: versions_python, topic: versions
 

@@ -87,12 +87,27 @@ def read_scores(path):
     return values, meta
 
 
+def read_drop_lists(paths):
+    """Taxids from the pipeline's drop lists, one per line; '#' lines ignored."""
+    drop = set()
+    for path in paths or []:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                value = line.strip()
+                if value and not value.startswith("#"):
+                    drop.add(value)
+    return drop
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--scores", nargs="+", required=True, help="PathSeq scores files, one per sample")
     parser.add_argument("--rank", default=None,
                         help="keep only this PathSeq `type` (e.g. species, genus); default keeps every row")
     parser.add_argument("--prefix", default="pathseq")
+    parser.add_argument("--drop-list", nargs="*", default=[],
+                        help="taxid lists to leave out (the Kraken2 route's taxonomy verdicts: host clade, "
+                             "non-microbial, host taxon)")
     args = parser.parse_args()
 
     samples = []
@@ -111,6 +126,11 @@ def main():
     taxids = sorted(meta, key=lambda taxid: -sum(
         per_sample[sample].get(taxid, {}).get("reads", 0.0) for sample in samples
     ))
+    drop = read_drop_lists(args.drop_list)
+    if drop:
+        kept = [taxid for taxid in taxids if taxid not in drop]
+        print(f"[merge_pathseq] {len(taxids) - len(kept)} taxa left out by the drop lists.", file=sys.stderr)
+        taxids = kept
     if args.rank:
         wanted = args.rank.strip().lower()
         taxids = [taxid for taxid in taxids if meta[taxid][1].lower() == wanted]

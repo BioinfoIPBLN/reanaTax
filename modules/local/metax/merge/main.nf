@@ -16,6 +16,7 @@ process METAX_MERGE {
 
     input:
     tuple val(meta), path(profiles, stageAs: 'profiles/*')
+    path drop_lists, stageAs: 'drop/*'
 
     output:
     tuple val(meta), path("*.long.tsv")                        , emit: combined
@@ -27,9 +28,11 @@ process METAX_MERGE {
 
     script:
     def prefix = task.ext.prefix ?: "${meta.id}"
+    def drop_arg = drop_lists ? "--drop-list ${drop_lists}" : ''
     """
     metax_merge.py \\
         --profiles profiles/*.profile.txt \\
+        ${drop_arg} \\
         --prefix ${prefix}
     """
 

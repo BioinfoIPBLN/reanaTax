@@ -206,6 +206,15 @@ def main():
                              "bin/minimizer_filter.py and bin/host_kmer_filter.py write. Several "
                              "are taken as a union: each condemns a taxon for its own reason, and "
                              "surviving one test is no argument against the other.")
+    parser.add_argument("--virus-taxids", nargs="*", default=[],
+                        help="files of virus taxids (the descendants of Viruses, 10239, in the "
+                             "reports) that --virus-min-rel-abundance applies to instead of "
+                             "--min-rel-abundance")
+    parser.add_argument("--virus-min-rel-abundance", type=float, default=None,
+                        help="relative abundance a VIRUS must exceed. A virus genome is a few "
+                             "kilobases against a bacterium's megabases, so at the same load it "
+                             "draws a small fraction of the reads, and a floor set for cellular "
+                             "organisms removes it. 0 exempts viruses; unset keeps one floor.")
     args = parser.parse_args()
 
     comments, header_line, header, rows = read_table(args.input)
@@ -223,6 +232,13 @@ def main():
             drop.update(line.strip() for line in handle if line.strip() and not line.startswith("#"))
     if drop:
         rows, dropped_host = drop_taxa(header, rows, drop)
+
+    viruses = set()
+    if args.virus_min_rel_abundance is not None:
+        for path in args.virus_taxids:
+            with open(path, encoding="utf-8") as handle:
+                viruses.update(line.strip() for line in handle if line.strip() and not line.startswith("#"))
+    taxid_col = taxid_column(header)
     cols, already_frac = value_columns(header)
     if not cols:
         raise SystemExit(f"filter_abundance: no per-sample columns found in {args.input}")
@@ -264,13 +280,16 @@ def main():
 
     kept, dropped, below_floor = [], [], 0
     for row in rows:
+        floor = args.min_rel_abundance
+        if viruses and taxid_col is not None and taxid_col < len(row) and row[taxid_col].strip() in viruses:
+            floor = args.virus_min_rel_abundance
         hits = 0
         for col in cols:
             if col >= len(row):
                 continue
             value = to_float(row[col])
             rel = value if already_frac else value / totals[col]
-            if rel > args.min_rel_abundance:
+            if rel > floor:
                 hits += 1
         total_reads = sum(to_float(row[col]) for col in count_cols if col < len(row))
         passes = hits >= args.min_samples

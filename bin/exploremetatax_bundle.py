@@ -107,6 +107,10 @@ def main():
     parser.add_argument("--metaphlan", help="directory of per-sample MetaPhlAn profiles")
     parser.add_argument("--metaphlan-merged", help="directory holding the merged MetaPhlAn table")
     parser.add_argument("--humann", help="directory of HUMAnN per-sample tables")
+    parser.add_argument("--humann-regroup", default="uniref90_ko",
+                        help="the --groups the *_regroup tables were made with (the pipeline's "
+                             "--humann_regroup): *_ko are bundled as KEGG orthologs, *_rxn as "
+                             "reactions, anything else is left out")
     parser.add_argument("--metadata", help="sample metadata TSV")
     parser.add_argument("--outdir", default="exploreMetaTax", help="staging directory name")
     parser.add_argument("--output", required=True, help="tarball to write")
@@ -150,16 +154,25 @@ def main():
         place(path, stage, "merged_abundance_table.tsv", "merged_metaphlan", planned)
 
     # HUMAnN tables arrive gzipped and are decompressed by place(). Only the
-    # three the app can name are taken: `_regroup` is the KO table (the
-    # pipeline regroups onto UniRef90->KO by default), while `_renorm` is
-    # deliberately NOT bundled - it is the renormalisation of whichever table
-    # came before it, so its contents depend on --humann_regroup and its name
-    # alone cannot say whether it holds KOs or gene families.
+    # ones the app can name are taken. What `_regroup` holds depends on the
+    # grouping it was made with, and neither its name nor its header says which:
+    # humann_regroup_table keeps the gene-family header and only replaces the
+    # row names. So the grouping is passed in: KOs and MetaCyc reactions have a
+    # slot in the app, other groupings (EC, Pfam, GO, eggNOG) do not and are
+    # left out rather than shown under the wrong name. `_renorm` is deliberately
+    # NOT bundled - it is the renormalisation of whichever table came before it,
+    # so its name alone cannot say whether it holds KOs or gene families.
+    regroup = (args.humann_regroup or "").lower()
+    regroup_suffix = "_ko.tsv" if regroup.endswith("_ko") else "_reactions.tsv" if regroup.endswith("_rxn") else None
     for path in files_in(args.humann):
         name = os.path.basename(path)
         base = name[:-3] if name.endswith(".gz") else name
         if base.endswith("_regroup.tsv"):
-            base = f"{sample_of(base, '_regroup.tsv')}_ko.tsv"
+            if regroup_suffix is None:
+                print(f"exploremetatax_bundle: leaving out '{name}': the app has no slot for "
+                      f"HUMAnN tables regrouped by '{args.humann_regroup}'.", file=sys.stderr)
+                continue
+            base = f"{sample_of(base, '_regroup.tsv')}{regroup_suffix}"
         elif not (base.endswith("_pathabundance.tsv") or base.endswith("_genefamilies.tsv")):
             raise SystemExit(
                 f"exploremetatax_bundle: unrecognised HUMAnN table '{name}'. Expected "

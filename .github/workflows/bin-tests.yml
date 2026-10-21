@@ -1,0 +1,29 @@
+name: bin script tests
+# Fast unit tests for the Python helpers in bin/. They are standard-library only,
+# so the job needs neither Nextflow nor containers nor reference data.
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - dev
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pipeline code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run bin/ tests
+        run: pytest -q tests/bin

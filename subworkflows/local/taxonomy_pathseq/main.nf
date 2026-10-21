@@ -32,6 +32,7 @@ workflow TAXONOMY_PATHSEQ {
     host_kmers // string: host k-mer file, or null
     save_bam // boolean: keep the per-read PathSeq BAM
     rank // string: PathSeq `type` to keep in the combined tables, or null
+    ch_taxonomy_drop // channel: path(txt) - the Kraken2 route's taxonomy verdicts (host clade, non-microbial, host taxon), or empty
 
     main:
 
@@ -61,6 +62,7 @@ workflow TAXONOMY_PATHSEQ {
             .collect(sort: true)
             .map { tables -> [[id: 'pathseq'], tables] },
         rank,
+        ch_taxonomy_drop.collect(sort: true).ifEmpty([]),
     )
 
     emit:

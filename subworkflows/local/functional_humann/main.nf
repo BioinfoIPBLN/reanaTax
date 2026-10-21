@@ -56,16 +56,33 @@ workflow FUNCTIONAL_HUMANN {
     // rather than aligned as pairs: HUMAnN treats reads independently anyway,
     // so pairing carries no information it can use.
     //
-    def ch_humann_input = ch_reads.map { meta, reads ->
-        [meta, reads instanceof List ? reads : [reads]]
-    }
+    // Reads and profile are joined on the sample id before they reach the
+    // module. Handed over as two separate queue channels, HUMANN3_HUMANN pairs
+    // them in arrival order, and the two do not have the same members: a
+    // library in which Kraken2 classified nothing has no Bracken report, so
+    // from that library on every sample was profiled against the next sample's
+    // taxa. A library without a profile is left out here, loudly.
+    //
+    def ch_humann_paired = ch_reads
+        .map { meta, reads -> [meta.id, meta, reads instanceof List ? reads : [reads]] }
+        .join(KRAKENTOOLS_KREPORT2MPA.out.mpa.map { meta, mpa -> [meta.id, mpa] }, remainder: true)
+        .filter { id, _meta, reads, mpa ->
+            if (reads && !mpa) {
+                log.warn("No taxonomic profile for '${id}' (nothing classified, or no taxon left for Bracken); excluding it from HUMAnN.")
+            }
+            reads && mpa
+        }
+        .multiMap { _id, meta, reads, mpa ->
+            reads: [meta, reads]
+            profile: [meta, mpa]
+        }
 
     //
     // MODULE: HUMAnN
     //
     HUMANN3_HUMANN(
-        ch_humann_input,
-        KRAKENTOOLS_KREPORT2MPA.out.mpa,
+        ch_humann_paired.reads,
+        ch_humann_paired.profile,
         file(nucleotide_db, checkIfExists: true),
         file(protein_db, checkIfExists: true),
         utility_db ? file(utility_db, checkIfExists: true) : [],

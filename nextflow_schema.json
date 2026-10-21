@@ -681,6 +681,17 @@
                     "help_text": "Applied with --min_samples to the combined tables only; per-sample reports are left intact. This is a sparsity filter, NOT a contamination caller: with no negative controls it cannot tell a reagent contaminant from a rare real organism, it only removes taxa too sparse for any statistic to speak about. Without it the long tail of single-read hits dominates every distance metric. Dropped taxa are written to a `.removed.tsv` next to the filtered table.",
                     "fa_icon": "fas fa-filter"
                 },
+                "virus_min_rel_abundance": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "A separate --min_rel_abundance for viruses (descendants of Viruses, 10239). 0 exempts them; unset keeps one floor for everything.",
+                    "help_text": "A virus genome is a few kilobases against a bacterium's megabases, so at the same load it draws a far smaller share of the reads, and a floor set for cellular organisms removes it. Benchmarked offline (benchmark/filters_8x): the default 0.1% cohort floor dropped wastewater Mamastrovirus from 35 libraries to none, and exempting viruses kept all 35; on PRISM's CLID the cost is specificity on viruses (RNA viruses 60.9% -> 49.1% of labelled non-target calls), with bacteria and fungi unchanged. Ma et al. (J Mol Diagn 2026) also leave RNA viruses out of the relative-abundance filter; their own RNA-virus rule (z > 3 against other samples) removed SARS-CoV-2 from all nine infected BAL samples on these benchmarks, so it is not offered. Applied to the filtered Kraken2 and Bracken tables; --min_reads still applies.",
+                    "fa_icon": "fas fa-virus"
+                },
                 "min_samples": {
                     "type": "integer",
                     "default": 1,
@@ -1463,6 +1474,19 @@
                     "description": "Run --sc_host_de without cell types, pooling every type",
                     "help_text": "Every row of the output is then stamped ALL_POOLED, because the result is not a within-type comparison and cannot be read as one.",
                     "fa_icon": "fas fa-exclamation-triangle"
+                },
+                "sc_host_de_pseudobulk": {
+                    "type": "boolean",
+                    "description": "Also test the host response across donors: pseudobulk sums, DESeq2/edgeR with the donor as a blocking factor",
+                    "help_text": "--sc_host_de compares infected with bystander cells inside each library, with cells as the units, so its p-values describe that library. With this flag each library's infected and bystander cells of every tested taxon x cell type are also summed, and the sums are tested across libraries in a paired design (~ donor + state, the donor being the library), so a response has to recur across donors to count (Squair et al., Nat Commun 2021). Uses --host_de_method (edgeR when it is unset), --host_de_min_count, --host_de_min_samples, --da_p_threshold and --da_lfc_threshold. Results in singlecell/host_de_pseudobulk/.",
+                    "fa_icon": "fas fa-users"
+                },
+                "sc_host_de_min_donors": {
+                    "type": "integer",
+                    "default": 3,
+                    "minimum": 2,
+                    "description": "Donors that must have both infected and bystander cells for a taxon x cell type to be tested with --sc_host_de_pseudobulk",
+                    "fa_icon": "fas fa-users"
                 },
                 "sc_plate_based": {
                     "type": "boolean",
@@ -2320,6 +2344,83 @@
                     "fa_icon": "fas fa-user-slash"
                 }
             }
+        },
+        "database_building_options": {
+            "title": "Database building options",
+            "type": "object",
+            "fa_icon": "fas fa-database",
+            "description": "Build the classifiers' databases from your own genomes, as a run of its own (--build_databases) instead of an analysis.",
+            "help_text": "With --build_databases the pipeline reads no sequencing data. It takes a sheet of genomes (--db_input), checks every taxid against the NCBI taxonomy, and builds the databases named into <outdir>/databases/ in the layout the analysis parameters read: --kraken2_db <outdir>/databases/kraken2 (with inspect.txt and, for bracken, one k-mer distribution per --db_bracken_read_lengths), --krakenuniq_db <outdir>/databases/krakenuniq, and --sylph_db <outdir>/databases/sylph/<db_name>.syldb with --sylph_taxonomy <outdir>/databases/<db_name>.sylph_taxonomy.tsv. See 'Building databases' in docs/usage.md, which also says where the databases this cannot build come from.",
+            "properties": {
+                "build_databases": {
+                    "type": "string",
+                    "pattern": "^\\s*(kraken2|bracken|krakenuniq|sylph)(\\s*,\\s*(kraken2|bracken|krakenuniq|sylph))*\\s*$",
+                    "description": "Build these databases instead of running an analysis: a comma-separated list of kraken2, bracken, krakenuniq, sylph.",
+                    "help_text": "bracken needs kraken2 in the same list: its distributions are estimated by classifying the Kraken2 library, which only exists while that database is being built.",
+                    "fa_icon": "fas fa-hammer"
+                },
+                "db_input": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "mimetype": "text/csv",
+                    "pattern": "^\\S+\\.csv$",
+                    "schema": "assets/schema_databases.json",
+                    "description": "Genome sheet for --build_databases: CSV with columns id, taxid, and fasta or accession (one per row).",
+                    "help_text": "`id` names the genome's files (letters, digits, '_' and '-'); `taxid` is the NCBI taxonomy id every sequence of the genome is assigned to; `fasta` is a local FASTA (optionally gzipped) or `accession` an NCBI assembly (GCF_* or GCA_*) downloaded with ncbi-genome-download.",
+                    "fa_icon": "fas fa-file-csv"
+                },
+                "db_name": {
+                    "type": "string",
+                    "default": "reanatax_custom",
+                    "pattern": "^[A-Za-z0-9_.-]+$",
+                    "description": "Name of the sylph database and of the lineage table written with it.",
+                    "fa_icon": "fas fa-tag"
+                },
+                "db_taxonomy": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "exists": true,
+                    "description": "Directory holding the NCBI taxonomy (names.dmp, nodes.dmp, and merged.dmp if available). Unset: NCBI's taxdump is downloaded for the run.",
+                    "help_text": "Use the taxonomy of the database you will analyse alongside, so taxids agree: for example the taxonomy/ directory of a Kraken2 database built from NCBI.",
+                    "fa_icon": "fas fa-sitemap"
+                },
+                "db_taxdump_url": {
+                    "type": "string",
+                    "default": "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz",
+                    "description": "Where NCBI's taxdump is fetched from when --db_taxonomy is not given.",
+                    "fa_icon": "fas fa-link",
+                    "hidden": true
+                },
+                "db_bracken_read_lengths": {
+                    "type": "string",
+                    "default": "50,75,100,150",
+                    "pattern": "^\\s*[0-9]+(\\s*,\\s*[0-9]+)*\\s*$",
+                    "description": "Read lengths to estimate Bracken's k-mer distributions for, comma-separated.",
+                    "help_text": "--bracken_read_length auto snaps each sample to the nearest distribution the database ships, so cover the read lengths you analyse.",
+                    "fa_icon": "fas fa-ruler-horizontal"
+                },
+                "db_kraken2_args": {
+                    "type": "string",
+                    "description": "Extra `kraken2-build --build` arguments, e.g. '--kmer-len 35 --minimizer-len 31'.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "db_kraken2_library_args": {
+                    "type": "string",
+                    "description": "Extra `kraken2-build --add-to-library` arguments, e.g. '--no-masking'.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "db_krakenuniq_args": {
+                    "type": "string",
+                    "description": "Extra `krakenuniq-build` arguments, e.g. '--kmer-len 31'.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "db_sylph_args": {
+                    "type": "string",
+                    "description": "Extra `sylph sketch` arguments, e.g. '-c 100' (then pass the same -c to --sylph_args when profiling).",
+                    "fa_icon": "fas fa-terminal"
+                }
+            }
         }
     },
     "allOf": [
@@ -2364,6 +2465,9 @@
         },
         {
             "$ref": "#/$defs/differential_abundance_options"
+        },
+        {
+            "$ref": "#/$defs/database_building_options"
         }
     ]
 }
