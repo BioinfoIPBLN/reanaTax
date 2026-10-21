@@ -21,11 +21,25 @@ Two jobs, both needing names.dmp and nodes.dmp:
 NCBI ranks map onto the seven prefixes; a rank a lineage lacks is left empty
 (`c__`). The domain is NCBI's `domain` (2025 taxonomy) or `superkingdom`
 (earlier); viruses, which have neither, get `d__Viruses`.
+
+3. With --mpa-output, the same lineages in MetaPhlAn's form, one row per taxid
+   (genomes sharing a taxid are one species there): `k__` for the domain,
+   names with spaces and punctuation as underscores, `t__TAX<taxid>` as the
+   species-level genome bin, and the taxid of each rank beside it. A rank the
+   lineage lacks is named after the nearest rank above that it has,
+   `g__Thiotrichaceae_unclassified`, with an empty taxid - the convention of
+   MetaPhlAn's own database. Viruses are left out: MetaPhlAn profiles them from
+   whole viral genomes, not from markers. A eukaryote without a coding-sequence
+   file stops the run here, before any gene is called: a prokaryotic gene finder
+   would split every intron-containing gene.
 """
 import argparse
 import os
+import re
 import sys
 
+MPA_RANKS = [("phylum", "p__"), ("class", "c__"), ("order", "o__"),
+             ("family", "f__"), ("genus", "g__"), ("species", "s__")]
 PREFIXES = [("domain", "d__"), ("phylum", "p__"), ("class", "c__"), ("order", "o__"),
             ("family", "f__"), ("genus", "g__"), ("species", "s__")]
 VIRUSES = "10239"
@@ -38,11 +52,40 @@ def read_dmp(path, columns):
             yield [fields[i] for i in columns]
 
 
+def mpa_name(name):
+    return re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_")
+
+
+def mpa_lineage(taxid, lineage_nodes, nodes, names):
+    """(lineage, taxid lineage, domain) in MetaPhlAn's form, from root-ward nodes."""
+    by_rank = {}
+    for node in lineage_nodes:
+        rank = nodes[node][1]
+        rank = "domain" if rank == "superkingdom" else rank
+        by_rank.setdefault(rank, node)
+    domain = names.get(by_rank.get("domain", ""), "")
+    levels, taxids = [f"k__{mpa_name(domain)}"], [by_rank.get("domain", "")]
+    last = mpa_name(domain)
+    for rank, prefix in MPA_RANKS:
+        node = by_rank.get(rank)
+        if node is not None:
+            last = mpa_name(names.get(node, node))
+            levels.append(prefix + last)
+            taxids.append(node)
+        else:
+            levels.append(f"{prefix}{last}_unclassified")
+            taxids.append("")
+    levels.append(f"t__TAX{taxid}")
+    return "|".join(levels), "|".join(taxids) + "|", domain
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--taxonomy", required=True, help="directory holding names.dmp and nodes.dmp (and merged.dmp)")
     parser.add_argument("--genomes", required=True, help="TSV: genome file name, taxid")
     parser.add_argument("--output", required=True, help="sylph-tax metadata to write")
+    parser.add_argument("--mpa-output", default=None,
+                        help="also write MetaPhlAn lineages, one row per taxid (needs the third, has-CDS column)")
     args = parser.parse_args()
 
     nodes = {taxid: (parent, rank) for taxid, parent, rank in read_dmp(os.path.join(args.taxonomy, "nodes.dmp"), (0, 1, 2))}
@@ -57,11 +100,15 @@ def main():
 
     unknown = []
     rows = []
+    mpa_rows, no_cds, viruses = {}, [], []
     with open(args.genomes, encoding="utf-8") as handle:
         for line in handle:
             if not line.strip():
                 continue
-            genome, taxid = line.rstrip("\n").split("\t")[:2]
+            fields = line.rstrip("\n").split("\t")
+            genome, taxid = fields[:2]
+            has_cds = len(fields) > 2 and fields[2] == "1"
+            original = taxid
             taxid = merged.get(taxid, taxid)
             if taxid not in nodes:
                 unknown.append(f"{genome} ({taxid})")
@@ -80,6 +127,14 @@ def main():
                 node = parent
             if "domain" not in ranks and VIRUSES in lineage:
                 ranks["domain"] = "Viruses"
+            if args.mpa_output:
+                if VIRUSES in lineage:
+                    viruses.append(genome)
+                else:
+                    mpa = mpa_lineage(original, lineage, nodes, names)
+                    if mpa[2] == "Eukaryota" and not has_cds:
+                        no_cds.append(genome)
+                    mpa_rows[original] = mpa
             rows.append((genome, ";".join(prefix + ranks.get(rank, "") for rank, prefix in PREFIXES)))
 
     if unknown:
@@ -87,9 +142,25 @@ def main():
                  + ", ".join(unknown[:20]) + ". Check the sheet's taxid column against the taxonomy used "
                  "(--db_taxonomy, or the NCBI taxdump downloaded for this run).")
 
+    if no_cds:
+        sys.exit(f"[db_lineage] {len(no_cds)} eukaryotic genome(s) have no cds file: " + ", ".join(no_cds[:20])
+                 + ". The MetaPhlAn build calls genes with pyrodigal, which is for prokaryotes and splits every "
+                 "intron-containing gene; give each eukaryote its coding sequences in the sheet's cds column "
+                 "(VEuPathDB, Ensembl and NCBI distribute them), or leave metaphlan out of --build_databases.")
+
     with open(args.output, "w", encoding="utf-8") as handle:
         for genome, lineage in rows:
             handle.write(f"{genome}\t{lineage}\n")
+    if args.mpa_output:
+        if viruses:
+            print(f"[db_lineage] {len(viruses)} viral genome(s) left out of the MetaPhlAn database: "
+                  + ", ".join(viruses[:10]), file=sys.stderr)
+        if not mpa_rows:
+            sys.exit("[db_lineage] no genome MetaPhlAn can profile from markers: every one is a virus.")
+        with open(args.mpa_output, "w", encoding="utf-8") as handle:
+            handle.write("taxid\tlineage\ttaxid_lineage\tdomain\n")
+            for taxid, (lineage, taxids, domain) in sorted(mpa_rows.items()):
+                handle.write(f"{taxid}\t{lineage}\t{taxids}\t{domain}\n")
     print(f"[db_lineage] {len(rows)} genome(s) placed on the taxonomy.", file=sys.stderr)
 
 

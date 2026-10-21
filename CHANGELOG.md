@@ -124,6 +124,18 @@ From an independent code audit of 3f8bc51, each finding checked against the code
   - **Container:** Kraken2 and Bracken build in a new image (`kraken2_bracken_coreutils_findutils_pruned`). The classification image lacks `find` and `xargs`, which `build_kraken2_db.sh` calls, and Bracken's own image carries Kraken2 2.1.3.
   - **Not built here:** MetaPhlAn/HUMAnN, PathSeq and Metax databases; docs/usage.md says where they come from.
 
+- `--build_databases metaphlan`: a standalone MetaPhlAn 4.2 database from the genome sheet, its markers chosen as MetaPhlAn 4's were (Blanco-Míguez et al., Nat Biotechnol 2023) and as HROM reimplemented the recipe. The steps:
+  - **Genes:** from a new optional `cds` column, NCBI's CDS file for an annotated accession, or pyrodigal, which picks code 4 when it codes markedly more.
+  - **Core families:** MMseqs2 families at 90% identity and 80% coverage, kept when core to a species at MetaPhlAn's coreness threshold.
+  - **Uniqueness:** 150-nt fragments are mapped with Bowtie2 against every species' genomes and the optional `--db_metaphlan_screen` (host, vector).
+  - **Selection:** up to 200 markers per species; a species with fewer than 10 is left out.
+
+  The database is written as `<db_name>.pkl`, `<db_name>.fna` and a large Bowtie2 index (`bin/mpa_genes.py`, `mpa_candidates.py`, `mpa_uniqueness.py`, `mpa_select.py`; `db_lineage.py --mpa-output`).
+  - **Eukaryotes** without coding sequences stop the run before gene calling.
+  - **Viruses** are left out of the MetaPhlAn database only.
+  - **Sheet ids** can no longer contain `__`.
+  - **`--db_name`** can no longer contain `.`, which MetaPhlAn reads as the end of an index name.
+
 - `--sc_host_de_pseudobulk` (with `--sc_host_de_min_donors`, default 3): the infected-vs-bystander host response tested across donors as well as within each library. `--sc_host_de` tests each library with its cells as the units, which says nothing about the cohort (Squair et al., Nat Commun 2021). Each library's infected and bystander cells are now also summed per taxon x cell type, and the sums are tested with DESeq2/edgeR, `~ donor + state` (`bin/sc_pseudobulk.py`, `SCTAXA_PSEUDOBULK`). A group too thin for the expression filter is listed and skipped, not failed.
 
 - `--virus_min_rel_abundance` (unset by default): a separate relative-abundance floor for viruses, the descendants of 10239 in the run's reports (`VIRUS_EXPAND`). A virus genome draws a far smaller share of the reads than a bacterium at the same load. On the benchmarks (benchmark/filters_8x):

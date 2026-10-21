@@ -2098,7 +2098,7 @@ read.
 
 ```bash
 nextflow run BioinfoIPBLN/reanatax -profile singularity \
-    --build_databases kraken2,bracken,krakenuniq,sylph \
+    --build_databases kraken2,bracken,krakenuniq,sylph,metaphlan \
     --db_input genomes.csv \
     --outdir mydb
 ```
@@ -2107,18 +2107,19 @@ nextflow run BioinfoIPBLN/reanatax -profile singularity \
 accession (downloaded with ncbi-genome-download):
 
 ```csv
-id,taxid,fasta,accession
-pfalciparum,5833,refs/PlasmoDB-68_Pfalciparum3D7_Genome.fasta,
-mb,2715920,refs/microsporidia_MB.fa.gz,
-ecoli_k12,511145,,GCF_000005845.2
+id,taxid,fasta,accession,cds
+pfalciparum,5833,refs/PlasmoDB-68_Pfalciparum3D7_Genome.fasta,,refs/PlasmoDB-68_Pfalciparum3D7_AnnotatedCDSs.fasta
+mb,2715920,refs/microsporidia_MB.fa.gz,,refs/microsporidia_MB.cds.fa.gz
+ecoli_k12,511145,,GCF_000005845.2,
 ```
 
 | Column | Meaning |
 |---|---|
-| `id` | names the genome's files (letters, digits, `_`, `-`) |
+| `id` | names the genome's files (letters, digits, `-`, and single `_`) |
 | `taxid` | the NCBI taxid every sequence of the genome is assigned to |
 | `fasta` | a FASTA, optionally gzipped |
 | `accession` | or an assembly accession, GCF_* (RefSeq) or GCA_* (GenBank) |
+| `cds` | optional: the genome's coding sequences, nucleotide; the MetaPhlAn build's genes, required there for eukaryotes |
 
 Every header is rewritten to carry its taxid (`kraken:taxid|<n>`), so no
 accession-to-taxid table is needed and genomes NCBI does not hold are as easy as
@@ -2134,6 +2135,7 @@ any database you will analyse alongside, so the taxids agree.
 | `bracken` | one k-mer distribution per `--db_bracken_read_lengths` (default 50,75,100,150), into the Kraken2 directory | found there by `--bracken_read_length auto` |
 | `krakenuniq` | `krakenuniq-build` with KrakenUniq 1.0.4 | `--krakenuniq_db <outdir>/databases/krakenuniq` |
 | `sylph` | `sylph sketch` of the genomes (`-c 200`), plus a sylph-tax table with each genome's NCBI lineage in GTDB-style prefixes | `--run_sylph --sylph_db <outdir>/databases/sylph/<db_name>.syldb --sylph_taxonomy <outdir>/databases/<db_name>.sylph_taxonomy.tsv` |
+| `metaphlan` | species-specific marker genes chosen the way MetaPhlAn 4 chose its own (below), as a MetaPhlAn 4.2 database | `--run_metaphlan --metaphlan_db <outdir>/databases/metaphlan --metaphlan_index <db_name>` |
 
 `--db_kraken2_args`, `--db_kraken2_library_args`, `--db_krakenuniq_args` and
 `--db_sylph_args` pass anything else to the builders - for example
@@ -2152,11 +2154,66 @@ genomes under ~10 kb (then profile with `--sylph_args '-c 100'`).
 > under `process_high_memory`. A few hundred genomes build in minutes to hours.
 > Rebuilding core_nt this way is not what this is for.
 
+### A MetaPhlAn database from your genomes
+
+MetaPhlAn does not classify reads against genomes: it maps them to a few hundred
+marker genes per species, genes every strain of the species carries and no other
+organism does, and calls a species from the coverage of its markers
+(Blanco-Míguez et al., *Nat Biotechnol* 2023). Its official database cannot be
+extended - a marker is unique only against the 1.01 million genomes it was
+tested on, which are not distributed with it - but a new, standalone database
+can be made from any set of genomes, as HRGMv2 and HROM did for their catalogues.
+`--build_databases metaphlan` follows the recipe of the MetaPhlAn 4 Methods, as
+HROM reimplemented it ([netbiolab/HROM](https://github.com/netbiolab/HROM)):
+
+1. **Genes.** The sheet's `cds` file, or for an accession without one, the
+   CDS file NCBI distributes with an annotated assembly; pyrodigal otherwise,
+   trained on the genome (genetic code 4 when it codes markedly more, as for
+   *Spiroplasma* and *Mycoplasma*). Complete genes of 450-4,500 nt are kept.
+2. **Gene families.** All proteins clustered with MMseqs2 at 90% identity over
+   80% of both sequences.
+3. **Core families.** Genomes sharing a taxid are one species. A family is core
+   when it reaches at least the species' coreness threshold of its genomes - the
+   highest threshold that keeps 800 families, but never under 0.6 (0.5 for a
+   species of 100 genomes or more). A family in more than 10 species is dropped.
+4. **Uniqueness.** Each core family's representative is cut into 150-nt
+   fragments and mapped with Bowtie2 (`-a --very-sensitive`) against up to
+   `--db_metaphlan_max_genomes` genomes of every species, and against
+   `--db_metaphlan_screen`. A marker must reach its own species' genomes at the
+   coreness threshold, no screen sequence, and under 1% of any other species'.
+5. **Database.** Up to `--db_metaphlan_max_markers` (200) per species, unique
+   and longest first; a species with fewer than `--db_metaphlan_min_markers`
+   (10) is left out. Written as `<db_name>.pkl`, `<db_name>.fna` and its Bowtie2
+   index, with `<db_name>.mpa_species.tsv` saying how many candidates each
+   species lost at each test.
+
+Profile against it with `--run_metaphlan --metaphlan_db <outdir>/databases/metaphlan --metaphlan_index <db_name>`;
+species come out as `t__TAX<taxid>` under their NCBI lineage.
+
+> **Uniqueness is only tested against what the build sees.** A marker reaches no
+> other genome *of the sheet*. A read from an organism outside it that shares a
+> marker is credited to your species, so include the relatives and the usual
+> microbes of the tissue as genomes, and the host and vector as
+> `--db_metaphlan_screen` (FASTA, comma-separated, plain or gzipped). MetaPhlAn
+> needs coverage across many markers to call a species, so one shared marker
+> rarely makes a false call on its own - but a missing screen is how host reads
+> become a microbe.
+
+> **One genome per species is a weak core.** With a single genome every gene is
+> "core", including accessory genes other strains lack, and a strain without
+> them is underestimated. Several genomes per species fix the markers to what
+> the species shares.
+
+> **Eukaryotes need their coding sequences.** pyrodigal is a prokaryotic gene
+> finder and splits every intron-containing gene, so the run stops before gene
+> calling on a eukaryote with no `cds` file. Viruses are left out of the
+> MetaPhlAn database (MetaPhlAn profiles them from whole viral genomes), and
+> stay in the others.
+
 **What is not built here, and why:**
 
-- **MetaPhlAn and HUMAnN** use marker-gene and pangenome databases made by their
-  authors' own pipelines from curated genome sets; they are downloaded
-  (`metaphlan --install`, `humann_databases`), not built from a genome list.
+- **HUMAnN** uses pangenomes annotated against UniRef90 and a protein database
+  made by its authors' pipeline; they are downloaded (`humann_databases`).
 - **PathSeq** needs a BWA index image, a sequence dictionary and a taxonomy
   database built from GenBank accessions (`BwaMemIndexImageCreator`,
   `PathSeqBuildReferenceTaxonomy`); Broad distributes them prebuilt, and the
@@ -2454,6 +2511,8 @@ Outputs land in `differential_abundance/`: a results TSV per method (`taxon`, `l
 It is additive rather than exclusive: add `--skip_kraken2` to use MetaPhlAn *instead* of Kraken2, or leave Kraken2 on to run both over one set of reads. The invocation mirrors ezRun's `app-metaphlan.R`, which is what the databases under `/srv/GT/databases/metaphlan_databases` are laid out for.
 
 `--metaphlan_args` defaults to `-t rel_ab_w_read_stats`, which adds the `estimated_number_of_reads_from_the_clade` column. Per-sample profiles and one merged table land in `metaphlan/`.
+
+A database of your own genomes, for organisms the official one lacks, can be built with `--build_databases metaphlan` (see [Building databases](#a-metaphlan-database-from-your-genomes)).
 
 Differential abundance does not read MetaPhlAn output — see above for why.
 

@@ -2350,12 +2350,12 @@
             "type": "object",
             "fa_icon": "fas fa-database",
             "description": "Build the classifiers' databases from your own genomes, as a run of its own (--build_databases) instead of an analysis.",
-            "help_text": "With --build_databases the pipeline reads no sequencing data. It takes a sheet of genomes (--db_input), checks every taxid against the NCBI taxonomy, and builds the databases named into <outdir>/databases/ in the layout the analysis parameters read: --kraken2_db <outdir>/databases/kraken2 (with inspect.txt and, for bracken, one k-mer distribution per --db_bracken_read_lengths), --krakenuniq_db <outdir>/databases/krakenuniq, and --sylph_db <outdir>/databases/sylph/<db_name>.syldb with --sylph_taxonomy <outdir>/databases/<db_name>.sylph_taxonomy.tsv. See 'Building databases' in docs/usage.md, which also says where the databases this cannot build come from.",
+            "help_text": "With --build_databases the pipeline reads no sequencing data. It takes a sheet of genomes (--db_input), checks every taxid against the NCBI taxonomy, and builds the databases named into <outdir>/databases/ in the layout the analysis parameters read: --kraken2_db <outdir>/databases/kraken2 (with inspect.txt and, for bracken, one k-mer distribution per --db_bracken_read_lengths), --krakenuniq_db <outdir>/databases/krakenuniq, --sylph_db <outdir>/databases/sylph/<db_name>.syldb with --sylph_taxonomy <outdir>/databases/<db_name>.sylph_taxonomy.tsv, and --metaphlan_db <outdir>/databases/metaphlan with --metaphlan_index <db_name>. See 'Building databases' in docs/usage.md, which also says where the databases this cannot build come from.",
             "properties": {
                 "build_databases": {
                     "type": "string",
-                    "pattern": "^\\s*(kraken2|bracken|krakenuniq|sylph)(\\s*,\\s*(kraken2|bracken|krakenuniq|sylph))*\\s*$",
-                    "description": "Build these databases instead of running an analysis: a comma-separated list of kraken2, bracken, krakenuniq, sylph.",
+                    "pattern": "^\\s*(kraken2|bracken|krakenuniq|sylph|metaphlan)(\\s*,\\s*(kraken2|bracken|krakenuniq|sylph|metaphlan))*\\s*$",
+                    "description": "Build these databases instead of running an analysis: a comma-separated list of kraken2, bracken, krakenuniq, sylph, metaphlan.",
                     "help_text": "bracken needs kraken2 in the same list: its distributions are estimated by classifying the Kraken2 library, which only exists while that database is being built.",
                     "fa_icon": "fas fa-hammer"
                 },
@@ -2366,15 +2366,15 @@
                     "mimetype": "text/csv",
                     "pattern": "^\\S+\\.csv$",
                     "schema": "assets/schema_databases.json",
-                    "description": "Genome sheet for --build_databases: CSV with columns id, taxid, and fasta or accession (one per row).",
-                    "help_text": "`id` names the genome's files (letters, digits, '_' and '-'); `taxid` is the NCBI taxonomy id every sequence of the genome is assigned to; `fasta` is a local FASTA (optionally gzipped) or `accession` an NCBI assembly (GCF_* or GCA_*) downloaded with ncbi-genome-download.",
+                    "description": "Genome sheet for --build_databases: CSV with columns id, taxid, fasta or accession (one per row), and optionally cds.",
+                    "help_text": "`id` names the genome's files (letters, digits, single '_' and '-'); `taxid` is the NCBI taxonomy id every sequence of the genome is assigned to; `fasta` is a local FASTA (optionally gzipped) or `accession` an NCBI assembly (GCF_* or GCA_*) downloaded with ncbi-genome-download; `cds` is the genome's coding sequences, which the MetaPhlAn build uses as its genes and requires for eukaryotes.",
                     "fa_icon": "fas fa-file-csv"
                 },
                 "db_name": {
                     "type": "string",
                     "default": "reanatax_custom",
-                    "pattern": "^[A-Za-z0-9_.-]+$",
-                    "description": "Name of the sylph database and of the lineage table written with it.",
+                    "pattern": "^[A-Za-z0-9_-]+$",
+                    "description": "Name of the sylph and MetaPhlAn databases (the MetaPhlAn --index) and of the lineage table.",
                     "fa_icon": "fas fa-tag"
                 },
                 "db_taxonomy": {
@@ -2419,6 +2419,33 @@
                     "type": "string",
                     "description": "Extra `sylph sketch` arguments, e.g. '-c 100' (then pass the same -c to --sylph_args when profiling).",
                     "fa_icon": "fas fa-terminal"
+                },
+                "db_metaphlan_screen": {
+                    "type": "string",
+                    "description": "FASTA file(s), comma-separated, that a MetaPhlAn marker must not occur in: the host, the vector, anything a read could come from that is not in the database.",
+                    "help_text": "Marker uniqueness is only tested against the genomes of the build and these sequences. A marker shared with the host would credit host reads to a microbe; the screen removes it. Plain or gzipped.",
+                    "fa_icon": "fas fa-filter"
+                },
+                "db_metaphlan_max_markers": {
+                    "type": "integer",
+                    "default": 200,
+                    "minimum": 1,
+                    "description": "Markers kept per species in a MetaPhlAn build, perfectly unique and longest first (MetaPhlAn 4 keeps up to 200).",
+                    "fa_icon": "fas fa-hashtag"
+                },
+                "db_metaphlan_min_markers": {
+                    "type": "integer",
+                    "default": 10,
+                    "minimum": 1,
+                    "description": "A species with fewer markers is left out of the MetaPhlAn database (MetaPhlAn 4 discards SGBs with fewer than 10).",
+                    "fa_icon": "fas fa-hashtag"
+                },
+                "db_metaphlan_max_genomes": {
+                    "type": "integer",
+                    "default": 100,
+                    "minimum": 1,
+                    "description": "Genomes per species the MetaPhlAn uniqueness test maps against, the most contiguous first (MetaPhlAn 4 used up to 100).",
+                    "fa_icon": "fas fa-hashtag"
                 }
             }
         }

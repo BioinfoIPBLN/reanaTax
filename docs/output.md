@@ -540,6 +540,7 @@ Only with `--build_databases`, which writes these instead of an analysis:
 - `databases/krakenuniq/`: `database.kdb`, `database.idx`, `taxDB` and their companions. Pass the directory as `--krakenuniq_db`.
 - `databases/sylph/<db_name>.syldb`: the sketched genomes, for `--sylph_db`.
 - `databases/<db_name>.sylph_taxonomy.tsv`: each genome's NCBI lineage, for `--sylph_taxonomy`, and a record of where every genome sits on the taxonomy.
+- `databases/metaphlan/`: `<db_name>.pkl`, `<db_name>.fna` (the markers) and its six `*.bt2l` Bowtie2 files, for `--metaphlan_db` with `--metaphlan_index <db_name>`; and `<db_name>.mpa_species.tsv`, per species its genomes, coreness threshold, core families, the candidates rejected for coreness, for occurring in another species or in a screen sequence, and the markers kept, or why the species was left out.
 
 </details>
 

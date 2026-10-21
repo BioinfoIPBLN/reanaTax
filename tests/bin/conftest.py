@@ -16,13 +16,14 @@ import pytest
 BIN = Path(__file__).resolve().parents[2] / "bin"
 
 
-def _run(script, *args, cwd=None, timeout=120):
-    """Run bin/<script> with `args`; return the CompletedProcess (never raises on exit code)."""
+def _run(script, *args, cwd=None, timeout=120, stdin=None):
+    """Run bin/<script> with `args` (and `stdin` as its input); return the CompletedProcess (never raises on exit code)."""
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONNOUSERSITE="1")
     return subprocess.run(
         [sys.executable, str(BIN / script), *[str(arg) for arg in args]],
         cwd=cwd,
         env=env,
+        input=stdin,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -31,5 +32,5 @@ def _run(script, *args, cwd=None, timeout=120):
 
 @pytest.fixture
 def run_script():
-    """`run_script("name.py", *args, cwd=...)` -> subprocess.CompletedProcess."""
+    """`run_script("name.py", *args, cwd=..., stdin=...)` -> subprocess.CompletedProcess."""
     return _run

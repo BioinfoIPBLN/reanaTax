@@ -28,7 +28,7 @@ Given a BioProject/SRA/ENA accession, a folder of FASTQ files, or a samplesheet,
 9. Aggregate report ([`MultiQC`](http://multiqc.info/))
 10. Optional AI summaries written into those reports by any OpenAI-compatible LLM endpoint (off unless `--llm_endpoint` is given)
 
-Separately, `--build_databases` builds the Kraken2, Bracken, KrakenUniq and sylph databases from a sheet of your own genomes (local FASTA or NCBI accession), in the layout the analysis reads — for organisms the prebuilt databases miss. See [Building databases](docs/usage.md#building-databases).
+Separately, `--build_databases` builds the Kraken2, Bracken, KrakenUniq, sylph and MetaPhlAn databases from a sheet of your own genomes (local FASTA or NCBI accession), in the layout the analysis reads — for organisms the prebuilt databases miss. See [Building databases](docs/usage.md#building-databases).
 
 Results can be explored interactively with **exploreMetaTax**, either at
 <https://shiny-public.fgcz.uzh.ch/app/exploreMetaTax> (recommended — more up to

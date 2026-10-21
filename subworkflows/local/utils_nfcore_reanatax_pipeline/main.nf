@@ -200,7 +200,7 @@ workflow PIPELINE_COMPLETION {
 // The databases --build_databases asks for, checked against what can be built.
 //
 def buildDatabaseTools(build_databases) {
-    def known = ['kraken2', 'bracken', 'krakenuniq', 'sylph']
+    def known = ['kraken2', 'bracken', 'krakenuniq', 'sylph', 'metaphlan']
     def chosen = commaList((build_databases ?: '').toString().toLowerCase())
     def unknown = chosen.findAll { tool -> !known.contains(tool) }
     if (unknown) {
@@ -212,7 +212,7 @@ def buildDatabaseTools(build_databases) {
 def validateBuildParameters() {
     def tools = buildDatabaseTools(params.build_databases)
     if (!tools) {
-        error("--build_databases names no database. Give a comma-separated list of ${['kraken2', 'bracken', 'krakenuniq', 'sylph'].join(', ')}.")
+        error("--build_databases names no database. Give a comma-separated list of ${['kraken2', 'bracken', 'krakenuniq', 'sylph', 'metaphlan'].join(', ')}.")
     }
     if (tools.contains('bracken') && !tools.contains('kraken2')) {
         error("--build_databases bracken needs kraken2 in the same list: Bracken's distributions are estimated by classifying the Kraken2 database's own library, which only exists while that database is being built.")
@@ -223,6 +223,12 @@ def validateBuildParameters() {
     def analysis = ['--input': params.input, '--input_dir': params.input_dir, '--input_accessions': params.input_accessions].findAll { _flag, value -> value }.keySet()
     if (analysis) {
         error("--build_databases is a run of its own and reads no sequencing data, but ${analysis.join(' and ')} ${analysis.size() == 1 ? 'was' : 'were'} given. Build the databases first, then point the analysis at them.")
+    }
+    if (params.db_metaphlan_screen && !tools.contains('metaphlan')) {
+        log.warn("--db_metaphlan_screen is only read by the MetaPhlAn build, and metaphlan is not in --build_databases.")
+    }
+    if (params.db_metaphlan_min_markers > params.db_metaphlan_max_markers) {
+        error("--db_metaphlan_min_markers (${params.db_metaphlan_min_markers}) is above --db_metaphlan_max_markers (${params.db_metaphlan_max_markers}): no species could be kept.")
     }
     def lengths = params.db_bracken_read_lengths.toString().tokenize(',').collect { length -> length.trim() }
     if (tools.contains('bracken') && (!lengths || lengths.any { length -> !(length ==~ /^[0-9]+$/) })) {

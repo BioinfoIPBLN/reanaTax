@@ -1,6 +1,7 @@
 // Every genome's taxid checked against the taxonomy before anything is built,
 // and the lineage of each written as the metadata sylph-tax attaches to sylph's
-// genome-level calls. See bin/db_lineage.py.
+// genome-level calls, and, for a MetaPhlAn build (ext.args --mpa-output), in
+// MetaPhlAn's form. See bin/db_lineage.py.
 process DB_LINEAGE {
     tag "${meta.id}"
     label 'process_single'
@@ -16,15 +17,18 @@ process DB_LINEAGE {
 
     output:
     tuple val(meta), path("*.sylph_taxonomy.tsv"), emit: sylph_taxonomy
+    tuple val(meta), path("*.mpa_taxonomy.tsv"), emit: mpa_taxonomy, optional: true
     tuple val("${task.process}"), val('python'), eval('python3 --version | sed "s/Python //"'), emit: versions_python, topic: versions
 
     when:
     task.ext.when == null || task.ext.when
 
     script:
+    def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
     db_lineage.py \\
+        ${args} \\
         --taxonomy taxonomy \\
         --genomes ${genomes} \\
         --output ${prefix}.sylph_taxonomy.tsv
