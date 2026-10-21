@@ -9,6 +9,16 @@ Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-
 
 ### `Changed`
 
+- Kraken2 is 2.17.2 (was 2.1.6), in both `KRAKEN2_KRAKEN2` and `KRAKEN2_DAEMON`. Every read gets the same call as before: the per-read output was identical on three CLID libraries, 2.23 M reads against core_nt, and so was the speed. Two things in the report change.
+  - **Minimizer counts.** Column 4 (minimizers observed) now counts hits that 2.1 undercounted: 1.5 to 5 times as many, 3 on the median.
+  - **Domain rank.** Domains are ranked `D`, not `R2`.
+
+  The minimizer filter's duplication ratio is built on that column, so `--minimizer_max_duplication` is now unset by default and resolves to 300 for Kraken2 and 100 for KrakenUniq, whose counts did not change. On 70 PRISM CLID runs classified with both versions, 300 reproduced 2.1.6's decisions at 100:
+  - **Per run:** all but 48 of 13,118 calls agreed, and none of the 48 is a known infection. Keeping 100 would have dropped 297 more.
+  - **Pooled, as the pipeline runs the filter:** all 1,779 calls agreed.
+
+  The container is rebuilt from bioconda through Seqera's community service, with `gzip`, `bzip2` and `util-linux` added, because the service's new minimal base lacks them. Without `gzip`, the `kraken2` wrapper classifies no reads from compressed input and still exits 0; without `flock`, the daemon cannot queue its clients. The PRISM module keeps `kraken2=2.1.3`, PRISM's own pin. Kraken2 tasks recompute once on this version.
+
 - fastp trims homopolymer tails by default (`--trim_poly_x`, a new parameter, `true`; not applied under `--single_cell`, whose barcode read can end in poly-T next to the UMI). Libraries that read into the 3' end (Visium, 10x and Drop-seq cDNA reads, 3' mRNA-seq) carry poly(A) on many reads. Under `--very-sensitive --no-softclip`, HISAT2 placed those reads on genomic poly(A) tracts, absorbing the rest of the read as insertions, and its `-k 50` search through such tracts made alignment slow. On the Visium deposit PRJNA912890, up to 99.8% of read 1 in a library was 55 bp of other sequence and 95 bp of poly(A): 80% of those reads aligned that way, and trimming made alignment 23 times faster (137 s against 6 s per 100,000 pairs; chunks had taken up to 15 h). Trimming changes fastp's arguments, so resumed runs recompute from trimming once.
 
 - `--hisat2_args` defaults to `--bowtie2-dp 2 --score-min L,0,-1 --no-softclip -k 5` (was `--very-sensitive`): the preset's scoring, without soft-clipping, and 5 alignments sought instead of 50. `--very-sensitive` sets `--score-min L,0,-1`, and HISAT2 charges 1 point per soft-clipped base at Illumina qualities, so a read that matched the host over 9-25 bp and clipped the rest counted as host. On PRISM's WGS negative controls that removed 14-39% of the reads, almost none of them human. On 70 low-count CLID runs the known infection is now found in 36 instead of 26, none lost, at five times the human reads reaching Kraken2 (removed there by `--drop_host_taxon`). `-k 5` because host depletion uses one alignment: on ordinary libraries it was 1.25-1.5 times faster than `-k 50` and removed the same reads to within 0.004%. `--hisat2_max_alignments` now works with the default. RNA runs recompute their host alignment once.

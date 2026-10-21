@@ -770,11 +770,13 @@
                     "fa_icon": "fas fa-hashtag"
                 },
                 "minimizer_max_duplication": {
-                    "type": "number",
-                    "default": 100,
+                    "type": [
+                        "number",
+                        "null"
+                    ],
                     "minimum": 0,
-                    "description": "...and its observed/distinct ratio must stay below this.",
-                    "help_text": "The average number of times each distinct minimizer was re-hit. A real organism spreads reads over its genome, so most of what it hits is new; a call from one locus re-hits the same handful repeatedly. The limit rises with coverage for a taxon with genome-scale breadth; see `--minimizer_duplication_coverage`.",
+                    "description": "...and its observed/distinct ratio must stay below this. Unset: 300 for Kraken2, 100 for KrakenUniq.",
+                    "help_text": "The average number of times each distinct minimizer was re-hit. A real organism spreads reads over its genome, so most of what it hits is new; a call from one locus re-hits the same handful repeatedly. The limit rises with coverage for a taxon with genome-scale breadth; see `--minimizer_duplication_coverage`.\n\nThe default differs by classifier because the counts do. Kraken2 2.17 counts minimizer hits that 2.1 undercounted: on PRISM's CLID runs a taxon's ratio rose 3-fold on the median (1.5-5-fold), with every read call unchanged, and 300 reproduced 2.1's decisions at 100 in all but 48 of 13,118 per-run calls, none of them a known infection. KrakenUniq's k-mer counts did not change, so it keeps 100.",
                     "fa_icon": "fas fa-clone"
                 },
                 "minimizer_duplication_coverage": {

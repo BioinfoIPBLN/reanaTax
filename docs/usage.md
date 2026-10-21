@@ -548,7 +548,7 @@ Three quantities are derived, whichever classifier produced the report:
 | | meaning | parameter |
 | --- | --- | --- |
 | `distinct` | distinct minimizers (Kraken2) or k-mers (KrakenUniq) the reads cover | `--minimizer_min_distinct` (10) |
-| `duplication` | observed ÷ distinct — how often the same ones are re-hit | `--minimizer_max_duplication` (100) |
+| `duplication` | observed ÷ distinct — how often the same ones are re-hit | `--minimizer_max_duplication` (300 for Kraken2, 100 for KrakenUniq) |
 | `coverage` | distinct observed ÷ distinct held in the database for that clade | `--minimizer_min_coverage` (0, off) |
 
 A taxon holding fewer than `--minimizer_min_reads` (50) reads is **never judged**:
@@ -563,11 +563,18 @@ deep enough that a real taxon should be well covered.
 **The duplication limit rises with coverage.** A small genome sequenced deeply
 runs out of distinct minimizers long before it runs out of reads, so its
 duplication climbs with depth, and a flat limit condemns exactly the organisms
-that are there in force: on PRISM's CLID benchmark the flat 100 removed RSV at a
-million reads and rubella at 15,000, each the top species of its run. Above
-`--minimizer_duplication_coverage` (0.01) the limit becomes
-`--minimizer_max_duplication × coverage / 0.01`. RSV at 10% coverage may reach
-1,000, rubella at 3.5% may reach 350.
+that are there in force: on PRISM's CLID benchmark, with Kraken2 2.1's counts,
+the flat 100 removed RSV at a million reads and rubella at 15,000, each the top
+species of its run. Above `--minimizer_duplication_coverage` (0.01) the limit
+becomes `--minimizer_max_duplication × coverage / 0.01`. With Kraken2's 300, RSV
+at 10% coverage may reach 3,000 and rubella at 3.5% may reach 1,050.
+
+The two classifiers have different defaults because their counts differ.
+Kraken2 2.17 counts minimizer hits that 2.1 undercounted. On PRISM's CLID runs,
+a taxon's duplication rose 3-fold on the median (1.5-5-fold) while every read's
+call stayed the same, and 300 reproduced 2.1's decisions at 100 in all but 48
+of 13,118 per-run calls, none of them a known infection. KrakenUniq's k-mer
+counts did not change, so it keeps 100.
 
 That only applies to a taxon with at least `--minimizer_duplication_min_distinct`
 (1000) distinct minimizers, roughly 5 kb of sequence at Kraken2's defaults. A

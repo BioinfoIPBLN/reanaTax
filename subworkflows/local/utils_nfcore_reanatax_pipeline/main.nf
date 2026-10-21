@@ -706,13 +706,14 @@ def redactPipelineInfo(outdir) {
 //
 // The minimizer-evidence thresholds, gathered so the taxonomy subworkflows take
 // one argument rather than seven positional numbers it would be easy to
-// transpose.
+// transpose. The duplication limit's default depends on the classifier (see
+// --minimizer_max_duplication in nextflow.config).
 //
-def minimizerThresholds() {
+def minimizerThresholds(String classifier) {
     return [
         min_reads: params.minimizer_min_reads,
         min_distinct: params.minimizer_min_distinct,
-        max_duplication: params.minimizer_max_duplication,
+        max_duplication: params.minimizer_max_duplication != null ? params.minimizer_max_duplication : (classifier == 'krakenuniq' ? 100 : 300),
         min_coverage: params.minimizer_min_coverage,
         distinct_scale: params.minimizer_distinct_scale,
         duplication_coverage: params.minimizer_duplication_coverage,

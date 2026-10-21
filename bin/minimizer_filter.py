@@ -41,6 +41,11 @@ the 529 taxa the flat limit condemned clears both bars (squirrel monkey
 retrovirus, a real cell-line passenger at 80% coverage), and both real
 infections it condemned do.
 
+Those numbers are Kraken2 2.1's. Kraken2 2.17 counts minimizer hits that 2.1
+undercounted, about three times as many, so the same reads show a higher
+duplication: the pipeline passes --max-duplication 300 for Kraken2 reports and
+100, this script's default, for KrakenUniq's.
+
 Reads alone are never a reason to drop: a taxon under --min-reads is left
 untouched, because a handful of reads cannot demonstrate breadth either way and
 condemning them would just re-derive the abundance filter that already ran.
