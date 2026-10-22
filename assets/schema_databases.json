@@ -11,17 +11,13 @@
                 "type": "string",
                 "pattern": "^[A-Za-z0-9-]+(_[A-Za-z0-9-]+)*$",
                 "errorMessage": "id must be given and use only letters, digits, '-' and single '_' (not '__', which the builds use as a separator): it names the genome's files, and sylph-tax matches genomes by file name",
-                "meta": [
-                    "id"
-                ]
+                "meta": ["id"]
             },
             "taxid": {
                 "type": "integer",
                 "minimum": 1,
                 "errorMessage": "taxid must be a positive NCBI taxonomy id: every sequence of the genome is assigned to it",
-                "meta": [
-                    "taxid"
-                ]
+                "meta": ["taxid"]
             },
             "fasta": {
                 "type": "string",
@@ -43,9 +39,6 @@
                 "errorMessage": "cds, if given, must be an existing nucleotide FASTA of the genome's coding sequences (.fa, .fasta, .fna, .ffn or .fas, optionally gzipped)"
             }
         },
-        "required": [
-            "id",
-            "taxid"
-        ]
+        "required": ["id", "taxid"]
     }
 }

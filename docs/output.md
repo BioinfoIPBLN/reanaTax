@@ -102,7 +102,7 @@ Published by default so later runs can skip the build with `--hisat2_index <outd
 
 The **unaligned FASTQs are the pipeline's main intermediate product** — they are the non-host fraction that Kraken2 classifies, and they are also the right input for any downstream assembly or targeted analysis you want to run yourself.
 
-For paired-end data these are HISAT2's `--un-conc-gz` output: pairs that did not align *concordantly*. A pair where only one mate hit the host is therefore kept, which is the conservative choice for depletion.
+For paired-end data these are HISAT2's `--un-conc-gz` output: pairs that did not align _concordantly_. A pair where only one mate hit the host is therefore kept, which is the conservative choice for depletion.
 
 The overall alignment rate in the summary log is the number to look at first — it is the host fraction of the library.
 
@@ -122,7 +122,7 @@ Turn either output off with `--save_host_bam false` / `--save_unaligned false`.
 
 [Qualimap](http://qualimap.conesalab.org/) BamQC covers what the samtools statistics above cannot: coverage depth and its uniformity across the reference, duplication rate, GC content of the mapped reads, and the mapping-quality and insert-size distributions. Its headline numbers also appear in MultiQC.
 
-Read it with the host-depletion context in mind. A low genome fraction and shallow, patchy coverage are the *expected* result for a library that is not dominated by host — they are only a warning sign when paired with poor mapping quality, which usually means the host reference is the wrong one.
+Read it with the host-depletion context in mind. A low genome fraction and shallow, patchy coverage are the _expected_ result for a library that is not dominated by host — they are only a warning sign when paired with poor mapping quality, which usually means the host reference is the wrong one.
 
 `--skip_qualimap` turns the step off; `--qualimap_gff` adds feature-level statistics.
 
@@ -157,7 +157,7 @@ Only written with `--quantify_host` and `--gtf`. These come from the same librar
 
 [Kraken2](https://ccb.jhu.edu/software/kraken2/) assigns each read to a taxon by exact k-mer matching. The report columns are: percentage of reads in the clade, reads in the clade, reads assigned directly to the taxon, rank code, NCBI taxonomy ID, and name.
 
-Read the percentages as *read* abundance, not organism abundance — that is what Bracken corrects.
+Read the percentages as _read_ abundance, not organism abundance — that is what Bracken corrects.
 
 A sample in which Kraken2 classified nothing (its report holds only the `unclassified` row) is still published and still reaches MultiQC, but is excluded from Bracken and from the combined tables, with a warning naming the sample. Both `combine_kreports.py` and Bracken fail outright on such reports, and one empty sample should not take down the run. A sample with classified reads but no taxon at `--bracken_level` reaching `--bracken_threshold` - what a blank or any low-biomass library looks like - is likewise left out of Bracken and the Bracken tables with a warning, since Bracken exits with "no reads found" on it; it stays in the Kraken2 tables.
 
@@ -188,10 +188,10 @@ Neither filter removes anything itself. Both write a taxid list that the abundan
 
 - `control_filter/` (with `--negative_controls` or `--prevalence_filter`)
   - `kraken2_combined_report.control_evidence.tsv` and `bracken_combined_<level>.control_evidence.tsv`: per taxon, its total reads, how many libraries carry it and at what prevalence, the control level and the threshold that follows from it (both counts per million classified reads), how many libraries it survived in and how many it was zeroed in, and a verdict — `kept`, `control_level_somewhere`, `control_level_everywhere` or `ubiquitous`.
-  - `*.control_drop.txt`: the taxids condemned outright, being those that failed in *every* library plus those `--prevalence_filter` removed.
+  - `*.control_drop.txt`: the taxids condemned outright, being those that failed in _every_ library plus those `--prevalence_filter` removed.
   - `*.control_cells.tsv`: `taxid<TAB>sample` for every cell that was zeroed. This is the per-library half of the verdict, written out because objects built from the per-read assignments rather than from the combined tables — the cell-by-taxon matrix above all — cannot see the zeroing otherwise. `--sc_apply_drop_list` feeds it to the single-cell filter, so the cohort profile and the single-cell profile cannot disagree about a cell one of them removed. The kreport's list is the one used there: Bracken's table is species-only, and the matrix carries whatever rank Kraken2 assigned.
 
-This is the only step whose verdict is **per library rather than per taxon**, and the only one that addresses index hopping and well-to-well carryover at all: those put genuine reads of a genuine organism into the wrong library, so no evidence filter can find fault with the reads, and the same taxon is then signal in one library and carryover in the next. It therefore rewrites the table — the failing cells are zeroed — rather than only naming taxids, and it runs *before* the abundance filter so the surviving fractions are recomputed against what is left. `control_level_somewhere` is the verdict a per-taxon filter cannot produce.
+This is the only step whose verdict is **per library rather than per taxon**, and the only one that addresses index hopping and well-to-well carryover at all: those put genuine reads of a genuine organism into the wrong library, so no evidence filter can find fault with the reads, and the same taxon is then signal in one library and carryover in the next. It therefore rewrites the table — the failing cells are zeroed — rather than only naming taxids, and it runs _before_ the abundance filter so the surviving fractions are recomputed against what is left. `control_level_somewhere` is the verdict a per-taxon filter cannot produce.
 
 The rewritten tables themselves are not published: they are intermediates that the abundance filter reads, and two tables in one directory differing only in which cells are zero would be a trap. `kraken2/` and `bracken/` hold the published before-and-after as usual, and the evidence table says which cells went.
 
@@ -212,7 +212,7 @@ The control libraries are never filtered — a control cannot be judged against 
 
 Each filter asks a different question of the same reports. `--minimizer_filter` asks whether a taxon's reads cover enough of its reference; `--host_kmer_filter` asks whether they are host sequence the aligner missed; `--shuffle_control` asks how much of the signal the database would have produced from composition alone; `--gene_diversity_filter` asks whether the reads spread over the genome or pile onto one locus; `--negative_controls` asks whether there is more of it here than arrives without a sample. Surviving one is no argument against the others. See [usage](usage.md#filtering-on-evidence-not-abundance---minimizer_filter).
 
-The first four are all blind to carryover and index hopping, and measurably so: on the CSI-Microbes plate the distinct-minimizers-per-read ratio ranks the carryover calls *above* the true positives (AUC 0.415). Hopped reads are the same reads that the neighbouring well produced correctly, so there is nothing in them for an evidence filter to find. Only `--negative_controls` speaks to that.
+The first four are all blind to carryover and index hopping, and measurably so: on the CSI-Microbes plate the distinct-minimizers-per-read ratio ranks the carryover calls _above_ the true positives (AUC 0.415). Hopped reads are the same reads that the neighbouring well produced correctly, so there is nothing in them for an evidence filter to find. Only `--negative_controls` speaks to that.
 
 `--shuffle_control` is blind to host carry-over — carry-over reads are real sequence, and shuffling removes them — so a carried-over taxon passes it perfectly. Read it beside `host_kmer_filter/`, never instead of it.
 
@@ -232,9 +232,9 @@ The first four are all blind to carryover and index hopping, and measurably so: 
 
 </details>
 
-  - `reanatax.cell_type_enrichment.tsv` (with `--sc_cell_metadata`): per taxon and cell type — observed and expected infected cells, log2FC, Stouffer-combined p and BH-adjusted q.
-  - `reanatax.cooccurrence.tsv`, `reanatax.doublet_check.tsv`: taxon pairs found together in single cells more often than chance, and the doublet control that says whether to believe it.
-  - `<sample>.cell_taxa_sweep.tsv`: the same matrix at `--sc_min_umis` 1 through 5. Check your conclusion survives the sweep before reporting it.
+- `reanatax.cell_type_enrichment.tsv` (with `--sc_cell_metadata`): per taxon and cell type — observed and expected infected cells, log2FC, Stouffer-combined p and BH-adjusted q.
+- `reanatax.cooccurrence.tsv`, `reanatax.doublet_check.tsv`: taxon pairs found together in single cells more often than chance, and the doublet control that says whether to believe it.
+- `<sample>.cell_taxa_sweep.tsv`: the same matrix at `--sc_min_umis` 1 through 5. Check your conclusion survives the sweep before reporting it.
 
 Join `cell_taxa.tsv` to the Solo matrix **on the barcode** — that is the whole point of the branch, and the two are guaranteed to use the same barcode vocabulary because both come from STARsolo's corrected `CB`.
 
@@ -410,7 +410,7 @@ Nothing in this pipeline reads it. The combined tables are already a taxa-by-sam
 
 Built by [kraken-biom](https://github.com/smdabdoub/kraken-biom) from the same per-sample reports Krona uses, then **restricted to the taxa that survived the filters**, so it agrees with `*_filtered.tsv` rather than contradicting it. The unfiltered table is published beside it when the two differ, because a BIOM handed to another tool is exactly where an unexplained discrepancy is hardest to chase down.
 
-Every rank from domain to species is present as its own observation (`--max D --min S`), not just species. Counts stay additive: a species row carries its clade's reads, and a row above it carries only the reads that stopped at that rank. This matters more here than it looks — on the CSI-Microbes plate every false positive the negative-control filter removed sat at *genus*, and kraken-biom's own default of `--max O` would have started the table below the ranks where that signal lives.
+Every rank from domain to species is present as its own observation (`--max D --min S`), not just species. Counts stay additive: a species row carries its clade's reads, and a row above it carries only the reads that stopped at that rank. This matters more here than it looks — on the CSI-Microbes plate every false positive the negative-control filter removed sat at _genus_, and kraken-biom's own default of `--max O` would have started the table below the ranks where that signal lives.
 
 BIOM 1.0 (JSON) is the default because phyloseq's `import_biom` reads it without `rhdf5`. For BIOM 2.1 (HDF5), either pass `ext.args2 = '--format hdf5'` to `KRAKENBIOM` or run `biom convert -i table.biom -o table.hdf5.biom --to-hdf5` afterwards.
 

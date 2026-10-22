@@ -29,14 +29,14 @@ Exactly one of the three input options must be given. The pipeline stops with an
 
 Supported accession types are exactly those `fastq-dl` accepts:
 
-| Type       | Prefixes            | Example      |
-| ---------- | ------------------- | ------------ |
-| BioProject | PRJEB, PRJNA, PRJDB | `PRJNA480016` |
-| Study      | ERP, DRP, SRP       | `SRP158268`   |
+| Type       | Prefixes            | Example        |
+| ---------- | ------------------- | -------------- |
+| BioProject | PRJEB, PRJNA, PRJDB | `PRJNA480016`  |
+| Study      | ERP, DRP, SRP       | `SRP158268`    |
 | BioSample  | SAMD, SAME, SAMN    | `SAMN06479985` |
-| Sample     | ERS, DRS, SRS       | `SRS2024210`  |
-| Experiment | ERX, DRX, SRX       | `SRX4563689`  |
-| Run        | ERR, DRR, SRR       | `SRR7706354`  |
+| Sample     | ERS, DRS, SRS       | `SRS2024210`   |
+| Experiment | ERX, DRX, SRX       | `SRX4563689`   |
+| Run        | ERR, DRR, SRR       | `SRR7706354`   |
 
 > [!NOTE]
 > GEO accessions (`GSE*`/`GSM*`) are **not** supported by fastq-dl. Open the GEO page and use the linked SRA study (`SRP…`) or BioProject (`PRJNA…`) instead. The pipeline detects GEO accessions and tells you this rather than failing later.
@@ -76,11 +76,11 @@ CONTROL_REP1,AEG588A1_S1_L003_R1_001.fastq.gz,AEG588A1_S1_L003_R2_001.fastq.gz
 TREATMENT_REP1,AEG588A4_S4_L003_R1_001.fastq.gz,
 ```
 
-| Column    | Description                                                                                                       |
-| --------- | ----------------------------------------------------------------------------------------------------------------- |
-| `sample`  | Sample name. Repeat it across rows to declare multiple runs of the same sample; they are concatenated.              |
-| `fastq_1` | Full path to the FASTQ file for read 1. Must end `.fastq.gz` or `.fq.gz`.                                            |
-| `fastq_2` | Full path to the FASTQ file for read 2. Leave empty for single-end data.                                             |
+| Column    | Description                                                                                            |
+| --------- | ------------------------------------------------------------------------------------------------------ |
+| `sample`  | Sample name. Repeat it across rows to declare multiple runs of the same sample; they are concatenated. |
+| `fastq_1` | Full path to the FASTQ file for read 1. Must end `.fastq.gz` or `.fq.gz`.                              |
+| `fastq_2` | Full path to the FASTQ file for read 2. Leave empty for single-end data.                               |
 
 All runs of one sample must have the same endedness.
 
@@ -122,7 +122,7 @@ shorter reads.
 **Very short reads are flagged.** When trimmed reads average 60 bp or less, the
 run says so once, naming the samples: each such read holds only a few of
 Kraken2's 35-mers, sylph loses most of its sensitivity at that length (Ma et al.,
-*J Mol Diagn* 2026, benchmarking 50 bp clinical libraries), and MetaPhlAn
+_J Mol Diagn_ 2026, benchmarking 50 bp clinical libraries), and MetaPhlAn
 discards every read shorter than 70 bp by default. Pass
 `--metaphlan_args '-t rel_ab_w_read_stats --read_min_len 40'` to keep them, at
 the cost of more ambiguous marker hits.
@@ -210,12 +210,12 @@ by 4.x cannot be read by 6.x/7.x. Rebuild it, or drop `--sortmerna_index`.
 
 `--host` takes the reference in whatever form you have it, and works out which it is from the value:
 
-| You pass                                | Detected as | Notes                                                              |
-| --------------------------------------- | ----------- | ------------------------------------------------------------------ |
-| `GCF_000001405.40` / `GCA_009914755.4`  | Accession   | Downloaded from NCBI.                                               |
-| `9606`                                  | Taxonomy ID | Resolves to that taxon's RefSeq reference assembly.                 |
-| a directory, or a `.tar.gz`/`.tgz`      | HISAT2 index | Fastest — nothing is built. The directory must hold `*.ht2` files. |
-| any other path or URL                   | Genome FASTA | Plain or gzipped. The index is built once and reused in the run.   |
+| You pass                               | Detected as  | Notes                                                              |
+| -------------------------------------- | ------------ | ------------------------------------------------------------------ |
+| `GCF_000001405.40` / `GCA_009914755.4` | Accession    | Downloaded from NCBI.                                              |
+| `9606`                                 | Taxonomy ID  | Resolves to that taxon's RefSeq reference assembly.                |
+| a directory, or a `.tar.gz`/`.tgz`     | HISAT2 index | Fastest — nothing is built. The directory must hold `*.ht2` files. |
+| any other path or URL                  | Genome FASTA | Plain or gzipped. The index is built once and reused in the run.   |
 
 ```bash
 --host GCF_000001405.40                    # download it
@@ -254,10 +254,10 @@ genomic DNA that is a liability - it will split a read across an "intron" that
 is not one - and it has no local alignment mode. So host depletion picks the
 aligner per library:
 
-| `--host_aligner` | what it does |
-| --- | --- |
-| `auto` (default) | Bowtie2 for DNA libraries, HISAT2 for RNA and for libraries of unknown kind |
-| `hisat2` / `bowtie2` | one aligner for every library |
+| `--host_aligner`     | what it does                                                                |
+| -------------------- | --------------------------------------------------------------------------- |
+| `auto` (default)     | Bowtie2 for DNA libraries, HISAT2 for RNA and for libraries of unknown kind |
+| `hisat2` / `bowtie2` | one aligner for every library                                               |
 
 Under `auto` the kind comes from the archive for accessions: the library
 strategy first (RNA-Seq, ssRNA-seq, miRNA-Seq, ... are RNA; WGS, WXS, AMPLICON,
@@ -298,12 +298,12 @@ With `--save_host_bam false` it writes no host BAM at all: HISAT2's output goes 
 
 **On by default.** Measured across four vulvar-swab RNA libraries (PRJNA1392516):
 
-| | carry-over before | after | non-host reads lost |
-| --- | --- | --- | --- |
-| Swab 7 | 0.52% | 0.00% | 2.85% |
-| Swab 21 | 0.57% | 0.00% | 3.58% |
-| Swab 22 | 2.93% | 0.00% | 3.59% |
-| Swab 26 | 13.44% | 0.00% | 2.70% |
+|         | carry-over before | after | non-host reads lost |
+| ------- | ----------------- | ----- | ------------------- |
+| Swab 7  | 0.52%             | 0.00% | 2.85%               |
+| Swab 21 | 0.57%             | 0.00% | 3.58%               |
+| Swab 22 | 2.93%             | 0.00% | 3.59%               |
+| Swab 26 | 13.44%            | 0.00% | 2.70%               |
 
 The two costs are not equivalent, which is why this is the default rather than an opt-in. The loss is **uniform** — ~3% of reads from every sample, composition unchanged, so it cannot bias comparisons between samples. Carry-over is **sample-specific**, it ranged 0.5–13.5% across four libraries from one study, and you cannot know it is low until after you have measured it. On the matching DNA libraries it reached 62%.
 
@@ -321,7 +321,7 @@ Set `--require_both_mates_unmapped false` to get the `--un-conc-gz` behaviour ba
 
 A fifth reference is refused up front rather than dropped, because a host reference that is silently ignored leaves host sequence in the non-host fraction and nothing downstream can tell that from a real microbial signal. The limit is the number of depletion passes the workflow declares — Nextflow needs one alias per invocation of a subworkflow, so the passes are named at compile time. Raising it means adding a `HOST_DEPLETION_HISAT2` alias and a `PREPARE_HOST_REFERENCE` alias in `workflows/reanatax.nf`, its two naming rules in `conf/modules.config`, and a higher `maxHostPasses()`.
 
-**Two assemblies of one species** is the common case and worth the second pass on its own. GRCh38 is missing most centromeric and satellite sequence and a good deal of structurally variant genome; reads from those regions do not align to it, survive depletion, and then get classified as whatever microbe shares a k-mer with them. T2T-CHM13 contains that sequence, so the second pass removes them. Monteleone et al. (*Microbiome* 2026) use exactly this pairing for the same reason.
+**Two assemblies of one species** is the common case and worth the second pass on its own. GRCh38 is missing most centromeric and satellite sequence and a good deal of structurally variant genome; reads from those regions do not align to it, survive depletion, and then get classified as whatever microbe shares a k-mer with them. T2T-CHM13 contains that sequence, so the second pass removes them. Monteleone et al. (_Microbiome_ 2026) use exactly this pairing for the same reason.
 
 **Further references** are for sequence the library genuinely contains but the primary assembly does not:
 
@@ -336,7 +336,7 @@ Each pass is named apart in the outputs (`<id>.host1`, `<id>.host2`, `<id>.host3
 
 UniVec is NCBI's set of vector, adapter, linker and primer sequences. Reads
 from them are common in real libraries, and they classify to whatever organism
-the vector was derived from — which for most cloning vectors is *E. coli* or a
+the vector was derived from — which for most cloning vectors is _E. coli_ or a
 coliphage.
 
 ```bash
@@ -353,15 +353,15 @@ inherit `--hisat2_args`; it runs end-to-end at HISAT2's own default score
 threshold, and `--univec_hisat2_args` replaces the arguments wholesale rather
 than adding to them.
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--univec_source` | NCBI `UniVec_Core` | the database; a local FASTA works offline |
-| `--univec_hisat2_args` | `--no-spliced-alignment --score-min L,0,-0.2` | replaces `--hisat2_args` for this pass |
-| `--univec_save_bam` | false | keep the vector alignments |
+| Parameter              | Default                                       | Meaning                                   |
+| ---------------------- | --------------------------------------------- | ----------------------------------------- |
+| `--univec_source`      | NCBI `UniVec_Core`                            | the database; a local FASTA works offline |
+| `--univec_hisat2_args` | `--no-spliced-alignment --score-min L,0,-0.2` | replaces `--hisat2_args` for this pass    |
+| `--univec_save_bam`    | false                                         | keep the vector alignments                |
 
 **Read this before turning it on.** UniVec's plasmid and phage backbones are
-built from real *E. coli* and coliphage sequence — pBR322, the pUC series, M13,
-lambda. Depleting against UniVec therefore removes genuine *E. coli* and
+built from real _E. coli_ and coliphage sequence — pBR322, the pUC series, M13,
+lambda. Depleting against UniVec therefore removes genuine _E. coli_ and
 coliphage reads along with the vector artefacts. On a gut, stool or clinical
 isolate study where those organisms are part of the question, this deletes
 signal, not noise. On a tissue or swab study where they are not expected, it is
@@ -382,11 +382,11 @@ for and is not responsible for. One CSI-Microbes plate cohort — 180 wells,
 110 Gbp — left **1.2 TB** in `work/`: roughly 496 GB of alignments and 413 GB of
 FASTQ. Three knobs address that, and they are independent.
 
-| Parameter | Default | What it does |
-|---|---|---|
-| `--compression_level` | unset | level for every BGZF/gzip stream the pipeline writes |
-| `--alignment_output_format` | `bam` | `cram` for the sorted host alignments |
-| `--cleanup_intermediates` | `false` | delete intermediates once nothing reads them |
+| Parameter                   | Default | What it does                                         |
+| --------------------------- | ------- | ---------------------------------------------------- |
+| `--compression_level`       | unset   | level for every BGZF/gzip stream the pipeline writes |
+| `--alignment_output_format` | `bam`   | `cram` for the sorted host alignments                |
+| `--cleanup_intermediates`   | `false` | delete intermediates once nothing reads them         |
 
 **`--compression_level`** reaches `samtools sort -l`, `samtools view -l`,
 `samtools fastq -c`, `fastp -z` and the `pigz`/`gzip` calls in the local
@@ -434,7 +434,7 @@ can prove nothing else reads it:
   failed merge never reaches those lines. Only with `--hisat2_chunk_size`, since
   otherwise there are no chunks.
 - **The downloaded FASTQs**, once trimming and raw FastQC have both read them.
-  Ordering is enforced by data: the cleanup task takes those tasks' *outputs* as
+  Ordering is enforced by data: the cleanup task takes those tasks' _outputs_ as
   inputs, so it cannot be scheduled before them.
 
 **Nothing outside the work directory is ever deleted.** A staged filename is a
@@ -479,7 +479,7 @@ When `--save_host_bam` is on (the default) the sorted BAM is put through two com
 - **samtools** `stats`, `flagstat` and `idxstats` — read-level counts: how many reads mapped, how many pairs are proper, and the per-reference breakdown.
 - **Qualimap BamQC** — the things counts cannot tell you: coverage depth and how evenly it is spread over the reference, duplication rate, GC of the mapped reads, and the mapping-quality and insert-size distributions.
 
-That second set is what distinguishes *"this library barely contains host"* from *"the host reference is wrong"*. Both produce a low alignment rate; only the latter also shows patchy coverage concentrated in a few repetitive regions at low mapping quality.
+That second set is what distinguishes _"this library barely contains host"_ from _"the host reference is wrong"_. Both produce a low alignment rate; only the latter also shows patchy coverage concentrated in a few repetitive regions at low mapping quality.
 
 Qualimap is the slowest part of the BAM QC, so `--skip_qualimap` turns it off for very large BAMs. Feature-level statistics need an annotation, which is opt-in and deliberately separate from `--gtf`:
 
@@ -493,7 +493,7 @@ Qualimap is the slowest part of the BAM QC, so `--skip_qualimap` turns it off fo
 
 `--quantify_host` (with `--gtf`) runs featureCounts on the host BAM and writes a per-sample count matrix to `host_counts/`.
 
-The point is not the counts on their own — it is that they come from the *same library* as the microbial profile. Host expression and microbiome composition measured from one set of molecules share their technical batch effects, so correlating them is defensible in a way that correlating a separate RNA-seq run against a separate 16S run is not. That is the core methodological argument of Monteleone et al. (*Microbiome* 2026), and `--quantify_host` is what puts both halves in your `--outdir`.
+The point is not the counts on their own — it is that they come from the _same library_ as the microbial profile. Host expression and microbiome composition measured from one set of molecules share their technical batch effects, so correlating them is defensible in a way that correlating a separate RNA-seq run against a separate 16S run is not. That is the core methodological argument of Monteleone et al. (_Microbiome_ 2026), and `--quantify_host` is what puts both halves in your `--outdir`.
 
 No special alignment settings are needed: the HISAT2 module already pipes through `samtools view -F 256`, so each read is counted once.
 
@@ -521,7 +521,7 @@ Memory mapping drops the request to 16 GB. It is slower in the worst case, but w
 
 Bracken keeps a taxon only if Kraken2 assigned it at least this many reads at `--bracken_level`. Below that, the taxon is dropped and its reads are discarded. The taxa it keeps also receive a share of the reads Kraken2 could only place higher in the tree (genus, family, root), in proportion to how often each taxon's reads land there.
 
-- **`10`** is Bracken's own default. Use it for host-dominated or low-biomass libraries: RNA-seq mined for microbes, tissue, cell culture. There, most of what Kraken2 places high in the tree is leftover host, and a lower threshold lets Bracken hand it to taxa with almost no evidence of their own. On GSE207405 (mouse endothelial cultures) at `0`, 72% of the species counts were redistributed reads: SARS-CoV-2 went from 10 Kraken2 read pairs to 4,427, and *E. coli* from 4 to 9,564.
+- **`10`** is Bracken's own default. Use it for host-dominated or low-biomass libraries: RNA-seq mined for microbes, tissue, cell culture. There, most of what Kraken2 places high in the tree is leftover host, and a lower threshold lets Bracken hand it to taxa with almost no evidence of their own. On GSE207405 (mouse endothelial cultures) at `0`, 72% of the species counts were redistributed reads: SARS-CoV-2 went from 10 Kraken2 read pairs to 4,427, and _E. coli_ from 4 to 9,564.
 - **`0`** keeps every taxon Kraken2 saw. Use it when a taxon with a handful of reads has to appear in the tables themselves: very shallow libraries, or `--negative_controls` with shallow blanks. The control filter's whole-taxon verdict is scored on the Bracken table, so a contaminant a blank carries below the threshold would be missing from that blank's column. Measured on the CSI-Microbes plate (180 wells, 12 of them empty): with `--negative_controls`, 226 background taxa survived in the empty wells at `0` and 274 at `10`, while the spiked organism's detection and specificity were identical. Expect species with one or two reads to be inflated.
 
 Neither setting touches the per-sample Kraken2 reports in `kraken2/`, which remain the place to weigh the evidence for any single taxon. Each per-sample Bracken file also splits its count into `kraken_assigned_reads` and `added_reads`: a species that is mostly `added_reads` was mostly redistributed.
@@ -534,7 +534,7 @@ Neither setting touches the per-sample Kraken2 reports in `kraken2/`, which rema
 
 Each hit group is a run of consecutive k-mers matching the same taxon, so requiring more of them demands that a classification rest on more than one lucky k-mer. It costs sensitivity for rare taxa; that is the trade you are making.
 
-**Sparse taxa.** The combined tables are filtered to taxa exceeding `--min_rel_abundance` (default `0.001`, i.e. 0.1%) in at least `--min_samples` samples, following the same paper. **Viruses can have a floor of their own** with `--virus_min_rel_abundance` (unset: one floor for everything; 0 exempts viruses). A virus genome is kilobases against a bacterium's megabases, so at the same load it draws a far smaller share of the reads: on the benchmarks the 0.1% cohort floor removed wastewater *Mamastrovirus* from all 35 libraries that carried it, and exempting viruses kept them, at the cost of more viral false positives on PRISM's CLID (RNA-virus specificity 60.9% → 49.1%; bacteria and fungi unchanged). The rule Ma et al. (*J Mol Diagn* 2026) use for RNA viruses, z > 3 against the other samples, removed SARS-CoV-2 from all nine infected BAL libraries on the same benchmarks and is not offered. Per-sample reports are left untouched — prevalence is a cross-sample property. This is a sparsity filter, **not** a contamination caller: with no negative controls it cannot tell a reagent contaminant from a rare real organism, it only removes taxa too sparse for any statistic to speak about. What it dropped is written to a `.removed.tsv` beside each filtered table.
+**Sparse taxa.** The combined tables are filtered to taxa exceeding `--min_rel_abundance` (default `0.001`, i.e. 0.1%) in at least `--min_samples` samples, following the same paper. **Viruses can have a floor of their own** with `--virus_min_rel_abundance` (unset: one floor for everything; 0 exempts viruses). A virus genome is kilobases against a bacterium's megabases, so at the same load it draws a far smaller share of the reads: on the benchmarks the 0.1% cohort floor removed wastewater _Mamastrovirus_ from all 35 libraries that carried it, and exempting viruses kept them, at the cost of more viral false positives on PRISM's CLID (RNA-virus specificity 60.9% → 49.1%; bacteria and fungi unchanged). The rule Ma et al. (_J Mol Diagn_ 2026) use for RNA viruses, z > 3 against the other samples, removed SARS-CoV-2 from all nine infected BAL libraries on the same benchmarks and is not offered. Per-sample reports are left untouched — prevalence is a cross-sample property. This is a sparsity filter, **not** a contamination caller: with no negative controls it cannot tell a reagent contaminant from a rare real organism, it only removes taxa too sparse for any statistic to speak about. What it dropped is written to a `.removed.tsv` beside each filtered table.
 
 `--kraken2_report_minimizer_data` adds distinct-minimizer columns that are useful for filtering false positives, but neither Bracken nor MultiQC can read the resulting report — the pipeline requires `--skip_bracken` alongside it.
 
@@ -555,11 +555,11 @@ the reference those reads cover** — and both classifiers report it.
 
 Three quantities are derived, whichever classifier produced the report:
 
-| | meaning | parameter |
-| --- | --- | --- |
-| `distinct` | distinct minimizers (Kraken2) or k-mers (KrakenUniq) the reads cover | `--minimizer_min_distinct` (10) |
-| `duplication` | observed ÷ distinct — how often the same ones are re-hit | `--minimizer_max_duplication` (300 for Kraken2, 100 for KrakenUniq) |
-| `coverage` | distinct observed ÷ distinct held in the database for that clade | `--minimizer_min_coverage` (0, off) |
+|               | meaning                                                              | parameter                                                           |
+| ------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `distinct`    | distinct minimizers (Kraken2) or k-mers (KrakenUniq) the reads cover | `--minimizer_min_distinct` (10)                                     |
+| `duplication` | observed ÷ distinct — how often the same ones are re-hit             | `--minimizer_max_duplication` (300 for Kraken2, 100 for KrakenUniq) |
+| `coverage`    | distinct observed ÷ distinct held in the database for that clade     | `--minimizer_min_coverage` (0, off)                                 |
 
 A taxon holding fewer than `--minimizer_min_reads` (50) reads is **never judged**:
 too few reads to demonstrate breadth either way, and condemning them would just
@@ -665,8 +665,8 @@ and is reported as a microbe. Neither the abundance nor the minimizer filter can
 see this: a carried-over host read is a genuine read with genuine k-mers.
 
 SAHMI attacks it one level down, and `--host_kmer_filter` applies the same test
-to bulk data. Kraken2's read-level output records which taxon each *run of
-k-mers* in a read was assigned to, so a read carrying host k-mers is
+to bulk data. Kraken2's read-level output records which taxon each _run of
+k-mers_ in a read was assigned to, so a read carrying host k-mers is
 recognisable even when the read as a whole was called a bacterium — which is
 what happens to chimeric and repeat-derived reads. A taxon whose reads are
 mostly host-tainted is host leakage wearing a species name.
@@ -675,16 +675,16 @@ mostly host-tainted is host leakage wearing a species name.
 --kraken2_save_readclassifications --host_kmer_filter
 ```
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--host_kmer_taxid` | `--host_carryover_taxid` | taxid(s) counted as host, comma-separated |
-| `--host_kmer_max_fraction` | 0.5 | drop a taxon once this share of its reads are tainted |
-| `--host_kmer_min_reads` | 10 | below this, leave the taxon to the abundance filter |
+| Parameter                  | Default                  | Meaning                                               |
+| -------------------------- | ------------------------ | ----------------------------------------------------- |
+| `--host_kmer_taxid`        | `--host_carryover_taxid` | taxid(s) counted as host, comma-separated             |
+| `--host_kmer_max_fraction` | 0.5                      | drop a taxon once this share of its reads are tainted |
+| `--host_kmer_min_reads`    | 10                       | below this, leave the taxon to the abundance filter   |
 
 Two things to know:
 
 - **The host must be in the Kraken2 database**, or no k-mer can ever be assigned
-  to it and every count is zero. `core_nt` contains *Anopheles gambiae* (taxid
+  to it and every count is zero. `core_nt` contains _Anopheles gambiae_ (taxid
   7165); PlusPF does not. The filter **fails the run** rather than reporting a
   clean result when it sees no host k-mer at all.
 - **`--host_kmer_taxid` takes a list.** The host species alone by default; adding
@@ -721,13 +721,13 @@ pooled across the cohort. Near zero means the taxon needs genuine sequence to be
 found. Near one means the database would have reported it from noise, and its
 real count is not evidence.
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--shuffle_method` | `dinuc` | `dinuc`/`mono`/`reverse` |
-| `--shuffle_seed` | 1 | fixed; a control that moves between runs is not one |
-| `--shuffle_reads` | 0 | shuffle only the first N fragments per sample (0 = all) |
-| `--shuffle_max_ratio` | 0.1 | flag a taxon at this shuffled/real ratio |
-| `--shuffle_min_reads` | 10 | below this many real reads, leave it untested |
+| Parameter             | Default | Meaning                                                 |
+| --------------------- | ------- | ------------------------------------------------------- |
+| `--shuffle_method`    | `dinuc` | `dinuc`/`mono`/`reverse`                                |
+| `--shuffle_seed`      | 1       | fixed; a control that moves between runs is not one     |
+| `--shuffle_reads`     | 0       | shuffle only the first N fragments per sample (0 = all) |
+| `--shuffle_max_ratio` | 0.1     | flag a taxon at this shuffled/real ratio                |
+| `--shuffle_min_reads` | 10      | below this many real reads, leave it untested           |
 
 The three shuffles differ in how conservative they are.
 `dinuc` is an Altschul–Erickson Euler-path shuffle preserving the exact
@@ -783,15 +783,15 @@ requires `--run_humann`.
 --run_humann --gene_diversity_filter
 ```
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--gene_diversity_min_families` | 10 | distinct families a taxon must reach |
-| `--gene_diversity_max_top_fraction` | 0.5 | ...with no one family carrying more than this |
-| `--gene_diversity_min_abundance` | 0 | below this pooled abundance, leave it untested |
+| Parameter                           | Default | Meaning                                        |
+| ----------------------------------- | ------- | ---------------------------------------------- |
+| `--gene_diversity_min_families`     | 10      | distinct families a taxon must reach           |
+| `--gene_diversity_max_top_fraction` | 0.5     | ...with no one family carrying more than this  |
+| `--gene_diversity_min_abundance`    | 0       | below this pooled abundance, leave it untested |
 
 With `--humann_regroup` set (the default is `uniref90_ko`) it runs a **second**
 time on the regrouped table. That is the difference between many gene families
-and many *products*: a taxon can reach dozens of UniRef90 families that all
+and many _products_: a taxon can reach dozens of UniRef90 families that all
 encode the same thing, and only the product view catches it.
 
 Unlike the other evidence filters, this one cannot feed the abundance filter
@@ -806,19 +806,19 @@ pipeline's own; PRISM's score is not reproduced.
 
 ### The host's relatives are host reads (`--drop_host_clade`)
 
-`--drop_host_taxon` removes one taxid. That is not where host leakage ends up. A host read that misses the host genome does not disappear — it gets assigned to the nearest thing in the database that it *does* match, and the nearest thing is a relative.
+`--drop_host_taxon` removes one taxid. That is not where host leakage ends up. A host read that misses the host genome does not disappear — it gets assigned to the nearest thing in the database that it _does_ match, and the nearest thing is a relative.
 
-Measured on the CSI-Microbes 10x cohort, with *Homo sapiens* already dropped, as a share of everything the pipeline was still calling microbial:
+Measured on the CSI-Microbes 10x cohort, with _Homo sapiens_ already dropped, as a share of everything the pipeline was still calling microbial:
 
-| Clade | uninfected | heat-killed | infected | infected (5′) |
-| ----- | ---------- | ----------- | -------- | ------------- |
-| genus — *Homo* | 0.1% | 0.1% | 0.0% | 0.0% |
-| family — Hominidae | 65.7% | 60.8% | 58.1% | 52.4% |
-| order — Primates | 78.8% | 74.3% | 72.1% | 67.7% |
-| class — Mammalia | 88.3% | 88.5% | 84.4% | 71.0% |
-| phylum — Chordata | 93.4% | 92.8% | 88.6% | 71.2% |
+| Clade              | uninfected | heat-killed | infected | infected (5′) |
+| ------------------ | ---------- | ----------- | -------- | ------------- |
+| genus — _Homo_     | 0.1%       | 0.1%        | 0.0%     | 0.0%          |
+| family — Hominidae | 65.7%      | 60.8%       | 58.1%    | 52.4%         |
+| order — Primates   | 78.8%      | 74.3%       | 72.1%    | 67.7%         |
+| class — Mammalia   | 88.3%      | 88.5%       | 84.4%    | 71.0%         |
+| phylum — Chordata  | 93.4%      | 92.8%       | 88.6%    | 71.2%         |
 
-*Pan*, *Pongo*, *Gorilla*, *Macaca*, *Tupaia*. The **genus rank catches almost nothing** — most databases hold one species per host genus, so the clade is the host taxon over again. Family is where it starts.
+_Pan_, _Pongo_, _Gorilla_, _Macaca_, _Tupaia_. The **genus rank catches almost nothing** — most databases hold one species per host genus, so the clade is the host taxon over again. Family is where it starts.
 
 ```bash
 nextflow run BioinfoIPBLN/reanaTax \
@@ -834,23 +834,23 @@ nextflow run BioinfoIPBLN/reanaTax \
 
 They are independent flags, and `--drop_host_clade` is a **strict superset** — it does not replace the older one, it contains it.
 
-| Flags | What is removed |
-| ----- | --------------- |
-| `--drop_host_taxon` alone | the host taxid only (9606) |
-| `--drop_host_clade family` alone | Hominidae and everything under it — **including 9606** |
-| both | the same as `--drop_host_clade family`; the taxid is listed twice and de-duplicated |
+| Flags                            | What is removed                                                                     |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| `--drop_host_taxon` alone        | the host taxid only (9606)                                                          |
+| `--drop_host_clade family` alone | Hominidae and everything under it — **including 9606**                              |
+| both                             | the same as `--drop_host_clade family`; the taxid is listed twice and de-duplicated |
 
 So `--drop_host_taxon` is still there, still does exactly what it always did, and is the right choice on its own when you want nothing but the host removed. Setting both is harmless. Both feed the same drop set in `filter_abundance.py` and both renormalise the surviving abundances, so no combination leaves the fractions inconsistent.
 
-Both now travel on the same shared drop list, so both reach the combined tables *and* the single-cell matrix. That was not always true: `--drop_host_taxon` used to be an argument to the abundance filter and touched the combined tables only, which made it the one removal in the pipeline that left the two views disagreeing — *Homo sapiens* rows outlived it in `cell_taxa` and produced two spurious "significant" cell-type enrichment results on the CSI-Microbes plate. Host filtering happens after `--sc_kmer_denoise` and `--sc_ambient`, so both of those still see the host rows they need.
+Both now travel on the same shared drop list, so both reach the combined tables _and_ the single-cell matrix. That was not always true: `--drop_host_taxon` used to be an argument to the abundance filter and touched the combined tables only, which made it the one removal in the pipeline that left the two views disagreeing — _Homo sapiens_ rows outlived it in `cell_taxa` and produced two spurious "significant" cell-type enrichment results on the CSI-Microbes plate. Host filtering happens after `--sc_kmer_denoise` and `--sc_ambient`, so both of those still see the host rows they need.
 
 The lineage is read from the run's own Kraken2 reports, so the ranks are the ones the database actually uses and there is no external taxonomy to keep in step. The taxa removed are listed in `host_clade/reanatax.host_clade_evidence.tsv`.
 
-It also reaches further than `--drop_host_taxon` does. That flag is an argument to the abundance filter, so it never touched the single-cell matrix — which is why *Homo sapiens* rows outlived it in `cell_taxa`. `--drop_host_clade` travels on the shared drop list, so the cohort tables and the cell matrix agree.
+It also reaches further than `--drop_host_taxon` does. That flag is an argument to the abundance filter, so it never touched the single-cell matrix — which is why _Homo sapiens_ rows outlived it in `cell_taxa`. `--drop_host_clade` travels on the shared drop list, so the cohort tables and the cell matrix agree.
 
 #### What it cannot do, and where the risk is
 
-It is a prediction from the **taxonomy**, not a measurement of the **reads**. The same cohort also carries turbot, grouper, spruce and *Naegleria* — conserved or low-complexity matches that no rank of the host lineage contains. [`--host_kmer_filter`](#host-leakage-at-k-mer-level---host_kmer_filter) is the filter that catches those, by asking whether a taxon's reads are mostly host k-mers. The two are complements: this one is free and deterministic, that one is evidence-based and costs a pass over the read-level output. On a cohort like this, run both.
+It is a prediction from the **taxonomy**, not a measurement of the **reads**. The same cohort also carries turbot, grouper, spruce and _Naegleria_ — conserved or low-complexity matches that no rank of the host lineage contains. [`--host_kmer_filter`](#host-leakage-at-k-mer-level---host_kmer_filter) is the filter that catches those, by asking whether a taxon's reads are mostly host k-mers. The two are complements: this one is free and deterministic, that one is evidence-based and costs a pass over the read-level output. On a cohort like this, run both.
 
 The risk is real above order. Dropping class Mammalia is harmless when the sample is human tissue and the question is bacterial. It is **destructive on a xenograft**, where mouse reads are biology rather than noise, and on any cohort where a second vertebrate is part of the experiment. Nothing in the pipeline can tell those cases apart, which is why there is no default rank and why `class` and `phylum` emit a warning.
 
@@ -861,19 +861,20 @@ puts them on whatever eukaryote they match: an animal or plant whose assembly
 holds a conserved gene or contaminating host sequence. With `--drop_host_clade
 order` the final tables still held, per run or library:
 
-| cohort | microbial species | non-microbial | with `--drop_host_clade phylum` |
-| --- | --- | --- | --- |
-| CLID, human cell lines (70 runs) | 12.5 | 4.5 | 2.0 |
-| mouse stroke, single-cell GSE225948 | 65 | 590 | 219 |
-| mouse stroke, single-cell GSE197731 | 45 | 427 | 84 |
+| cohort                              | microbial species | non-microbial | with `--drop_host_clade phylum` |
+| ----------------------------------- | ----------------- | ------------- | ------------------------------- |
+| CLID, human cell lines (70 runs)    | 12.5              | 4.5           | 2.0                             |
+| mouse stroke, single-cell GSE225948 | 65                | 590           | 219                             |
+| mouse stroke, single-cell GSE197731 | 45                | 427           | 84                              |
 
 They are mouse, zebrafish and turkey in human cells; and human, rabbit and
-livestock in mouse brain, then moths, *Drosophila*, sea urchins and grasses.
+livestock in mouse brain, then moths, _Drosophila_, sea urchins and grasses.
 The phylum drop removes the chordates, safely: across those cohorts its lists
 held no microbial taxon. The invertebrates and plants lie outside any rank of
 the host lineage.
 
 `--drop_non_microbial` drops every taxon in the run's own reports under:
+
 - Metazoa;
 - Viridiplantae;
 - other sequences (synthetic constructs, vectors);
@@ -885,6 +886,7 @@ abundance and the single-cell matrix all lose the same rows. What went is listed
 in `non_microbial/reanatax.non_microbial_evidence.tsv`.
 
 It is off by default, because some animals belong in the results:
+
 - helminths are Metazoa, so a parasitic worm is dropped with the moths;
 - a mosquito's blood meal, a xenograft's mouse cells or a co-culture are animals
   that are the point of the experiment.
@@ -913,33 +915,33 @@ That writes `assembly/reanatax.contig_evidence.tsv` and removes nothing. Add `--
 
 The input is usually RNA-seq, so an RNA assembler looks like the obvious choice. It is not, and [nf-rnaSeqMetagen](https://doi.org/10.1016/j.medmic.2020.100011) — which pioneered this step and uses Trinity for it — is solving the wrong half of the problem.
 
-What survives host depletion is overwhelmingly bacterial and archaeal: unspliced, operonic, with no isoform structure for an RNA assembler to model. What RNA-seq *does* impose is savage coverage skew, where rRNA and a handful of transcripts swamp everything else — and that is a coverage problem, which is exactly what a multi-k metagenome assembler is built for. The goal here is also not a transcriptome: it is one longer sequence to classify, so a taxonomic call rests on contiguous evidence.
+What survives host depletion is overwhelmingly bacterial and archaeal: unspliced, operonic, with no isoform structure for an RNA assembler to model. What RNA-seq _does_ impose is savage coverage skew, where rRNA and a handful of transcripts swamp everything else — and that is a coverage problem, which is exactly what a multi-k metagenome assembler is built for. The goal here is also not a transcriptome: it is one longer sequence to classify, so a taxonomic call rests on contiguous evidence.
 
-The exception is a eukaryotic microbe or a spliced virus — *Plasmodium*, *Toxoplasma*, a fungus, EBV — where transcript structure is real. That is the `--target_taxid` case, and [`TARGETED_TAXON`](#one-taxon-followed-to-its-own-differential-expression---target_taxid) already does something stronger there: it aligns to the organism's actual genome and counts its actual genes, rather than guessing at one.
+The exception is a eukaryotic microbe or a spliced virus — _Plasmodium_, _Toxoplasma_, a fungus, EBV — where transcript structure is real. That is the `--target_taxid` case, and [`TARGETED_TAXON`](#one-taxon-followed-to-its-own-differential-expression---target_taxid) already does something stronger there: it aligns to the organism's actual genome and counts its actual genes, rather than guessing at one.
 
 `--assembly_assembler metaspades` trades time and memory for contiguity. It accepts only paired-end reads and can take just one library, so a pool has to be concatenated before it can be assembled — which is why MEGAHIT is the default.
 
 #### Pooling is the decision that matters
 
-Per-library assembly is close to useless on the cohorts this filter exists for. On the CSI-Microbes plate the false positives sit at 11–78 reads *per well*: nothing assembles from that, and neither does a real taxon at that depth. So libraries are pooled first.
+Per-library assembly is close to useless on the cohorts this filter exists for. On the CSI-Microbes plate the false positives sit at 11–78 reads _per well_: nothing assembles from that, and neither does a real taxon at that depth. So libraries are pooled first.
 
-| `--assembly_pool` | One assembly per | Use when |
-| ----------------- | ---------------- | -------- |
-| `group` (default with `--da_grouping`) | contrast group | the usual case — libraries that should share an organism are assembled together, and groups that should not stay apart |
-| `all` (default otherwise) | cohort | no grouping is defined, or the cohort is small |
-| `sample` | library | libraries are deep metagenomes in their own right |
+| `--assembly_pool`                      | One assembly per | Use when                                                                                                               |
+| -------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `group` (default with `--da_grouping`) | contrast group   | the usual case — libraries that should share an organism are assembled together, and groups that should not stay apart |
+| `all` (default otherwise)              | cohort           | no grouping is defined, or the cohort is small                                                                         |
+| `sample`                               | library          | libraries are deep metagenomes in their own right                                                                      |
 
 #### What it reports, and what it will not claim
 
-| Column | Meaning |
-| ------ | ------- |
-| `reads` | clade reads for the taxon, from the combined Kraken2 report |
-| `pools` | how many pooled assemblies produced a contig for it |
-| `contigs` / `contigs_over_min` | contigs assigned to it, and how many clear `--contig_min_length` |
-| `contig_bp`, `longest_bp`, `n50`, `mean_bp` | the size of that evidence |
-| `verdict` | `supported`, `unsupported`, or `not_judged` |
+| Column                                      | Meaning                                                          |
+| ------------------------------------------- | ---------------------------------------------------------------- |
+| `reads`                                     | clade reads for the taxon, from the combined Kraken2 report      |
+| `pools`                                     | how many pooled assemblies produced a contig for it              |
+| `contigs` / `contigs_over_min`              | contigs assigned to it, and how many clear `--contig_min_length` |
+| `contig_bp`, `longest_bp`, `n50`, `mean_bp` | the size of that evidence                                        |
+| `verdict`                                   | `supported`, `unsupported`, or `not_judged`                      |
 
-Contigs **roll up the taxonomy**. A contig assigned to *Fusobacterium nucleatum* is support for genus *Fusobacterium* above it, reconstructed from the contig report's own indentation rather than from an external taxonomy dump. This is not cosmetic: on the CSI-Microbes plate every false positive the negative-control filter removed sat at *genus*, and a species-only accounting would have scored none of them.
+Contigs **roll up the taxonomy**. A contig assigned to _Fusobacterium nucleatum_ is support for genus _Fusobacterium_ above it, reconstructed from the contig report's own indentation rather than from an external taxonomy dump. This is not cosmetic: on the CSI-Microbes plate every false positive the negative-control filter removed sat at _genus_, and a species-only accounting would have scored none of them.
 
 The gate is the honest part. **Absence of a contig is weak evidence of absence** — a genuinely rare organism does not assemble either. So a taxon below `--contig_min_reads` (50) is recorded as `not_judged` and never condemned, exactly as `--minimizer_filter` does. Lowering that gate is how you start deleting real rare organisms, and the pipeline warns if you set it below 50 with `--contig_filter` on.
 
@@ -951,6 +953,7 @@ Not every single-cell or spatial deposit can go through `--single_cell`. Visium
 needs its spot whitelist, and BD Rhapsody splits its cell label in three. Run as
 bulk, their read 1 is still a barcode + UMI, often followed by poly-T, and only
 read 2 is transcript.
+
 - **Host depletion:** read 1 cannot align to the host. A trimmed Visium read 1
   aligned 0.2% end to end, and with clipping allowed its first 26-31 bases
   were always clipped. So whether a pair is removed is decided by read 2 alone.
@@ -998,13 +1001,13 @@ they cannot disagree**, and any taxon the filters remove is removed from both.
 
 ### Filters on the microbial side
 
-| Parameter | Default | From | Meaning |
-|---|---|---|---|
-| `--sc_min_frac` | 0.5 | SAHMI | share of a read's k-mers inside the assigned taxon's lineage |
-| `--sc_max_homopolymer` | 0 (off) | SAHMI `nFilter` | drop reads with a longer single-base run |
-| `--sc_host_taxid` | `--host_kmer_taxid` | SAHMI | a read with *any* k-mer of these taxids is dropped |
-| `--sc_ranks` | `S,G` | SAHMI | ranks the matrix is tabulated at |
-| `--sc_umi_dedup` | `true` | **not** SAHMI | count distinct UMIs, not reads |
+| Parameter              | Default             | From            | Meaning                                                      |
+| ---------------------- | ------------------- | --------------- | ------------------------------------------------------------ |
+| `--sc_min_frac`        | 0.5                 | SAHMI           | share of a read's k-mers inside the assigned taxon's lineage |
+| `--sc_max_homopolymer` | 0 (off)             | SAHMI `nFilter` | drop reads with a longer single-base run                     |
+| `--sc_host_taxid`      | `--host_kmer_taxid` | SAHMI           | a read with _any_ k-mer of these taxids is dropped           |
+| `--sc_ranks`           | `S,G`               | SAHMI           | ranks the matrix is tabulated at                             |
+| `--sc_umi_dedup`       | `true`              | **not** SAHMI   | count distinct UMIs, not reads                               |
 
 Two of these are deliberate departures from SAHMI, and both are corrections:
 
@@ -1052,12 +1055,12 @@ variance), but the meaning is not — that is the contamination signature in its
 purest form, and it is failed outright as `saturated_distinct` rather than left
 untested.
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--sc_kmer_len` | 35 | Kraken2's k; 35 for the standard databases |
-| `--sc_min_barcodes` | 4 | SAHMI tests taxa on more than three barcodes |
-| `--sc_correlation_p` | 0.05 | BH-adjusted |
-| `--sc_max_barcodes_per_taxon` | 1000 | SAHMI's `nsample`; bounds memory |
+| Parameter                     | Default | Meaning                                      |
+| ----------------------------- | ------- | -------------------------------------------- |
+| `--sc_kmer_len`               | 35      | Kraken2's k; 35 for the standard databases   |
+| `--sc_min_barcodes`           | 4       | SAHMI tests taxa on more than three barcodes |
+| `--sc_correlation_p`          | 0.05    | BH-adjusted                                  |
+| `--sc_max_barcodes_per_taxon` | 1000    | SAHMI's `nsample`; bounds memory             |
 
 > **The verdicts are per sample and are NOT fed into the cohort abundance
 > filter.** Barcodes only mean anything inside the library that produced them,
@@ -1082,7 +1085,7 @@ SAHMI's, for three reasons that paper argues explicitly:
   combinations. (Lloréns-Rico et al. use a pooled chi-square; on sparse data
   Fisher is the correct exact alternative.)
 - **Presence, not abundance.** The matrix is >90% zeros, so the useful question
-  is what *fraction of cells* carry a taxon. This is also why ALDEx2/ANCOM-BC2 —
+  is what _fraction of cells_ carry a taxon. This is also why ALDEx2/ANCOM-BC2 —
   which model compositional abundance across samples — are the wrong tool here
   and are not used on the cell matrix.
 - **Per sample, then combined — never pooled.** Per-sample Fisher p-values are
@@ -1093,7 +1096,7 @@ SAHMI's, for three reasons that paper argues explicitly:
 ```
 
 > **The `sample` column is mandatory and the script refuses to run without it.**
-> Two samples where cell type 2 is clearly enriched *within each* can pool to
+> Two samples where cell type 2 is clearly enriched _within each_ can pool to
 > make cell type 1 look enriched, purely from differing cell-type composition —
 > Simpson's paradox. reanaTax exists to reanalyse public data, where samples
 > have wildly different compositions, so this is a live risk, not a hypothetical
@@ -1124,19 +1127,19 @@ An empty droplet contains at least four things a droplet cannot tell apart:
 reagent and kit contaminants; genuinely extracellular microbes that were in the
 tissue suspension; microbes released from cells lysed during dissociation; and
 ambient nucleic-acid soup. A luminal, mucosal or biofilm organism — which for a
-gut, skin, oral or vulvar sample is very often the organism the study is *about*
+gut, skin, oral or vulvar sample is very often the organism the study is _about_
 — lands in that pool by construction, not by artefact. Treating everything in
 the empty droplets as contamination would delete it.
 
-What the comparison *can* answer is narrower: **is this taxon spatially
+What the comparison _can_ answer is narrower: **is this taxon spatially
 associated with cells?** Three outcomes, and only one of them says anything
 about contamination:
 
-| `prevalence_ratio` | verdict | reading |
-|---|---|---|
-| ≫ 1 | `cell_associated` | intracellular or tightly adherent — the strongest evidence droplet data can offer |
-| ≈ 1 | `ambient_undecided` | reagent contaminant **or** genuine extracellular organism. Not resolvable here |
-| ≪ 1 | `cell_depleted` | reagent, index hopping, or something that does not survive the cells it came with |
+| `prevalence_ratio` | verdict             | reading                                                                           |
+| ------------------ | ------------------- | --------------------------------------------------------------------------------- |
+| ≫ 1                | `cell_associated`   | intracellular or tightly adherent — the strongest evidence droplet data can offer |
+| ≈ 1                | `ambient_undecided` | reagent contaminant **or** genuine extracellular organism. Not resolvable here    |
+| ≪ 1                | `cell_depleted`     | reagent, index hopping, or something that does not survive the cells it came with |
 
 The middle row does not resolve and cannot be made to. The only thing that
 separates a kit contaminant from a real extracellular organism is an external
@@ -1159,14 +1162,14 @@ everywhere but concentrated in cells. Significance is Fisher's exact on the 2×2
 presence table, one-sided in whichever direction the ratio points, BH-adjusted
 across taxa.
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--sc_ambient_min_empty_umis` | 1 | host UMIs an empty droplet needs to be used |
-| `--sc_ambient_max_empty_umis` | 0 | ...and at most this many (0 = no bound) |
-| `--sc_ambient_min_droplets` | 5 | droplets a taxon must appear in to be tested |
-| `--sc_ambient_enriched_ratio` | 2.0 | ratio for `cell_associated` |
-| `--sc_ambient_depleted_ratio` | 0.5 | ratio for `cell_depleted` |
-| `--sc_ambient_drop` | false | write a drop list of ambient + depleted taxa |
+| Parameter                     | Default | Meaning                                      |
+| ----------------------------- | ------- | -------------------------------------------- |
+| `--sc_ambient_min_empty_umis` | 1       | host UMIs an empty droplet needs to be used  |
+| `--sc_ambient_max_empty_umis` | 0       | ...and at most this many (0 = no bound)      |
+| `--sc_ambient_min_droplets`   | 5       | droplets a taxon must appear in to be tested |
+| `--sc_ambient_enriched_ratio` | 2.0     | ratio for `cell_associated`                  |
+| `--sc_ambient_depleted_ratio` | 0.5     | ratio for `cell_depleted`                    |
+| `--sc_ambient_drop`           | false   | write a drop list of ambient + depleted taxa |
 
 `--sc_ambient_min_empty_umis` matters more than it looks: a raw 10x matrix has
 hundreds of thousands of barcodes with zero or one UMI, and counting those as
@@ -1175,7 +1178,7 @@ The upper bound is there for the opposite problem — barcodes just below the kn
 carry enough real content to behave like cells.
 
 **`--sc_ambient_drop` is off by default and should usually stay off.** It is
-only the right call when the question is specifically about *intracellular*
+only the right call when the question is specifically about _intracellular_
 microbes. If the study is about the community in the tissue, the ambient taxa
 are part of the answer, not noise to be removed.
 
@@ -1203,8 +1206,8 @@ disagree about which cell is which.
 
 **Within a cell type, always.** Infection is not distributed at random over cell
 types — measuring that is the entire point of the enrichment step above — so a
-pooled infected-vs-uninfected test recovers the difference *between* the cell
-types that happen to be infected and reports it as a response *to* infection.
+pooled infected-vs-uninfected test recovers the difference _between_ the cell
+types that happen to be infected and reports it as a response _to_ infection.
 Nothing in the output would distinguish the two. `--sc_cell_metadata` is
 therefore required; `--sc_host_de_force_pooled` accepts a pooled comparison and
 stamps every row `ALL_POOLED` so it cannot be read as a within-type result.
@@ -1214,12 +1217,12 @@ cell carrying no microbe at all. A cell positive for a different taxon is a
 valid bystander here, and excluding it would silently restrict the comparison to
 the cleanest cells in the library.
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--sc_host_de_min_cells` | 10 | infected *and* bystander cells a group needs |
-| `--sc_host_de_min_pct` | 0.1 | a gene must be detected in this share of one side |
-| `--sc_host_de_logfc` | 0.25 | minimum \|log2 fold change\| to test |
-| `--sc_host_de_top_taxa` | 20 | most-infecting taxa to test (0 = all) |
+| Parameter                | Default | Meaning                                           |
+| ------------------------ | ------- | ------------------------------------------------- |
+| `--sc_host_de_min_cells` | 10      | infected _and_ bystander cells a group needs      |
+| `--sc_host_de_min_pct`   | 0.1     | a gene must be detected in this share of one side |
+| `--sc_host_de_logfc`     | 0.25    | minimum \|log2 fold change\| to test              |
+| `--sc_host_de_top_taxa`  | 20      | most-infecting taxa to test (0 = all)             |
 
 `--sc_min_umis` decides what "infected" means, applied after whatever denoising
 ran upstream. p-values are adjusted **within** each taxon × cell type: each is a
@@ -1230,16 +1233,16 @@ hundred.
 **Across donors (`--sc_host_de_pseudobulk`).** The test above runs once per
 library with cells as the units, so its p-values describe that library: a
 thousand cells from one donor are not a thousand replicates (Squair et al.,
-*Nat Commun* 2021). With this flag each library's infected and bystander cells
+_Nat Commun_ 2021). With this flag each library's infected and bystander cells
 of every tested taxon × cell type are also summed, and the sums are tested
 across libraries with DESeq2/edgeR in a paired design, `~ donor + state`, so a
 response has to recur across donors to count. The donor is the library; merge
 libraries of one donor upstream.
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--sc_host_de_pseudobulk` | `false` | also run the donor-level test |
-| `--sc_host_de_min_donors` | 3 | donors that need both infected and bystander cells for a group to be tested |
+| Parameter                 | Default | Meaning                                                                     |
+| ------------------------- | ------- | --------------------------------------------------------------------------- |
+| `--sc_host_de_pseudobulk` | `false` | also run the donor-level test                                               |
+| `--sc_host_de_min_donors` | 3       | donors that need both infected and bystander cells for a group to be tested |
 
 It uses `--host_de_method` (edgeR when unset), `--host_de_min_count`,
 `--host_de_min_samples`, `--da_p_threshold` and `--da_lfc_threshold`. A group
@@ -1254,7 +1257,7 @@ CSI-Microbes runs on two kinds of single-cell data and treats them differently,
 because they are different experiments wearing the same name. In droplet data
 one library holds thousands of cells and the barcode separates them. In
 plate-based data — Smart-seq2 and its relatives — **every well is sequenced as
-its own library**, there is no barcode, and the cell *is* the sample.
+its own library**, there is no barcode, and the cell _is_ the sample.
 
 That layout needs none of the barcode machinery and no STARsolo. Each cell runs
 the ordinary bulk route, and the cell-by-taxon matrix is those per-cell reports
@@ -1307,19 +1310,19 @@ no longer have a barcode read beside them.
 
 That runs automatically once `--quantify_host` and the `--da_*` contrast are both present. `--host_de_method` selects the engine — `deseq2`, `edger`, or both, exactly like `--da_method` — and `null` skips it.
 
-> **Not ALDEx2/ANCOM-BC2, deliberately.** Those model *compositional* data: a microbial profile carries no absolute scale, only proportions, and recovering something interpretable from that is their whole purpose. Gene counts do have a scale, up to a library-size factor that DESeq2's median-of-ratios and edgeR's TMM estimate directly. Running the microbial methods on gene counts works mechanically, which is the dangerous part — it answers a different question, badly.
+> **Not ALDEx2/ANCOM-BC2, deliberately.** Those model _compositional_ data: a microbial profile carries no absolute scale, only proportions, and recovering something interpretable from that is their whole purpose. Gene counts do have a scale, up to a library-size factor that DESeq2's median-of-ratios and edgeR's TMM estimate directly. Running the microbial methods on gene counts works mechanically, which is the dangerous part — it answers a different question, badly.
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--host_de_method` | `deseq2,edger` | engine(s); `null` to skip |
-| `--host_de_min_count` | 10 | a gene needs this many reads... |
-| `--host_de_min_samples` | 2 | ...in at least this many samples |
+| Parameter               | Default        | Meaning                          |
+| ----------------------- | -------------- | -------------------------------- |
+| `--host_de_method`      | `deseq2,edger` | engine(s); `null` to skip        |
+| `--host_de_min_count`   | 10             | a gene needs this many reads...  |
+| `--host_de_min_samples` | 2              | ...in at least this many samples |
 
 The contrast, covariates, `--da_p_threshold` and `--da_lfc_threshold` are shared with the microbial side. Filtering happens **before** the test: filtering results afterwards would leave the adjusted p-values computed against a gene set that was never tested. Two samples per group is a hard floor — below that the dispersion cannot be estimated and any p-value is an artefact of the model's fallback.
 
 #### Host expression against microbial abundance (`--host_microbe_correlation`)
 
-The third layer Monteleone et al. describe, and the analysis `--quantify_host` exists for: both sides come from the *same* library, so an association between them is not confounded by sample handling the way two separate assays would be. Spearman on log-CPM host expression against relative microbial abundance, BH-adjusted.
+The third layer Monteleone et al. describe, and the analysis `--quantify_host` exists for: both sides come from the _same_ library, so an association between them is not confounded by sample handling the way two separate assays would be. Spearman on log-CPM host expression against relative microbial abundance, BH-adjusted.
 
 ```bash
 --host_microbe_correlation --host_microbe_top_genes 2000 --host_microbe_top_taxa 50
@@ -1335,7 +1338,7 @@ Output lands in `host_expression/`: the count matrix, gene lengths, one results 
 
 ### One taxon, followed to its own differential expression (`--target_taxid`)
 
-The rest of the pipeline answers *who is there, and how much*. This answers *and what were they doing*, for one organism chosen after the classification has run.
+The rest of the pipeline answers _who is there, and how much_. This answers _and what were they doing_, for one organism chosen after the classification has run.
 
 Kraken2's per-read output records which read it put on which taxon, so those reads can be pulled back out with KrakenTools, aligned to that organism's **own** genome, counted against its annotation, and tested between the same two groups as everything else:
 
@@ -1348,21 +1351,21 @@ Kraken2's per-read output records which read it put on which taxon, so those rea
 --da_sample_group salivary_gland --da_ref_group midgut
 ```
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--target_taxid` | — | taxon to extract; comma-separated for several |
-| `--target_reference` | — | its genome: accession, taxid, FASTA or HISAT2 index (or give `--target_transcripts` instead, below) |
-| `--target_gtf` | — | its annotation; without it the branch stops at the BAM |
-| `--target_include_children` | `true` | also take reads assigned below the taxon |
-| `--target_include_parents` | `false` | ...and above it |
-| `--target_max_reads` | 100000000 | KrakenTools' own cap, made explicit |
-| `--target_de_method` | `deseq2,edger` | engine(s) for the gene-level test |
+| Parameter                   | Default        | Meaning                                                                                             |
+| --------------------------- | -------------- | --------------------------------------------------------------------------------------------------- |
+| `--target_taxid`            | —              | taxon to extract; comma-separated for several                                                       |
+| `--target_reference`        | —              | its genome: accession, taxid, FASTA or HISAT2 index (or give `--target_transcripts` instead, below) |
+| `--target_gtf`              | —              | its annotation; without it the branch stops at the BAM                                              |
+| `--target_include_children` | `true`         | also take reads assigned below the taxon                                                            |
+| `--target_include_parents`  | `false`        | ...and above it                                                                                     |
+| `--target_max_reads`        | 100000000      | KrakenTools' own cap, made explicit                                                                 |
+| `--target_de_method`        | `deseq2,edger` | engine(s) for the gene-level test                                                                   |
 
 Almost none of this is new machinery. Extraction is the only new step: the reference preparation, alignment, sorting and gene counting are the **same subworkflow the host pass uses**, and the merge-and-test tail is the same one the host gene counts go through, both aliased rather than copied so there is one implementation of each to keep correct.
 
 > **The alignment rate is the check, and you should look at it.** Reads reach this branch because a k-mer classifier assigned them, and a classifier's false positives arrive looking exactly like its true positives. Reads that genuinely came from the target organism align to its genome; reads Kraken2 mis-assigned do not. `targeted/log/*.target.hisat2.summary.log` is that number, and it also appears in MultiQC alongside the host alignment as a separate `<sample>.target` row.
 
-> **`--target_include_parents` is off for a reason.** A read Kraken2 could only place at the genus is *consistent with* the target species but is not evidence for it. Turning this on quantifies such reads as though it were, and the pipeline warns when you do.
+> **`--target_include_parents` is off for a reason.** A read Kraken2 could only place at the genus is _consistent with_ the target species but is not evidence for it. Turning this on quantifies such reads as though it were, and the pipeline warns when you do.
 
 Output lands in `targeted/`: the extracted FASTQs, the sorted BAM and its samtools stats, per-sample gene counts, the merged matrix, and one DE table per engine.
 
@@ -1379,20 +1382,20 @@ Where a transcriptome is available, kallisto replaces align-then-count:
 
 Either way the output is the same gene × sample matrix, feeding the same DESeq2/edgeR path, so nothing downstream changes.
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--host_transcripts` | — | host transcriptome FASTA |
-| `--host_tx2gene` | — | two-column TSV to sum transcripts to genes |
-| `--target_transcripts` | — | transcriptome for `--target_taxid` |
-| `--target_tx2gene` | — | as above, for the target |
-| `--kallisto_fragment_length` | 200 | single-end only |
-| `--kallisto_fragment_sd` | 30 | single-end only |
+| Parameter                    | Default | Meaning                                    |
+| ---------------------------- | ------- | ------------------------------------------ |
+| `--host_transcripts`         | —       | host transcriptome FASTA                   |
+| `--host_tx2gene`             | —       | two-column TSV to sum transcripts to genes |
+| `--target_transcripts`       | —       | transcriptome for `--target_taxid`         |
+| `--target_tx2gene`           | —       | as above, for the target                   |
+| `--kallisto_fragment_length` | 200     | single-end only                            |
+| `--kallisto_fragment_sd`     | 30      | single-end only                            |
 
 > **Not offered for host depletion, deliberately.** A transcriptome index can only remove reads that came from an annotated transcript. Intronic, intergenic, repeat and satellite reads have nowhere to pseudoalign, would survive depletion, and are exactly the reads that go on to be classified as spurious microbes — the failure mode pairing GRCh38 with T2T-CHM13 exists to prevent. It is mechanically possible (`--pseudobam` emits unmapped records); it is a worse depletion, so the pipeline does not offer it as an equal alternative.
 
 Three things worth knowing about the numbers:
 
-- **`est_counts` are estimated and fractional.** A read pseudoaligning to several transcripts of one gene is apportioned between them. DESeq2 is handed rounded counts, which is an approximation; the fully correct route is tximport, which passes effective lengths to the model as offsets. Supplying `--host_tx2gene`/`--target_tx2gene` removes most of the difference, because the apportioning that rounding damages is mostly *within* a gene.
+- **`est_counts` are estimated and fractional.** A read pseudoaligning to several transcripts of one gene is apportioned between them. DESeq2 is handed rounded counts, which is an approximation; the fully correct route is tximport, which passes effective lengths to the model as offsets. Supplying `--host_tx2gene`/`--target_tx2gene` removes most of the difference, because the apportioning that rounding damages is mostly _within_ a gene.
 - **Single-end input needs `-l` and `-s`.** kallisto measures the fragment-length distribution from paired reads and cannot infer it from one end, so single-end abundances inherit whatever error your estimate carries.
 - **The targeted route loses its sanity check.** On the alignment route, the HISAT2 alignment rate is what distinguishes real assignments from Kraken2's false positives. Pseudoalignment gives `p_pseudoaligned` in `run_info.json` instead, which is the nearest equivalent but is against a transcriptome rather than a genome.
 
@@ -1405,29 +1408,27 @@ cannot describe, and on a multiplexed plate it is the dominant one.
 Index hopping, well-to-well carryover and ambient template put **genuine reads
 of a genuine organism into the wrong library**. Nothing about those reads is
 wrong — they are the same reads, with the same k-mers, that the neighbouring
-well produced correctly. And the taxon is then *signal* in one library and
-*carryover* in the next, so no single verdict about the taxon can be right for
+well produced correctly. And the taxon is then _signal_ in one library and
+_carryover_ in the next, so no single verdict about the taxon can be right for
 both.
 
-This was measured, not assumed. On the CSI-Microbes plate (Robinson et al.
-2024) — 124 wells deliberately infected with *Fusobacterium nucleatum*, 22
+This was measured, not assumed. On the CSI-Microbes plate (Robinson et al. 2024) — 124 wells deliberately infected with _Fusobacterium nucleatum_, 22
 uninfected, 12 empty — the organism turns up in uninfected wells at 1–78 reads,
 and:
 
 - **Evidence filters cannot see it.** The distinct-minimizers-per-read ratio
   that Kraken2's manual and the exploreMetaTax app both recommend has **AUC
-  0.415** on those calls. Below 0.5: it ranks the false positives *above* the
+  0.415** on those calls. Below 0.5: it ranks the false positives _above_ the
   true positives, because the ratio is inversely tied to read count and every
   false positive sits at a handful of reads. Duplication reaches 0.656, raw
   distinct minimizers 0.854 — statistically indistinguishable from raw reads
   (0.858), which is to say it carries no information depth does not.
 - **`--decontam`'s prevalence method cannot settle it either**, and no threshold
-  makes it. *Fusobacterium* is in 6 of the 12 blanks **and** is the organism the
-  experiment is about. A per-taxon call has to either delete it (recall 54.8% →
-  0) or spare it (specificity unchanged). Both are wrong.
+  makes it. _Fusobacterium_ is in 6 of the 12 blanks **and** is the organism the
+  experiment is about. A per-taxon call has to either delete it (recall 54.8% → 0) or spare it (specificity unchanged). Both are wrong.
 
 What works is a per-library test against an external reference level. A control
-library measures how much of each taxon arrives *without a sample* — reagent
+library measures how much of each taxon arrives _without a sample_ — reagent
 contamination, ambient template, and, on a plate, the hopping rate. A taxon is
 kept in a library only where it exceeds that level by a stated margin.
 
@@ -1435,25 +1436,25 @@ kept in a library only where it exceeds that level by a stated margin.
 --negative_controls 'metadata.tsv:condition:Empty Well' --control_ratio 20 --control_min_reads 30
 ```
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--negative_controls` | — | which libraries are the controls; four forms below |
-| `--control_ratio` | 10 | multiple of the control level a taxon must reach |
-| `--control_statistic` | `mean` | `mean`/`median`/`max` of the controls |
-| `--control_min_reads` | 2 | reads needed before the ratio is consulted |
-| `--control_floor_reads` | 1 | the control level never falls below this many reads |
-| `--prevalence_filter` | 0 | drop taxa in this fraction of libraries; 0 = off |
-| `--prevalence_min_reads` | 1 | reads for `--prevalence_filter` to count a library |
+| Parameter                | Default | Meaning                                             |
+| ------------------------ | ------- | --------------------------------------------------- |
+| `--negative_controls`    | —       | which libraries are the controls; four forms below  |
+| `--control_ratio`        | 10      | multiple of the control level a taxon must reach    |
+| `--control_statistic`    | `mean`  | `mean`/`median`/`max` of the controls               |
+| `--control_min_reads`    | 2       | reads needed before the ratio is consulted          |
+| `--control_floor_reads`  | 1       | the control level never falls below this many reads |
+| `--prevalence_filter`    | 0       | drop taxa in this fraction of libraries; 0 = off    |
+| `--prevalence_min_reads` | 1       | reads for `--prevalence_filter` to count a library  |
 
 `--negative_controls` takes any of four forms, so a cohort that already declares
 its blanks for `--decontam` does not declare them twice:
 
-| Form | Meaning |
-|---|---|
-| `SRX1,SRX2` | the sample IDs |
-| `controls.txt` | a file of one ID per line |
-| `meta.tsv:column` | rows whose column is `true`/`yes`/`1`/`control`/`blank`/`negative` |
-| `meta.tsv:column:value` | rows whose column equals `value` exactly |
+| Form                    | Meaning                                                            |
+| ----------------------- | ------------------------------------------------------------------ |
+| `SRX1,SRX2`             | the sample IDs                                                     |
+| `controls.txt`          | a file of one ID per line                                          |
+| `meta.tsv:column`       | rows whose column is `true`/`yes`/`1`/`control`/`blank`/`negative` |
+| `meta.tsv:column:value` | rows whose column equals `value` exactly                           |
 
 **Levels are counts per million classified reads, never raw reads.** Depth
 normalisation is on its own the single largest improvement available on that
@@ -1464,18 +1465,18 @@ in every library.
 Measured on the plate, against `benchmark/csi_microbes`'s own scorecard — 124
 infected wells, 22 uninfected, 12 empty as the controls:
 
-| Setting | Specificity | Detected | Wells with any taxon | Scorecard |
-|---|---|---|---|---|
-| off | 30/34 (88.2%) | 62/124 | 180/180 | **1 FAIL**, 3 PASS |
-| `--control_ratio 10` | 32/34 (94.1%) | 62/124 | 180/180 | 1 FAIL, 3 PASS |
-| **`--control_ratio 20 --control_min_reads 30`** | **33/34 (97.1%)** | 58/124 | 165/180 | **0 FAIL, 4 PASS** |
-| `--control_ratio 60` | 34/34 (100%) | 58/124 | 161/180 | 1 FAIL, 4 PASS |
+| Setting                                         | Specificity       | Detected | Wells with any taxon | Scorecard          |
+| ----------------------------------------------- | ----------------- | -------- | -------------------- | ------------------ |
+| off                                             | 30/34 (88.2%)     | 62/124   | 180/180              | **1 FAIL**, 3 PASS |
+| `--control_ratio 10`                            | 32/34 (94.1%)     | 62/124   | 180/180              | 1 FAIL, 3 PASS     |
+| **`--control_ratio 20 --control_min_reads 30`** | **33/34 (97.1%)** | 58/124   | 165/180              | **0 FAIL, 4 PASS** |
+| `--control_ratio 60`                            | 34/34 (100%)      | 58/124   | 161/180              | 1 FAIL, 4 PASS     |
 
 Two things that table is really saying.
 
 **The ratio is not the only lever, and on its own it is the wrong one.**
 Pushing `--control_ratio` alone does reach 100% specificity, but it gets there by
-applying the same multiple to *every* taxon, and past about 50× it empties whole
+applying the same multiple to _every_ taxon, and past about 50× it empties whole
 libraries of everything — the run then fails a different check. The four false
 positives are all small in absolute terms (11–72 reads), so
 `--control_min_reads` removes them at a fraction of the collateral damage. Reach
@@ -1492,7 +1493,7 @@ resolve that ambiguity; it declines to call it.
 and on a single-cell run that distinction decides whether the filter works at
 all. Bracken's table is species-only; the cell-by-taxon matrix carries whatever
 rank Kraken2 assigned each read. On this plate every false positive sat at
-*genus* Fusobacterium, absent from the Bracken table — so Bracken-derived
+_genus_ Fusobacterium, absent from the Bracken table — so Bracken-derived
 verdicts reached none of them and specificity did not move. The whole-taxon drop
 list still comes from Bracken, whose flat table counts each read once.
 
@@ -1501,14 +1502,14 @@ verdicts reach the cell matrix too, so the cohort profile and the single-cell
 profile cannot disagree about a cell one of them zeroed.
 
 **`--control_floor_reads` is what makes the ratio mean anything.** Absence from
-the blanks is a *bound*, not a measurement: it says a taxon is under one read in
+the blanks is a _bound_, not a measurement: it says a taxon is under one read in
 each of them, not that it is at zero. Without a floor the test collapses to "any
 reads at all" for every taxon the controls happened to miss — which on a
 species-level table is most of them. Left at 0, the table above stays flat at
 86.4% specificity however high `--control_ratio` goes, because the species that
 leaked into the uninfected wells appeared in one blank out of twelve.
 
-Note that **only the failing cells are zeroed**; a taxon that fails in *every*
+Note that **only the failing cells are zeroed**; a taxon that fails in _every_
 library leaves by the usual route, as a taxid the abundance filter removes. The
 control libraries themselves are never filtered — you cannot judge a control
 against itself — and stay in the table as columns.
@@ -1522,10 +1523,10 @@ adjusted p of 0 — none of them real. `sc_enrichment` is therefore given the
 control list and leaves those libraries out entirely: a blank is not a cell
 type. For differential abundance, do the same with `--da_samples_to_drop`.
 
-Excluding them also makes the remaining results *more* conservative, not less,
+Excluding them also makes the remaining results _more_ conservative, not less,
 which is worth knowing before comparing runs. Blanks carry no cells of any real
 type, so counting them dilutes the expected-cell pool and inflates every
-observed/expected ratio computed against it. On that plate *F. nucleatum* in
+observed/expected ratio computed against it. On that plate _F. nucleatum_ in
 infected epithelium moved from log2fc 0.64 (raw p 0.0031) to 0.54 (raw p 0.018)
 once the twelve blanks stopped padding the denominator.
 
@@ -1536,16 +1537,16 @@ taxon in **every** library? A reagent contaminant introduced at extraction is; a
 biological signal usually is not.
 
 On the same plate, `--prevalence_filter 1.0` removes **six taxa holding 62.6% of
-all microbial reads**, and does not touch *Fusobacterium*:
+all microbial reads**, and does not touch _Fusobacterium_:
 
-| Reads | Taxon |
-|---|---|
-| 1,976,110 | synthetic construct |
-| 439,008 | *Escherichia coli* |
-| 258,164 | *Malassezia restricta* |
-| 56,113 | *Microbacterium foliorum* |
-| 17,191 | *Dietzia psychralcaliphila* |
-| 16,182 | *Microbacterium maritypicum* |
+| Reads     | Taxon                        |
+| --------- | ---------------------------- |
+| 1,976,110 | synthetic construct          |
+| 439,008   | _Escherichia coli_           |
+| 258,164   | _Malassezia restricta_       |
+| 56,113    | _Microbacterium foliorum_    |
+| 17,191    | _Dietzia psychralcaliphila_  |
+| 16,182    | _Microbacterium maritypicum_ |
 
 Every one is on Salter et al.'s (BMC Biol 2014) list of reagent contaminants, or
 is a cloning-vector artefact. That is a large effect from a crude rule.
@@ -1558,14 +1559,14 @@ it names what it removed in `control_filter/`.
 **It is a background remover, not a false-positive remover, and the distinction
 is worth being clear about.** On this plate it strips 62.6% of the reads and
 leaves the specificity failure exactly where it was — 30/34, unchanged at every
-threshold from 1.0 down to 0.9. That is not a defect: *Fusobacterium* is in 101
+threshold from 1.0 down to 0.9. That is not a defect: _Fusobacterium_ is in 101
 of 180 libraries, so no prevalence rule can touch it without also deleting it
 from the wells where it is real. Reach for it to clear the floor, and for
 `--negative_controls` to fix a specificity problem.
 
 **Both are complementary to `--decontam`, not replacements.** decontam is given
-a measurement of the *kit* and asks whether a taxon is reagent; this is given
-control *libraries* and asks whether there is more of a taxon here than turns up
+a measurement of the _kit_ and asks whether a taxon is reagent; this is given
+control _libraries_ and asks whether there is more of a taxon here than turns up
 on its own. Where both are available, run both.
 
 ### Reagent contaminants (`--decontam`)
@@ -1588,19 +1589,19 @@ varying amounts of real sample.
 --decontam --decontam_metadata metadata.tsv --decontam_neg_column sample_type --decontam_neg_value blank
 ```
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--decontam_metadata` | `--da_metadata` | TSV; first column is the sample id |
-| `--decontam_neg_column` | — | column marking negative controls |
-| `--decontam_neg_value` | `true` | value marking one (case-insensitive) |
-| `--decontam_conc_column` | — | DNA concentration, for `frequency` |
-| `--decontam_method` | `prevalence` | `prevalence`/`frequency`/`combined`/`either`/`minimum` |
-| `--decontam_threshold` | 0.1 | decontam's own default |
-| `--decontam_batch_column` | — | column grouping samples into batches |
-| `--decontam_batch_combine` | `minimum` | `minimum`/`product`/`fisher` |
+| Parameter                  | Default         | Meaning                                                |
+| -------------------------- | --------------- | ------------------------------------------------------ |
+| `--decontam_metadata`      | `--da_metadata` | TSV; first column is the sample id                     |
+| `--decontam_neg_column`    | —               | column marking negative controls                       |
+| `--decontam_neg_value`     | `true`          | value marking one (case-insensitive)                   |
+| `--decontam_conc_column`   | —               | DNA concentration, for `frequency`                     |
+| `--decontam_method`        | `prevalence`    | `prevalence`/`frequency`/`combined`/`either`/`minimum` |
+| `--decontam_threshold`     | 0.1             | decontam's own default                                 |
+| `--decontam_batch_column`  | —               | column grouping samples into batches                   |
+| `--decontam_batch_combine` | `minimum`       | `minimum`/`product`/`fisher`                           |
 
 **`--decontam_batch_column` is worth reaching for whenever the cohort spans more
-than one run.** Contamination is a property of the *kit*, not of the study. Pool
+than one run.** Contamination is a property of the _kit_, not of the study. Pool
 two sequencing runs, two extraction days or two centres, and a taxon that was
 heavy in one batch and absent from the other looks exactly like a taxon that
 varies between samples — which is what a real organism looks like. Naming the
@@ -1615,7 +1616,7 @@ are correspondingly conservative.
 
 Every batch must contain at least one control and two true samples, or the run
 stops and names the batches that do not. That is deliberate: decontam would
-otherwise return `NA` for a starved batch, and a taxon absent from every *other*
+otherwise return `NA` for a starved batch, and a taxon absent from every _other_
 batch would then never be scored at all.
 
 The evidence table gains two columns the package does not produce —
@@ -1662,17 +1663,17 @@ than a t-test on proportions.
 --run_sparcc
 ```
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--sparcc_min_prevalence` | 0.5 | a taxon must be seen in this share of samples... |
-| `--sparcc_min_reads` | 10 | ...with at least this many reads there |
-| `--sparcc_top_taxa` | 200 | most abundant survivors kept (0 = all) |
-| `--sparcc_iterations` | 50 | SparCC iterations for the point estimate |
-| `--sparcc_exclusion_iterations` | 10 | strongly-correlated-pair exclusion rounds |
-| `--sparcc_permutations` | 1000 | bootstrap replicates behind the p-values |
-| `--sparcc_min_correlation` | 0.3 | \|rho\| an edge needs before it is reported |
-| `--sparcc_p_threshold` | 0.05 | on the **adjusted** p |
-| `--sparcc_force` | false | run even when the cohort cannot support it |
+| Parameter                       | Default | Meaning                                          |
+| ------------------------------- | ------- | ------------------------------------------------ |
+| `--sparcc_min_prevalence`       | 0.5     | a taxon must be seen in this share of samples... |
+| `--sparcc_min_reads`            | 10      | ...with at least this many reads there           |
+| `--sparcc_top_taxa`             | 200     | most abundant survivors kept (0 = all)           |
+| `--sparcc_iterations`           | 50      | SparCC iterations for the point estimate         |
+| `--sparcc_exclusion_iterations` | 10      | strongly-correlated-pair exclusion rounds        |
+| `--sparcc_permutations`         | 1000    | bootstrap replicates behind the p-values         |
+| `--sparcc_min_correlation`      | 0.3     | \|rho\| an edge needs before it is reported      |
+| `--sparcc_p_threshold`          | 0.05    | on the **adjusted** p                            |
+| `--sparcc_force`                | false   | run even when the cohort cannot support it       |
 
 **The run is refused rather than emptied.** SparCC estimates each pair from the
 variance of a log ratio across samples; with a handful of samples those
@@ -1681,7 +1682,7 @@ because a resample of five samples has very few distinct outcomes. Below ten
 samples the run stops. It also stops when the bootstrap p-value floor
 (`1 / --sparcc_permutations`) sits above what Benjamini–Hochberg needs for the
 number of pairs being tested — with 200 taxa that is 19,900 pairs, so 1,000
-replicates cannot call *any* edge significant, and the message says how many
+replicates cannot call _any_ edge significant, and the message says how many
 replicates it would take. An empty network from such a run would mean "this
 cohort cannot be asked", not "there are no associations".
 
@@ -1715,9 +1716,9 @@ whose analysis code is public:
 - Each variable is tested on its own by **distance-based RDA** (`vegan::capscale`),
   giving an adjusted R² and a permutation p-value, BH-corrected across variables.
 - A **stepwise model** (`vegan::ordiR2step`) then adds variables in order of the
-  variation they explain that the ones already in the model do not. *The gap
+  variation they explain that the ones already in the model do not. _The gap
   between a variable's univariate R² and its contribution here is the
-  confounding* — two variables can each explain 20% and jointly explain 21%.
+  confounding_ — two variables can each explain 20% and jointly explain 21%.
 - **PERMANOVA** (`vegan::adonis2`) on the same distance, since that is what most
   readers expect quoted.
 
@@ -1779,7 +1780,7 @@ so there is nothing to collide with.
 
 **It takes the trimmed reads, not the non-host ones.** This is the only tool
 here that does. PRISM performs its own host removal, and several of its forty
-features are statistics *of* that removal — how much of the library was host,
+features are statistics _of_ that removal — how much of the library was host,
 how much unclassified, how a candidate's k-mers distribute across ranks. Hand
 it a fraction that has already had the host taken out and those columns empty,
 which changes what the model is scoring without changing anything that would
@@ -1822,16 +1823,16 @@ README:
   `modules/local/prism/run/environment.yml` pins `r-xgboost=1.7.6` for this
   reason.
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--prism_kraken_db` | `--kraken2_db` | PRISM runs its own Kraken2 pass |
-| `--prism_min_qcovs` | 80 | PRISM's minimum BLAST query coverage |
-| `--prism_min_read_per` | 10000 | PRISM's minimum reads per X to analyse |
-| `--prism_min_uniq_frac` | 5 | PRISM's minimum unique k-mer ratio |
-| `--prism_max_sample` | 100 | PRISM's maximum reads to sample |
-| `--prism_score_threshold` | 0.5 | median score below which a taxon is a contaminant |
-| `--prism_min_reads` | 10 | below this, PRISM has nothing to confirm either way |
-| `--prism_filter` | false | apply the verdict to the combined Bracken table |
+| Parameter                 | Default        | Meaning                                             |
+| ------------------------- | -------------- | --------------------------------------------------- |
+| `--prism_kraken_db`       | `--kraken2_db` | PRISM runs its own Kraken2 pass                     |
+| `--prism_min_qcovs`       | 80             | PRISM's minimum BLAST query coverage                |
+| `--prism_min_read_per`    | 10000          | PRISM's minimum reads per X to analyse              |
+| `--prism_min_uniq_frac`   | 5              | PRISM's minimum unique k-mer ratio                  |
+| `--prism_max_sample`      | 100            | PRISM's maximum reads to sample                     |
+| `--prism_score_threshold` | 0.5            | median score below which a taxon is a contaminant   |
+| `--prism_min_reads`       | 10             | below this, PRISM has nothing to confirm either way |
+| `--prism_filter`          | false          | apply the verdict to the combined Bracken table     |
 
 Scores are aggregated across the cohort as the **median over the samples that
 saw the taxon**. Not the mean, which one confidently-scored library drags
@@ -1864,7 +1865,7 @@ it when PRISM's setup is out of reach, and PRISM itself when it is not.
 
 A third classification route, and the only one here that is **not k-mer based**.
 Kraken2 and KrakenUniq match exact substrings against a database of genomes;
-MetaPhlAn matches clade-specific markers. PathSeq *aligns* the surviving reads
+MetaPhlAn matches clade-specific markers. PathSeq _aligns_ the surviving reads
 to its microbe reference with BWA and scores taxa from those alignments,
 distributing an ambiguously-mapping read's weight across the taxa it hits
 instead of pushing it up to their common ancestor.
@@ -1889,13 +1890,13 @@ runs on the reads that survived host depletion, and its own host filter — if
 as a second, alignment-plus-k-mer pass over what HISAT2 left behind. Give both
 or neither.
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `--pathseq_host_bwa_image` | — | host BWA image for PathSeq's own filter |
-| `--pathseq_host_kmers` | — | the k-mer file that goes with it |
-| `--pathseq_save_bam` | false | the per-read BAM is the size of the library |
-| `--pathseq_rank` | `species` | PathSeq's `type` kept in the combined tables |
-| `--pathseq_args` | — | passed to `PathSeqPipelineSpark` |
+| Parameter                  | Default   | Meaning                                      |
+| -------------------------- | --------- | -------------------------------------------- |
+| `--pathseq_host_bwa_image` | —         | host BWA image for PathSeq's own filter      |
+| `--pathseq_host_kmers`     | —         | the k-mer file that goes with it             |
+| `--pathseq_save_bam`       | false     | the per-read BAM is the size of the library  |
+| `--pathseq_rank`           | `species` | PathSeq's `type` kept in the combined tables |
+| `--pathseq_args`           | —         | passed to `PathSeqPipelineSpark`             |
 
 **The resource bundle is the price of entry.** This pipeline does not build the
 index images: they are large, slow to build and specific to a reference choice
@@ -1951,7 +1952,7 @@ than the node's memory; that switches the module out of whole-database
 preloading.
 
 **Bracken does not run on this route.** Bracken's k-mer distributions are built
-alongside a *Kraken2* database, so pairing them with a KrakenUniq report would
+alongside a _Kraken2_ database, so pairing them with a KrakenUniq report would
 estimate one database's abundances from another's statistics. You get the
 per-sample reports, the combined table, the sparse-taxon filter and Krona.
 
@@ -2090,7 +2091,7 @@ simply loading the database.
 
 Prebuilt databases are where most analyses start, and what leaves the gaps: a
 parasite only VEuPathDB holds, a microsporidian like the malaria-blocking
-*Microsporidia* MB (28 minimizers in core_nt), a symbiont described last year, a
+_Microsporidia_ MB (28 minimizers in core_nt), a symbiont described last year, a
 vector's insect-specific viruses. `--build_databases` builds the classifiers'
 databases from genomes you choose, as a run of its own: it reads no sequencing
 data, and writes the databases in exactly the layout the analysis parameters
@@ -2113,13 +2114,13 @@ mb,2715920,refs/microsporidia_MB.fa.gz,,refs/microsporidia_MB.cds.fa.gz
 ecoli_k12,511145,,GCF_000005845.2,
 ```
 
-| Column | Meaning |
-|---|---|
-| `id` | names the genome's files (letters, digits, `-`, and single `_`) |
-| `taxid` | the NCBI taxid every sequence of the genome is assigned to |
-| `fasta` | a FASTA, optionally gzipped |
-| `accession` | or an assembly accession, GCF_* (RefSeq) or GCA_* (GenBank) |
-| `cds` | optional: the genome's coding sequences, nucleotide; the MetaPhlAn build's genes, required there for eukaryotes |
+| Column      | Meaning                                                                                                         |
+| ----------- | --------------------------------------------------------------------------------------------------------------- |
+| `id`        | names the genome's files (letters, digits, `-`, and single `_`)                                                 |
+| `taxid`     | the NCBI taxid every sequence of the genome is assigned to                                                      |
+| `fasta`     | a FASTA, optionally gzipped                                                                                     |
+| `accession` | or an assembly accession, GCF_* (RefSeq) or GCA_* (GenBank)                                                     |
+| `cds`       | optional: the genome's coding sequences, nucleotide; the MetaPhlAn build's genes, required there for eukaryotes |
 
 Every header is rewritten to carry its taxid (`kraken:taxid|<n>`), so no
 accession-to-taxid table is needed and genomes NCBI does not hold are as easy as
@@ -2129,13 +2130,13 @@ built, and the run stops on any it does not know. The taxonomy is
 when that is unset, NCBI's taxdump downloaded for the run. Use the taxonomy of
 any database you will analyse alongside, so the taxids agree.
 
-| Tool | Built | Use it with |
-|---|---|---|
-| `kraken2` | `kraken2-build` with Kraken2 2.17.2, the version the analysis runs; low-complexity masking on, as by default; `inspect.txt` written for the minimizer filter's coverage figure | `--kraken2_db <outdir>/databases/kraken2` |
-| `bracken` | one k-mer distribution per `--db_bracken_read_lengths` (default 50,75,100,150), into the Kraken2 directory | found there by `--bracken_read_length auto` |
-| `krakenuniq` | `krakenuniq-build` with KrakenUniq 1.0.4 | `--krakenuniq_db <outdir>/databases/krakenuniq` |
-| `sylph` | `sylph sketch` of the genomes (`-c 200`), plus a sylph-tax table with each genome's NCBI lineage in GTDB-style prefixes | `--run_sylph --sylph_db <outdir>/databases/sylph/<db_name>.syldb --sylph_taxonomy <outdir>/databases/<db_name>.sylph_taxonomy.tsv` |
-| `metaphlan` | species-specific marker genes chosen the way MetaPhlAn 4 chose its own (below), as a MetaPhlAn 4.2 database | `--run_metaphlan --metaphlan_db <outdir>/databases/metaphlan --metaphlan_index <db_name>` |
+| Tool         | Built                                                                                                                                                                          | Use it with                                                                                                                        |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `kraken2`    | `kraken2-build` with Kraken2 2.17.2, the version the analysis runs; low-complexity masking on, as by default; `inspect.txt` written for the minimizer filter's coverage figure | `--kraken2_db <outdir>/databases/kraken2`                                                                                          |
+| `bracken`    | one k-mer distribution per `--db_bracken_read_lengths` (default 50,75,100,150), into the Kraken2 directory                                                                     | found there by `--bracken_read_length auto`                                                                                        |
+| `krakenuniq` | `krakenuniq-build` with KrakenUniq 1.0.4                                                                                                                                       | `--krakenuniq_db <outdir>/databases/krakenuniq`                                                                                    |
+| `sylph`      | `sylph sketch` of the genomes (`-c 200`), plus a sylph-tax table with each genome's NCBI lineage in GTDB-style prefixes                                                        | `--run_sylph --sylph_db <outdir>/databases/sylph/<db_name>.syldb --sylph_taxonomy <outdir>/databases/<db_name>.sylph_taxonomy.tsv` |
+| `metaphlan`  | species-specific marker genes chosen the way MetaPhlAn 4 chose its own (below), as a MetaPhlAn 4.2 database                                                                    | `--run_metaphlan --metaphlan_db <outdir>/databases/metaphlan --metaphlan_index <db_name>`                                          |
 
 `--db_kraken2_args`, `--db_kraken2_library_args`, `--db_krakenuniq_args` and
 `--db_sylph_args` pass anything else to the builders - for example
@@ -2159,7 +2160,7 @@ genomes under ~10 kb (then profile with `--sylph_args '-c 100'`).
 MetaPhlAn does not classify reads against genomes: it maps them to a few hundred
 marker genes per species, genes every strain of the species carries and no other
 organism does, and calls a species from the coverage of its markers
-(Blanco-Míguez et al., *Nat Biotechnol* 2023). Its official database cannot be
+(Blanco-Míguez et al., _Nat Biotechnol_ 2023). Its official database cannot be
 extended - a marker is unique only against the 1.01 million genomes it was
 tested on, which are not distributed with it - but a new, standalone database
 can be made from any set of genomes, as HRGMv2 and HROM did for their catalogues.
@@ -2169,7 +2170,7 @@ HROM reimplemented it ([netbiolab/HROM](https://github.com/netbiolab/HROM)):
 1. **Genes.** The sheet's `cds` file, or for an accession without one, the
    CDS file NCBI distributes with an annotated assembly; pyrodigal otherwise,
    trained on the genome (genetic code 4 when it codes markedly more, as for
-   *Spiroplasma* and *Mycoplasma*). Complete genes of 450-4,500 nt are kept.
+   _Spiroplasma_ and _Mycoplasma_). Complete genes of 450-4,500 nt are kept.
 2. **Gene families.** All proteins clustered with MMseqs2 at 90% identity over
    80% of both sequences.
 3. **Core families.** Genomes sharing a taxid are one species. A family is core
@@ -2191,7 +2192,7 @@ Profile against it with `--run_metaphlan --metaphlan_db <outdir>/databases/metap
 species come out as `t__TAX<taxid>` under their NCBI lineage.
 
 > **Uniqueness is only tested against what the build sees.** A marker reaches no
-> other genome *of the sheet*. A read from an organism outside it that shares a
+> other genome _of the sheet_. A read from an organism outside it that shares a
 > marker is credited to your species, so include the relatives and the usual
 > microbes of the tissue as genomes, and the host and vector as
 > `--db_metaphlan_screen` (FASTA, comma-separated, plain or gzipped). MetaPhlAn
@@ -2265,12 +2266,12 @@ and load again to move between Kraken2, Bracken and the combined table.
 The app decides what a file is from its **name**, and reanaTax's published names
 do not line up with what it looks for:
 
-| published name | what the app does with it |
-| --- | --- |
-| `<sample>.bracken_S.tsv` | matches no format - silently skipped, though this is the table the app actually wants |
+| published name                                  | what the app does with it                                                                                  |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `<sample>.bracken_S.tsv`                        | matches no format - silently skipped, though this is the table the app actually wants                      |
 | `<sample>.bracken_S.kraken2.report_bracken.txt` | matches `bracken`, but it is a kreport, so the parser looks for `new_est_reads` columns that are not there |
-| `bracken_combined_S.txt` | misses `combined_bracken`, whose pattern wants "combined" *before* "bracken" |
-| `kraken2_combined_report.txt` | false-matches per-sample `kraken2` and loads as an extra sample |
+| `bracken_combined_S.txt`                        | misses `combined_bracken`, whose pattern wants "combined" _before_ "bracken"                               |
+| `kraken2_combined_report.txt`                   | false-matches per-sample `kraken2` and loads as an extra sample                                            |
 
 So the bundle renames files on the way in, leaves out the two that can only
 mislead, and gunzips the HUMAnN tables. Before the archive is sealed, every name
@@ -2321,11 +2322,11 @@ Any OpenAI-compatible `/v1/chat/completions` endpoint works: a self-hosted vLLM,
 
 `--ai_insights` selects which annotations to generate. It takes `all` (default), `no`, or a comma-separated subset:
 
-| Value      | What it does                                                                                                                          |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Value      | What it does                                                                                                                                                                                                                                             |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `taxonomy` | Reads the combined Kraken2 and Bracken tables and writes a few sentences on the dominant taxa, how consistent samples are, and what looks like contamination. Appears as the **first section of the MultiQC report** and as `ai/taxonomy.ai_insight.md`. |
-| `multiqc`  | One summary under every section of the MultiQC report, generated from that section's own exported data table. Works for every MultiQC module, not just the ones this pipeline runs. |
-| `qualimap` | A summary box at the top of each per-sample Qualimap report.                                                                            |
+| `multiqc`  | One summary under every section of the MultiQC report, generated from that section's own exported data table. Works for every MultiQC module, not just the ones this pipeline runs.                                                                      |
+| `qualimap` | A summary box at the top of each per-sample Qualimap report.                                                                                                                                                                                             |
 
 `--multiqc_ai_builtin` additionally turns on MultiQC's own AI feature, which writes one summary of the whole report. It is complementary to `--ai_insights multiqc`, which annotates the individual sections.
 
@@ -2400,13 +2401,13 @@ CPU and memory ceilings are detected from the machine, and Nextflow then schedul
 
 Every process becomes one `sbatch` job requesting exactly the CPU/memory/time of its resource label, so the scheduler decides what runs concurrently. Useful knobs:
 
-| Option                    | Purpose                                                                 |
-| ------------------------- | ----------------------------------------------------------------------- |
-| `--slurm_queue`           | Partition to submit to.                                                  |
-| `--slurm_options`         | Appended to every `sbatch`, e.g. `'--account=myproject'`.                |
-| `--slurm_queue_size`      | Jobs Nextflow keeps queued at once (default `100`).                     |
-| `--resource_limit_*`      | Cap per-job requests when the partition's nodes are smaller than the defaults. |
-| `--download_local`        | Keep download tasks on the submission host when compute nodes are firewalled. |
+| Option               | Purpose                                                                        |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `--slurm_queue`      | Partition to submit to.                                                        |
+| `--slurm_options`    | Appended to every `sbatch`, e.g. `'--account=myproject'`.                      |
+| `--slurm_queue_size` | Jobs Nextflow keeps queued at once (default `100`).                            |
+| `--resource_limit_*` | Cap per-job requests when the partition's nodes are smaller than the defaults. |
+| `--download_local`   | Keep download tasks on the submission host when compute nodes are firewalled.  |
 
 Submissions are rate-limited to 20 jobs per minute and failed jobs are retried up to three times, because cluster jobs die for reasons — preemption, node failure, a filesystem hiccup — that have nothing to do with the pipeline.
 
@@ -2487,10 +2488,10 @@ It is a separate file rather than a samplesheet column because the `--input_acce
 --da_method ancombc,aldex2 --da_covariates Sex
 ```
 
-| Method | What it does |
-| --- | --- |
-| `ancombc` | ANCOM-BC2: bias-corrected log-ratios, estimates a per-sample sampling fraction, handles structural zeros. The default. |
-| `aldex2` | ALDEx2: centred log-ratio space, Monte-Carlo instances from a Dirichlet posterior. `--da_covariates` switches it from the t-test path to `aldex.glm`. |
+| Method    | What it does                                                                                                                                          |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ancombc` | ANCOM-BC2: bias-corrected log-ratios, estimates a per-sample sampling fraction, handles structural zeros. The default.                                |
+| `aldex2`  | ALDEx2: centred log-ratio space, Monte-Carlo instances from a Dirichlet posterior. `--da_covariates` switches it from the t-test path to `aldex.glm`. |
 
 Each has its own container — no biocontainer carries both — so naming both runs two processes over the same table. They disagree in informative ways; treat a taxon only one of them calls with suspicion.
 
@@ -2508,7 +2509,7 @@ Outputs land in `differential_abundance/`: a results TSV per method (`taxon`, `l
 --metaphlan_index mpa_vJan25_CHOCOPhlAnSGB_202503
 ```
 
-It is additive rather than exclusive: add `--skip_kraken2` to use MetaPhlAn *instead* of Kraken2, or leave Kraken2 on to run both over one set of reads. The invocation mirrors ezRun's `app-metaphlan.R`, which is what the databases under `/srv/GT/databases/metaphlan_databases` are laid out for.
+It is additive rather than exclusive: add `--skip_kraken2` to use MetaPhlAn _instead_ of Kraken2, or leave Kraken2 on to run both over one set of reads. The invocation mirrors ezRun's `app-metaphlan.R`, which is what the databases under `/srv/GT/databases/metaphlan_databases` are laid out for.
 
 `--metaphlan_args` defaults to `-t rel_ab_w_read_stats`, which adds the `estimated_number_of_reads_from_the_clade` column. Per-sample profiles and one merged table land in `metaphlan/`.
 
@@ -2534,7 +2535,7 @@ Read these before relying on it:
 - **A detection floor.** sylph needs about 0.01–0.05x coverage of a bacterial genome, at least a few hundred short reads. An organism present at tens of reads, which Kraken2 will report, sylph will not.
 - **Transcriptomes cover genomes unevenly.** The ANI model assumes the reads sample the whole genome. RNA-seq samples what is expressed, and 3′ single-cell chemistries only the transcript ends, which lowers the containment and the ANI estimate with it: an organism can be present and still fall under 95%. On RNA, a sylph call is strong evidence of presence and a missing one is weak evidence of absence.
 - **Small genomes need a smaller `c`.** sylph keeps about one k-mer in `c` (200 by default) and wants more than 50 to report a genome, which rules out genomes below ~10 kb at the default — HIV-1 among them. Use a database sketched with `-c 100` and pass `--sylph_args '-c 100'`; the reads and the database must be sketched at the same `c`.
-- **GTDB names, not NCBI taxids.** The pre-built databases carry GTDB taxonomy. Its species are drawn at 95% ANI, so names and boundaries differ from the NCBI taxonomy Kraken2 reports; the *M. tuberculosis* complex, for example, is one GTDB species.
+- **GTDB names, not NCBI taxids.** The pre-built databases carry GTDB taxonomy. Its species are drawn at 95% ANI, so names and boundaries differ from the NCBI taxonomy Kraken2 reports; the _M. tuberculosis_ complex, for example, is one GTDB species.
 
 Pre-built databases (GTDB, IMG/VR, RefSeq fungi and others) and the sylph-tax tables that go with them are listed in the [sylph documentation](https://sylph-docs.github.io/). The pipeline runs sylph 1.0.0, so the two-stage `.syl2db` format works. Pass the taxonomy tables as files: sylph-tax's built-in names (`GTDB_r232`, `IMGVR_4.1`, ...) resolve through a folder under `$HOME` that a container does not have. `--sylph_taxonomy` is optional; without it you get sylph's genome-level output only.
 

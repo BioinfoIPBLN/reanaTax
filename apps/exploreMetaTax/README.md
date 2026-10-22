@@ -17,11 +17,11 @@ to anything. Everything you load stays on your machine.
 
 ## Layout
 
-| Path       | What it is                                                                 |
-| ---------- | -------------------------------------------------------------------------- |
-| `app/`     | The app source the bundle is built from: `app.R` plus its data file.        |
-| `site/`    | The generated static site (~180 MB). Not tracked by git — see below.        |
-| `build.R`  | Regenerates `site/` from `app/`.                                            |
+| Path      | What it is                                                           |
+| --------- | -------------------------------------------------------------------- |
+| `app/`    | The app source the bundle is built from: `app.R` plus its data file. |
+| `site/`   | The generated static site (~180 MB). Not tracked by git — see below. |
+| `build.R` | Regenerates `site/` from `app/`.                                     |
 
 ## Running it
 
