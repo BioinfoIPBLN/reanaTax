@@ -611,6 +611,32 @@
                     "help_text": "For example `--annotate-virus-hosts` with a pre-built viral database. Do not set -t; the module passes --sylph_taxonomy there.",
                     "fa_icon": "fas fa-terminal"
                 },
+                "run_emu": {
+                    "type": "boolean",
+                    "description": "Profile full-length 16S amplicons with Emu (long-read route only).",
+                    "help_text": "Emu estimates species abundances by expectation maximisation over minimap2 alignments of each read to a 16S database (Curry et al., Nat Methods 2022). It needs --long_reads and --emu_db, and it is for amplicon libraries: on shotgun data it only sees the reads that come from 16S genes. Additive like sylph; `--run_emu --skip_kraken2` makes it the only classifier. See docs/usage.md.",
+                    "fa_icon": "fas fa-dna"
+                },
+                "emu_db": {
+                    "type": "string",
+                    "description": "Emu database: a directory holding species_taxid.fasta and taxonomy.tsv, or a `.tar`/`.tar.gz` of one.",
+                    "help_text": "Emu's default database (rrnDB v5.6 with NCBI 16S RefSeq, NCBI taxids) and prebuilt SILVA and RDP ones are distributed through OSF; `emu build-database` makes one from your own sequences.",
+                    "fa_icon": "fas fa-database"
+                },
+                "emu_args": {
+                    "type": "string",
+                    "default": "--keep-counts",
+                    "description": "Arguments passed to `emu abundance`.",
+                    "help_text": "`--keep-counts` adds estimated read counts to each profile, and the cohort count tables are written only with it. The minimap2 preset follows --long_reads (map-ont or map-hifi) unless this names one with `--type`, e.g. `--type lr:hq` for ONT reads of Q20 and above or `--type map-pb` for PacBio CLR. Other options: `--min-abundance`, `--N`, `--min-pid`, `--output-unclassified`. Do not set --db, --threads, --output-dir or --output-basename; the module sets those.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "emu_ranks": {
+                    "type": "string",
+                    "default": "tax_id,genus",
+                    "description": "Ranks of the cohort tables, comma-separated: any of tax_id, species, genus, family, order, class, phylum, superkingdom.",
+                    "help_text": "`tax_id` is the species level with its full lineage. One table per rank, and a count table beside each when --emu_args keeps counts.",
+                    "fa_icon": "fas fa-layer-group"
+                },
                 "run_metax": {
                     "type": "boolean",
                     "description": "Also profile the non-host reads with Metax.",

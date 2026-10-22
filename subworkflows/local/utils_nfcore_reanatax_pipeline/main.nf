@@ -580,8 +580,22 @@ def validateInputParameters() {
         error("--run_humann needs the Kraken2 report to build HUMAnN's taxonomic profile; it cannot be combined with --skip_kraken2.")
     }
 
-    if (params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan && !params.run_sylph && !params.run_metax && !params.pathseq_microbe_bwa_image && !params.run_prism) {
-        log.warn("--skip_kraken2 with none of --krakenuniq_db, --run_metaphlan, --run_sylph, --run_metax, --pathseq_microbe_bwa_image or --run_prism leaves nothing to classify the non-host reads with.")
+    if (params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan && !params.run_sylph && !params.run_metax && !params.run_emu && !params.pathseq_microbe_bwa_image && !params.run_prism) {
+        log.warn("--skip_kraken2 with none of --krakenuniq_db, --run_metaphlan, --run_sylph, --run_metax, --run_emu, --pathseq_microbe_bwa_image or --run_prism leaves nothing to classify the non-host reads with.")
+    }
+
+    if (params.run_emu) {
+        if (!params.long_reads) {
+            error("--run_emu runs on the long-read route: Emu is built for full-length 16S reads. Add --long_reads ont or --long_reads pacbio.")
+        }
+        if (!params.emu_db) {
+            error("--run_emu needs --emu_db: a directory holding species_taxid.fasta and taxonomy.tsv, or a .tar/.tar.gz of one. Emu's default database and prebuilt SILVA and RDP ones are listed at https://github.com/treangenlab/emu")
+        }
+        def emu_ranks = ['tax_id', 'species', 'genus', 'family', 'order', 'class', 'phylum', 'superkingdom']
+        def unknown = commaList(params.emu_ranks).findAll { rank -> !(rank in emu_ranks) }
+        if (unknown || !commaList(params.emu_ranks)) {
+            error("--emu_ranks: ${unknown ? "unknown rank(s) ${unknown.join(', ')}" : 'no rank given'}. Expected any of ${emu_ranks.join(', ')}.")
+        }
     }
 
     if (params.run_metax && (!params.metax_db || !params.metax_dmp_dir)) {
@@ -1198,7 +1212,8 @@ def bowtie2References() {
 //
 // --long_reads covers what is sound for reads of tens of kilobases: fastplong
 // trimming, minimap2 host depletion, and the classifiers that take reads of any
-// length (Kraken2, KrakenUniq, sylph, and MetaPhlAn in its minimap2 mode).
+// length (Kraken2, KrakenUniq, sylph, MetaPhlAn in its minimap2 mode, and Emu
+// for full-length 16S).
 // Every step built around short reads is refused here rather than run on reads
 // it was never meant for.
 //
@@ -1474,6 +1489,7 @@ def toolCitationText() {
             params.skip_host_removal || params.long_reads ? "" : "HISAT2 (Kim et al. 2019),",
             params.host_mask ? "host masking as in Hostile (Constantinides et al. 2023) with BEDTools (Quinlan and Hall 2010)," : "",
             params.long_reads || params.host_mask ? "minimap2 (Li 2018)," : "",
+            params.run_emu ? "Emu (Curry et al. 2022)," : "",
             params.skip_host_removal || !params.save_host_bam ? "" : "SAMtools (Danecek et al. 2021),",
             params.skip_host_removal || !params.save_host_bam || params.skip_qualimap ? "" : "Qualimap (Okonechnikov et al. 2016),",
             params.skip_kraken2 ? "" : "Kraken2 (Wood et al. 2019),",
@@ -1495,6 +1511,7 @@ def toolBibliographyText() {
             params.host_mask ? "<li>Constantinides, B., Hunt, M., & Crook, D. W. (2023). Hostile: accurate decontamination of microbial host sequences. Bioinformatics, 39(12), btad728. doi: 10.1093/bioinformatics/btad728</li>" : "",
             params.host_mask ? "<li>Quinlan, A. R., & Hall, I. M. (2010). BEDTools: a flexible suite of utilities for comparing genomic features. Bioinformatics, 26(6), 841-842. doi: 10.1093/bioinformatics/btq033</li>" : "",
             params.long_reads || params.host_mask ? "<li>Li, H. (2018). Minimap2: pairwise alignment for nucleotide sequences. Bioinformatics, 34(18), 3094-3100. doi: 10.1093/bioinformatics/bty191</li>" : "",
+            params.run_emu ? "<li>Curry, K. D., Wang, Q., Nute, M. G., et al. (2022). Emu: species-level microbial community profiling of full-length 16S rRNA Oxford Nanopore sequencing data. Nature Methods, 19(7), 845-853. doi: 10.1038/s41592-022-01520-4</li>" : "",
             params.skip_host_removal || params.long_reads ? "" : "<li>Kim, D., Paggi, J. M., Park, C., Bennett, C., & Salzberg, S. L. (2019). Graph-based genome alignment and genotyping with HISAT2 and HISAT-genotype. Nature Biotechnology, 37(8), 907-915. doi: 10.1038/s41587-019-0201-4</li>",
             params.skip_host_removal || !params.save_host_bam ? "" : "<li>Danecek, P., Bonfield, J. K., Liddle, J., et al. (2021). Twelve years of SAMtools and BCFtools. GigaScience, 10(2), giab008. doi: 10.1093/gigascience/giab008</li>",
             params.skip_host_removal || !params.save_host_bam || params.skip_qualimap ? "" : "<li>Okonechnikov, K., Conesa, A., & García-Alcalde, F. (2016). Qualimap 2: advanced multi-sample quality control for high-throughput sequencing data. Bioinformatics, 32(2), 292-294. doi: 10.1093/bioinformatics/btv566</li>",

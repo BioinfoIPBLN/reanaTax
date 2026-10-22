@@ -20,6 +20,7 @@ include { TAXONOMY_KRAKEN2_BRACKEN  } from '../subworkflows/local/taxonomy_krake
 include { TAXONOMY_KRAKENUNIQ      } from '../subworkflows/local/taxonomy_krakenuniq'
 include { TAXONOMY_METAPHLAN       } from '../subworkflows/local/taxonomy_metaphlan'
 include { TAXONOMY_SYLPH           } from '../subworkflows/local/taxonomy_sylph'
+include { TAXONOMY_EMU             } from '../subworkflows/local/taxonomy_emu'
 include { TAXONOMY_METAX           } from '../subworkflows/local/taxonomy_metax'
 include { STANDARDISATION_TAXPASTA } from '../subworkflows/local/standardisation_taxpasta'
 include { TAXONOMY_PATHSEQ         } from '../subworkflows/local/taxonomy_pathseq'
@@ -71,6 +72,7 @@ include { hostAligner               } from '../subworkflows/local/host_depletion
 include { minimap2Preset           } from '../subworkflows/local/host_depletion_hisat2'
 include { longReadLibrary          } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { hostMaskSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { commaList                } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { minimizerThresholds      } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { hostKmerSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { decontamSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
@@ -1006,6 +1008,23 @@ workflow REANATAX {
             ch_nonhost_reads,
             params.sylph_db,
             params.sylph_taxonomy,
+        )
+    }
+
+    //
+    // SUBWORKFLOW: Emu, on the same non-host reads of a long-read run.
+    //
+    // For full-length 16S amplicons, where Bracken is refused and Kraken2 with
+    // a 16S database stops at genus. Additive like sylph, and like it consumed
+    // by nothing downstream; `--run_emu --skip_kraken2` makes it the only
+    // classifier. Count tables only when --emu_args keeps the counts.
+    //
+    if (params.run_emu) {
+        TAXONOMY_EMU(
+            ch_nonhost_reads,
+            params.emu_db,
+            commaList(params.emu_ranks),
+            (params.emu_args ?: '').tokenize(' ').contains('--keep-counts'),
         )
     }
 

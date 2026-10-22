@@ -469,6 +469,13 @@ Only written with `--run_humann`. These are the files the bundled [exploreMetaTa
   - `taxprof/<sample>.sylphmpa` (with `--sylph_taxonomy`): the sylph-tax taxonomic profile, MetaPhlAn-style, with ANI and coverage on the genome (`t__`) rows.
   - `sylph_combined.relative_abundance.tsv`, `sylph_combined.sequence_abundance.tsv` (with `--sylph_taxonomy`): clades by samples. Relative abundance is coverage-normalised, as MetaPhlAn reports; sequence abundance is the share of reads assigned, as a Kraken2 percentage is. A sample with nothing detected is a column of zeros, not a missing column.
 
+- `emu/` (with `--run_emu`, long-read route)
+  - `<sample>_rel-abundance.tsv`: Emu's species profile. Columns are `tax_id`, `abundance` and the lineage from the database's taxonomy, plus `estimated counts` with `--keep-counts` (the default). The last three rows count the reads that were `unmapped`, `mapped_filtered` (alignment filters) and `mapped_unclassified` (assigned to species below the abundance threshold).
+  - `<sample>_rel-abundance-threshold-<value>.tsv`: the same profile re-estimated without the species under `--min-abundance`, when Emu writes it.
+  - `emu-combined-<rank>.tsv`, and `emu-combined-<rank>-counts.tsv` with `--keep-counts`: taxa by samples at each rank of `--emu_ranks` (`tax_id` and `genus` by default), from `emu combine-outputs`.
+  - `log/<sample>.emu.log`: the run log, with the unclassified mapped read count.
+  - `unclassified/` (with `--output-unclassified` in `--emu_args`): the unmapped, filtered and unclassified reads.
+
 - `metax/` (with `--run_metax`)
   - `<sample>.profile.txt`: Metax's profile for one sample, as Metax writes it — tab-separated with no header row. The 13 columns are taxon name, taxid, rank, reads, depth, abundance, observed breadth, expected breadth, the breadth probability, fixed and flexible chunk breadth, expected flexible chunk breadth and the chunk probability; pathogen mode (`--host`) appends host names, host taxids and diseases.
   - `metax_combined.long.tsv`: every sample's rows under a named header, with a `sample` column. Observed over expected breadth is the OEBR Metax filters on.

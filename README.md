@@ -23,7 +23,7 @@ Given a BioProject/SRA/ENA accession, a folder of FASTQ files, or a samplesheet,
 4. Host genome retrieval ([`ncbi-genome-download`](https://github.com/kblin/ncbi-genome-download)), optional masking of regions shared with protected genomes (`--host_mask`, as in [Hostile](https://github.com/bede/hostile)), and indexing ([`HISAT2`](https://daehwankimlab.github.io/hisat2/))
 5. Host depletion (HISAT2 with `--very-sensitive` scoring, no soft-clipping and `-k 5` for RNA; `Bowtie2 --very-sensitive` for DNA; [`minimap2`](https://github.com/lh3/minimap2) for ONT/PacBio reads under `--long_reads`), saving the aligned reads as sorted, indexed BAM ([`SAMtools`](http://www.htslib.org/)) and the unaligned reads as FASTQ
 6. Alignment QC of the host BAM ([`SAMtools`](http://www.htslib.org/) stats/flagstat/idxstats and [`Qualimap`](http://qualimap.conesalab.org/) BamQC)
-7. Taxonomic classification of the non-host fraction ([`Kraken2`](https://ccb.jhu.edu/software/kraken2/))
+7. Taxonomic classification of the non-host fraction ([`Kraken2`](https://ccb.jhu.edu/software/kraken2/)); for full-length 16S amplicons on the long-read route, [`Emu`](https://github.com/treangenlab/emu) as well (`--run_emu`)
 8. Abundance re-estimation ([`Bracken`](https://github.com/jenniferlu717/Bracken)) and interactive charts ([`Krona`](https://github.com/marbl/Krona))
 9. Aggregate report ([`MultiQC`](http://multiqc.info/))
 10. Optional AI summaries written into those reports by any OpenAI-compatible LLM endpoint (off unless `--llm_endpoint` is given)

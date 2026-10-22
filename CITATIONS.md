@@ -116,6 +116,10 @@
 
   > Shaw J, Yu YW. Rapid species-level metagenome profiling and containment estimation with sylph. Nat Biotechnol. 2025 Aug;43(8):1348-1359. doi: 10.1038/s41587-024-02412-y. PubMed PMID: 39379646; PubMed Central PMCID: PMC12339375.
 
+- [Emu](https://pubmed.ncbi.nlm.nih.gov/35773532/) (`--run_emu`)
+
+  > Curry KD, Wang Q, Nute MG, Tyshaieva A, Reeves E, Soriano S, Wu Q, Graeber E, Finzer P, Mendling W, Savidge T, Villapol S, Dilthey A, Treangen TJ. Emu: species-level microbial community profiling of full-length 16S rRNA Oxford Nanopore sequencing data. Nat Methods. 2022 Jul;19(7):845-853. doi: 10.1038/s41592-022-01520-4. PubMed PMID: 35773532; PubMed Central PMCID: PMC9939874.
+
 - [Metax](https://pubmed.ncbi.nlm.nih.gov/42727575/)
 
   > Deng ZL, Safaei N, McHardy AC. Metax enables accurate cross-domain taxonomic profiling of metagenomes. Cell. 2026 Sep 11. doi: 10.1016/j.cell.2026.08.024. PubMed PMID: 42727575.

@@ -1042,7 +1042,8 @@ the run rather than being trimmed and aligned as short reads.
 - **Classification** is Kraken2, KrakenUniq and sylph, which read sequences of
   any length, and MetaPhlAn in its long-read mode. Bracken is not: its k-mer
   distributions are built for one short read length, so `--skip_bracken` is
-  required and Kraken2's report is used.
+  required and Kraken2's report is used. `--quantify_host` counts with
+  featureCounts' long-read mode (`-L`).
 - **MetaPhlAn** maps against a minimap2 index of its markers. Left to itself it
   builds that index inside `--metaphlan_db` the first time it runs, so every
   sample of a cohort would write the same file at once, and a shared read-only
@@ -1054,7 +1055,20 @@ the run rather than being trimmed and aligned as short reads.
   is kept under `reference/metaphlan/`; give it back with
   `--metaphlan_mm2_index` to skip the build. The read-stats columns of a
   long-read profile count bases, not reads.
-  `--quantify_host` counts with featureCounts' long-read mode (`-L`).
+- **Emu** (`--run_emu`, with `--emu_db`) profiles full-length 16S amplicons to
+  species, which neither Bracken (refused here) nor Kraken2 with a 16S
+  database (genus) does. It aligns each read to the database with minimap2,
+  `map-ont` or `map-hifi` after the platform unless `--emu_args` names a
+  `--type` (`lr:hq` for ONT reads of Q20 and above, `map-pb` for PacBio CLR),
+  and estimates abundances by expectation maximisation. `--emu_args` keeps the
+  estimated counts by default (`--keep-counts`), and `--emu_ranks` sets the
+  cohort tables (`tax_id,genus`). Emu's default database (rrnDB v5.6 with NCBI
+  16S RefSeq) uses NCBI taxids, so the taxid-based options keep their meaning;
+  its prebuilt SILVA and RDP databases come as tar archives, which `--emu_db`
+  takes as they are. Emu is for amplicon libraries: on shotgun reads it sees
+  only those from 16S genes. On an amplicon run, host depletion only catches
+  off-target amplification, so `--skip_host_removal` is reasonable, and
+  `--skip_kraken2` makes Emu the only classifier.
 
 Steps built around short reads are refused up front: `--single_cell`,
 `--sc_plate_based`, `--read2_only`, `--remove_rrna`, `--univec`, `--assembly`,
@@ -1062,6 +1076,52 @@ Steps built around short reads are refused up front: `--single_cell`,
 `--target_transcripts`, `--target_taxid`, `--run_polya_check`, and
 `--run_humann`, whose nucleotide and translated searches run with short-read
 settings.
+
+## 16S amplicon data
+
+reanaTax is built for shotgun and RNA-seq libraries, whose reads are drawn from
+whole genomes. It runs on 16S amplicons through Kraken2, and Kraken2 with
+Bracken is a fast and accurate genus-level 16S classifier given a 16S
+database (Lu and Salzberg, _Microbiome_ 2020). Several parts of the pipeline
+do not hold for amplicons, though.
+
+- **Use a 16S database.** Kraken2 builds them from SILVA, Greengenes and RDP
+  (`kraken2-build --special`). Against a whole-genome database such as
+  core_nt, reads from the conserved stretches of the gene stop at family or
+  order.
+- **Those databases do not use NCBI taxids.** A 16S build carries its
+  source's own taxonomy, with internal taxids. Everything here that names an
+  NCBI taxid then matches nothing, without an error:
+  - `--host_carryover_taxid` and the host carry-over column;
+  - `--drop_host_taxon`, `--drop_host_clade` and `--host_kmer_filter`;
+  - `--drop_non_microbial`, whose anchors are NCBI's Metazoa and Viridiplantae;
+  - the virus floor, and Taxpasta with an NCBI taxonomy.
+- **Leave `--minimizer_filter` off.** Every amplicon read of a taxon covers
+  the same few hundred bases. Its distinct-minimizer count stays small and its
+  duplication ratio very high, whatever the taxon's abundance, so the filter
+  can be expected to drop genuine taxa. This follows from the design and has
+  not been measured on amplicon data.
+- **Resolution is genus.** A V4 or V3-V4 amplicon rarely separates species,
+  Kraken2 does not resolve sequence variants as DADA2 does, and nothing
+  corrects for 16S copy number.
+- **What does not apply:**
+  - MetaPhlAn, HUMAnN and sylph, which profile from genome-wide markers or
+    sketches, and `--assembly`.
+  - Host depletion only catches off-target amplification. It is cheap and
+    harmless.
+  - With SILVA, mitochondrial and chloroplast reads are classified inside
+    Bacteria, as Mitochondria and Chloroplast, not as the host. Remove them
+    from the tables yourself.
+- **What carries over:** trimming, Kraken2 with Bracken (given a distribution
+  at your read length), `--negative_controls` and `--decontam`, which matter
+  most in low-biomass amplicon studies, and the read accounting. fastp does
+  not remove amplification primers, which is harmless for Kraken2.
+
+For a 16S study in its own right, DADA2 or QIIME 2 sequence variants remain
+the reference, and Kraken2 with Bracken is a genus-level complement.
+Full-length 16S from PacBio or ONT goes through `--long_reads` with
+`--run_emu`: Emu is built for it and profiles to species (Curry et al.,
+_Nature Methods_ 2022). See [Long reads](#long-reads---long_reads).
 
 ## Single-cell data (`--single_cell`)
 
