@@ -1,0 +1,9 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/modules/environment-schema.json
+# Hostile's own package, for minimap2 and samtools: the same image as HOST_MASK,
+# so the long-read route pulls one container for both.
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::hostile=2.0.2

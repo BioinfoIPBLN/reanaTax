@@ -68,6 +68,9 @@ include { aiInsightOptions          } from '../subworkflows/local/utils_nfcore_r
 include { hostReferences            } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { bowtie2References         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { hostAligner               } from '../subworkflows/local/host_depletion_hisat2'
+include { minimap2Preset           } from '../subworkflows/local/host_depletion_hisat2'
+include { longReadLibrary          } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { hostMaskSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { minimizerThresholds      } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { hostKmerSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { decontamSettings         } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
@@ -116,7 +119,11 @@ workflow REANATAX {
         params.group_runs_by,
     )
 
-    def ch_raw_reads = ch_samplesheet.mix(FASTQ_DOWNLOAD_FASTQDL.out.reads)
+    // --long_reads marks every library with its platform; without it, an
+    // archive run from a long-read instrument stops the run here.
+    def ch_raw_reads = ch_samplesheet
+        .mix(FASTQ_DOWNLOAD_FASTQDL.out.reads)
+        .map { meta, reads -> longReadLibrary(meta, reads, params.long_reads) }
 
     //
     // --read2_only: a barcode-read library run without --single_cell (Visium,
@@ -140,6 +147,7 @@ workflow REANATAX {
         params.skip_fastqc,
         params.skip_trimming,
         params.save_trimmed_fail,
+        params.long_reads as boolean,
     )
     ch_multiqc_files = ch_multiqc_files.mix(FASTQ_QC_TRIM.out.multiqc_files)
 
@@ -236,6 +244,13 @@ workflow REANATAX {
     // --host_aligner auto. The reference subworkflows build only the indexes
     // some library actually needs.
     def ch_host_aligners = ch_trimmed_reads.map { meta, _reads -> hostAligner(meta, params.host_aligner) }
+    // The minimap2 preset of each long-read library, so that one index is
+    // built per preset in use.
+    def ch_minimap2_presets = ch_trimmed_reads
+        .filter { meta, _reads -> hostAligner(meta, params.host_aligner) == 'minimap2' }
+        .map { meta, _reads -> minimap2Preset(meta, params.minimap2_preset) }
+    // --host_mask, applied to every host pass alike.
+    def host_mask = hostMaskSettings()
     def ch_solo = channel.empty()
     def ch_barcode_stats = channel.empty()
 
@@ -267,6 +282,8 @@ workflow REANATAX {
             params.star_index ?: (primary.kind == 'index' ? primary.value : null),
             null,
             channel.empty(),
+            channel.empty(),
+            host_mask,
         )
 
         SINGLECELL_STARSOLO(
@@ -303,6 +320,8 @@ workflow REANATAX {
                 null,
                 bowtie2_refs ? bowtie2_refs[0] : null,
                 ch_host_aligners,
+                ch_minimap2_presets,
+                host_mask,
             )
             HOST_DEPLETION_FIRST(
                 ch_trimmed_reads,
@@ -318,6 +337,8 @@ workflow REANATAX {
                 params.cleanup_intermediates,
                 PREPARE_HOST_REFERENCE_FIRST.out.bowtie2_index,
                 params.host_aligner,
+                PREPARE_HOST_REFERENCE_FIRST.out.minimap2_index,
+                params.minimap2_preset,
             )
             ch_nonhost_reads = HOST_DEPLETION_FIRST.out.reads
             ch_qualimap = HOST_DEPLETION_FIRST.out.qualimap
@@ -342,6 +363,8 @@ workflow REANATAX {
                 null,
                 bowtie2_refs ? bowtie2_refs[1] : null,
                 ch_host_aligners,
+                ch_minimap2_presets,
+                host_mask,
             )
             HOST_DEPLETION_EXTRA1(
                 ch_nonhost_reads,
@@ -357,6 +380,8 @@ workflow REANATAX {
                 params.cleanup_intermediates,
                 PREPARE_HOST_REFERENCE_EXTRA1.out.bowtie2_index,
                 params.host_aligner,
+                PREPARE_HOST_REFERENCE_EXTRA1.out.minimap2_index,
+                params.minimap2_preset,
             )
             ch_nonhost_reads = HOST_DEPLETION_EXTRA1.out.reads
             ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_EXTRA1.out.summary)
@@ -376,6 +401,8 @@ workflow REANATAX {
                 null,
                 bowtie2_refs ? bowtie2_refs[2] : null,
                 ch_host_aligners,
+                ch_minimap2_presets,
+                host_mask,
             )
             HOST_DEPLETION_EXTRA2(
                 ch_nonhost_reads,
@@ -391,6 +418,8 @@ workflow REANATAX {
                 params.cleanup_intermediates,
                 PREPARE_HOST_REFERENCE_EXTRA2.out.bowtie2_index,
                 params.host_aligner,
+                PREPARE_HOST_REFERENCE_EXTRA2.out.minimap2_index,
+                params.minimap2_preset,
             )
             ch_nonhost_reads = HOST_DEPLETION_EXTRA2.out.reads
             ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_EXTRA2.out.summary)
@@ -415,6 +444,8 @@ workflow REANATAX {
             null,
             bowtie2_refs ? bowtie2_refs[host_refs.size() - 1] : null,
             ch_host_aligners,
+            ch_minimap2_presets,
+            host_mask,
         )
         HOST_DEPLETION_FINAL(
             ch_nonhost_reads,
@@ -430,6 +461,8 @@ workflow REANATAX {
             params.cleanup_intermediates,
             PREPARE_HOST_REFERENCE.out.bowtie2_index,
             params.host_aligner,
+            PREPARE_HOST_REFERENCE.out.minimap2_index,
+            params.minimap2_preset,
         )
         ch_nonhost_reads = HOST_DEPLETION_FINAL.out.reads
         ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_FINAL.out.summary)
@@ -468,6 +501,8 @@ workflow REANATAX {
             null,
             null,
             channel.value('hisat2'),
+            channel.empty(),
+            null,
         )
         HOST_DEPLETION_UNIVEC(
             ch_nonhost_reads,
@@ -483,6 +518,8 @@ workflow REANATAX {
             params.cleanup_intermediates,
             channel.empty(),
             'hisat2',
+            channel.empty(),
+            null,
         )
         ch_nonhost_reads = HOST_DEPLETION_UNIVEC.out.reads
         ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_UNIVEC.out.summary)
@@ -549,9 +586,13 @@ workflow REANATAX {
                 // its distributions are unknown here; the length is snapped inside
                 // TAXONOMY_KRAKEN2_BRACKEN, after UNTAR.
                 def deferred = !bracken_dists && observed && params.bracken_read_length?.toString()?.toLowerCase() == 'auto'
-                def length = deferred
-                    ? [bracken_r: null, bracken_r_observed: observed]
-                    : [bracken_r: resolveBrackenReadLength(observed, bracken_dists, params.bracken_read_length)]
+                // Long reads never reach Bracken (validateLongReadParameters), so
+                // no distribution is looked up for a length no database ships.
+                def length = meta.long_reads
+                    ? [bracken_r: 0]
+                    : deferred
+                        ? [bracken_r: null, bracken_r_observed: observed]
+                        : [bracken_r: resolveBrackenReadLength(observed, bracken_dists, params.bracken_read_length)]
                 [meta + length, reads]
             }
 
@@ -938,6 +979,9 @@ workflow REANATAX {
             ch_nonhost_reads,
             params.metaphlan_db,
             params.metaphlan_index,
+            params.long_reads as boolean,
+            params.metaphlan_minimap2_ps,
+            params.metaphlan_mm2_index,
         )
         ch_metaphlan_merged = TAXONOMY_METAPHLAN.out.merged
         ch_metaphlan_profile = TAXONOMY_METAPHLAN.out.profile

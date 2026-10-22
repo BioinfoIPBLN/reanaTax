@@ -47,6 +47,15 @@ Disable with `--save_download_metadata false`. The FASTQ files themselves are no
   - `*.fna` / `*.fasta`: the decompressed genome that was indexed.
 - `reference/hisat2/`
   - `*.ht2`: the HISAT2 index.
+- `reference/minimap2/` (with `--long_reads`)
+  - `<genome>.<preset>.mmi`: a minimap2 index, one per preset in use.
+- `reference/metaphlan/` (with `--long_reads --run_metaphlan`)
+  - `<index>_xasm20_B3_O3_12.mmi`: MetaPhlAn's minimap2 index of its markers, named after `--metaphlan_minimap2_ps`. Pass it back with `--metaphlan_mm2_index`.
+- `reference/mask/` (with `--host_mask`)
+  - `<genome>.mask.bed`: the host regions replaced with N, merged.
+  - `<genome>.mask_summary.tsv`: genome length, masked regions, masked positions and the masked fraction.
+- `reference/genome/` (with `--host_mask`)
+  - `<genome>.masked.fa`: the masked genome every index was built from.
 
 </details>
 
@@ -83,6 +92,8 @@ Published by default so later runs can skip the build with `--hisat2_index <outd
 
 [fastp](https://github.com/OpenGene/fastp) does adapter detection and quality trimming in one pass. The JSON feeds MultiQC.
 
+With `--long_reads`, [fastplong](https://github.com/OpenGene/fastplong) trims instead, and its files go to the same folders: `<sample>.fastplong.{html,json,log}`, and `<sample>.fastplong.fastq.gz` with `--save_trimmed`.
+
 ### HISAT2
 
 <details markdown="1">
@@ -91,7 +102,7 @@ Published by default so later runs can skip the build with `--hisat2_index <outd
 - `hisat2/`
   - `<sample>.host.sorted.bam`, `.bai`: reads that aligned to the host, sorted and indexed.
 - `hisat2/log/`
-  - `<sample>.host.hisat2.summary.log` (RNA) or `<sample>.host.bowtie2.summary.log` (DNA, see `--host_aligner`): alignment summary, including the overall alignment rate. The two aligners write the same format. The directory keeps its name for both.
+  - `<sample>.host.hisat2.summary.log` (RNA), `<sample>.host.bowtie2.summary.log` (DNA, see `--host_aligner`) or `<sample>.host.minimap2.summary.log` (`--long_reads`): alignment summary, including the overall alignment rate. All three are in the same format; for minimap2, "aligned >1 times" is a primary alignment with MAPQ 0. The directory keeps its name for all of them.
 - `hisat2/samtools_stats/`
   - `*.stats`, `*.flagstat`, `*.idxstats`: alignment statistics.
 - `unaligned/`

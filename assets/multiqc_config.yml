@@ -34,8 +34,8 @@ module_order:
       path_filters:
         - "*_trimmed*.zip"
   - bowtie2:
-      name: "Host depletion (HISAT2 / Bowtie2)"
-      info: "Alignment against the host genome - HISAT2 for RNA libraries, Bowtie2 for DNA. The overall alignment rate is the host fraction of the library; everything that did not align is what gets classified below."
+      name: "Host depletion (HISAT2 / Bowtie2 / minimap2)"
+      info: "Alignment against the host genome - HISAT2 for RNA libraries, Bowtie2 for DNA, minimap2 for long reads. The overall alignment rate is the host fraction of the library; everything that did not align is what gets classified below."
   - samtools
   - featurecounts:
       name: "Host gene counts"

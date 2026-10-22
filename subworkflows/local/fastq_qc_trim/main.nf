@@ -1,10 +1,12 @@
 //
-// Read QC before and after adapter/quality trimming.
+// Read QC before and after adapter/quality trimming: fastp for short reads,
+// fastplong for long ones (--long_reads).
 //
 
 include { FASTQC as FASTQC_RAW  } from '../../../modules/nf-core/fastqc/main'
 include { FASTQC as FASTQC_TRIM } from '../../../modules/nf-core/fastqc/main'
 include { FASTP                 } from '../../../modules/nf-core/fastp/main'
+include { FASTPLONG             } from '../../../modules/local/fastplong/main'
 
 workflow FASTQ_QC_TRIM {
 
@@ -14,6 +16,7 @@ workflow FASTQ_QC_TRIM {
     skip_fastqc // boolean
     skip_trimming // boolean
     save_trimmed_fail // boolean
+    long_reads // boolean: trim with fastplong instead of fastp
 
     main:
 
@@ -29,7 +32,16 @@ workflow FASTQ_QC_TRIM {
     def ch_trimmed = ch_reads
     def ch_fastp_json = channel.empty()
 
-    if (!skip_trimming) {
+    if (!skip_trimming && long_reads) {
+        FASTPLONG(
+            ch_reads.map { meta, reads -> [meta, reads, adapter_fasta ?: []] },
+            save_trimmed_fail,
+        )
+        ch_fastp_json = FASTPLONG.out.json
+        ch_multiqc_files = ch_multiqc_files.mix(FASTPLONG.out.json.map { _meta, json -> json })
+        ch_trimmed = FASTPLONG.out.reads.map { meta, reads -> [meta, reads instanceof List ? reads : [reads]] }
+    }
+    else if (!skip_trimming) {
         FASTP(
             ch_reads.map { meta, reads -> [meta, reads, adapter_fasta ?: []] },
             false,
@@ -42,11 +54,11 @@ workflow FASTQ_QC_TRIM {
         // fastp emits a single-element list for single-end input; normalise so
         // downstream processes always see a list.
         ch_trimmed = FASTP.out.reads.map { meta, reads -> [meta, reads instanceof List ? reads : [reads]] }
+    }
 
-        if (!skip_fastqc) {
-            FASTQC_TRIM(ch_trimmed)
-            ch_multiqc_files = ch_multiqc_files.mix(FASTQC_TRIM.out.zip.map { _meta, zip -> zip })
-        }
+    if (!skip_trimming && !skip_fastqc) {
+        FASTQC_TRIM(ch_trimmed)
+        ch_multiqc_files = ch_multiqc_files.mix(FASTQC_TRIM.out.zip.map { _meta, zip -> zip })
     }
 
     //

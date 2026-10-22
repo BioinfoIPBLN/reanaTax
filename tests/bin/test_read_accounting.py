@@ -90,3 +90,52 @@ def test_dotted_sample_ids_keep_their_depletion_passes_together(tmp_path, run_sc
     data = [line for line in fate if not line.startswith("#")]
     assert data[1].split("\t")[0] == sample
     assert len(data) == 2
+
+
+# MINIMAP2_ALIGN_SPLIT's summary for a long-read library, in Bowtie2's
+# single-end format.
+MINIMAP2_LOG = """\
+500 reads; of these:
+  500 (100.00%) were unpaired; of these:
+    320 (64.00%) aligned 0 times
+    170 (34.00%) aligned exactly 1 time
+    10 (2.00%) aligned >1 times
+36.00% overall alignment rate
+"""
+
+
+def test_long_reads_fastplong_json_and_minimap2_summary(tmp_path, run_script):
+    """A --long_reads sample: fastplong's JSON (one `read_mean_length`) and the
+    minimap2 summary are read like fastp's and Bowtie2's."""
+    sample = "ONT01"
+    host = tmp_path / f"{sample}.host.minimap2.summary.log"
+    fastplong = tmp_path / f"{sample}.fastplong.json"
+    host.write_text(MINIMAP2_LOG, encoding="utf-8")
+    fastplong.write_text(json.dumps({
+        "summary": {
+            "before_filtering": {"total_reads": 550, "read_mean_length": 3900},
+            "after_filtering": {"total_reads": 500, "read_mean_length": 4200},
+        }
+    }), encoding="utf-8")
+    prefix = tmp_path / "run"
+
+    result = run_script(
+        "read_accounting.py",
+        "--fastp", fastplong,
+        "--hisat2", host,
+        "--prefix", prefix,
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    with open(f"{prefix}.read_accounting.tsv", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    assert [row["sample"] for row in rows] == [sample]
+    row = rows[0]
+    assert int(row["raw_reads"]) == 550
+    assert int(row["trimmed_reads"]) == 500
+    assert int(row["trimmed_mean_length"]) == 4200
+    assert int(row["host_input_reads"]) == 500
+    assert int(row["host_aligned_reads"]) == 180
+    assert int(row["host_unaligned_reads"]) == 320
+    assert int(row["nonhost_reads"]) == 320

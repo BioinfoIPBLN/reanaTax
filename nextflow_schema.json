@@ -50,6 +50,13 @@
                     "help_text": "Escape hatch for folders where mate detection would misfire, e.g. sample names that legitimately end in `_1`.",
                     "fa_icon": "fas fa-align-left"
                 },
+                "long_reads": {
+                    "type": "string",
+                    "enum": ["ont", "pacbio"],
+                    "description": "The libraries are long reads from Oxford Nanopore ('ont') or PacBio ('pacbio'): trim with fastplong and deplete the host with minimap2.",
+                    "help_text": "One platform per run, one FASTQ per sample. Archive runs are checked against it from their instrument platform, and an ONT or PacBio run without this flag stops the run. Classification takes Kraken2, KrakenUniq and sylph, which read sequences of any length, and MetaPhlAn in its long-read mode; Bracken has no k-mer distribution for reads of thousands of bases, so `--skip_bracken` is required, and every step built around short reads (single-cell routes, SortMeRNA, UniVec, assembly, HUMAnN, PRISM, PathSeq, Metax, kallisto, the targeted-taxon branch and the poly(A) check) is refused up front. See docs/usage.md.",
+                    "fa_icon": "fas fa-ruler-horizontal"
+                },
                 "outdir": {
                     "type": "string",
                     "format": "directory-path",
@@ -130,7 +137,7 @@
                 "host": {
                     "type": "string",
                     "description": "Host reference(s): NCBI accession, taxid, genome FASTA or prebuilt HISAT2 index. Comma-separated for two.",
-                    "help_text": "One parameter for every way of naming a host reference; what each entry is is detected from the value. `GCF_*`/`GCA_*` is an assembly accession, digits alone are a taxonomy ID, a directory (or `.tar.gz`) is a prebuilt HISAT2 index, and anything else on disk is a genome FASTA. Up to four references are depleted against in the order given - a read must fail against every one of them to be called non-host - and the first is the primary one that `--gtf`, Qualimap and `--quantify_host` describe. Example: `--host GCF_000001405.40,/data/chm13.fa`.",
+                    "help_text": "One parameter for every way of naming a host reference; what each entry is is detected from the value. `GCF_*`/`GCA_*` is an assembly accession, digits alone are a taxonomy ID, a directory (or a `.tar.gz` or `.tar` of one) is a prebuilt HISAT2 index, and anything else on disk is a genome FASTA. Up to four references are depleted against in the order given - a read must fail against every one of them to be called non-host - and the first is the primary one that `--gtf`, Qualimap and `--quantify_host` describe. Example: `--host GCF_000001405.40,/data/chm13.fa`.",
                     "fa_icon": "fas fa-dna"
                 },
                 "fasta": {
@@ -152,7 +159,7 @@
                 },
                 "hisat2_index": {
                     "type": "string",
-                    "description": "Path to a prebuilt HISAT2 index directory, or a `.tar.gz` of one. Superseded by --host.",
+                    "description": "Path to a prebuilt HISAT2 index directory, or a `.tar.gz` or `.tar` of one. Superseded by --host.",
                     "fa_icon": "fas fa-bezier-curve",
                     "help_text": "Accepts a comma-separated list, and may be combined with the other host-reference options. Up to four references are supported and reads are depleted against them in turn: a read must fail against every one of them to be called non-host. The classic pairing is GRCh38 plus T2T-CHM13, which catches the centromeric, satellite and structurally variant reads missing from GRCh38 that would otherwise be classified as microbes. Further entries are for sequence the library genuinely contains but the primary assembly does not - a blood meal, a graft, a co-cultured cell line - or for a synthetic reference such as UniVec or PhiX. The FIRST reference given is the primary one: --gtf describes it, and it is the one Qualimap reports on and --quantify_host counts against. ",
                     "hidden": true
@@ -244,6 +251,13 @@
                     "help_text": "`--trim_poly_x` and `--trim_low_complexity` are appended to whatever this holds.",
                     "fa_icon": "fas fa-terminal"
                 },
+                "fastplong_args": {
+                    "type": "string",
+                    "default": "--length_required 200 --mean_qual 10",
+                    "description": "Arguments passed to fastplong, which trims long-read libraries (--long_reads) in place of fastp.",
+                    "help_text": "The default drops reads shorter than 200 bases or with a mean quality under 10; fastplong's own defaults keep anything of 20 bases at any quality. Adapters are detected at both ends unless `--adapter_fasta` lists them. `--trim_poly_x` and `--trim_low_complexity` are appended as for fastp.",
+                    "fa_icon": "fas fa-terminal"
+                },
                 "trim_poly_x": {
                     "type": "boolean",
                     "default": true,
@@ -299,8 +313,8 @@
                 "host_aligner": {
                     "type": "string",
                     "default": "auto",
-                    "enum": ["auto", "hisat2", "bowtie2"],
-                    "description": "Aligner for host depletion: 'auto' (Bowtie2 for DNA libraries, HISAT2 for the rest), or force 'hisat2' or 'bowtie2'.",
+                    "enum": ["auto", "hisat2", "bowtie2", "minimap2"],
+                    "description": "Aligner for host depletion: 'auto' (Bowtie2 for DNA libraries, HISAT2 for the rest, minimap2 under --long_reads), or force 'hisat2' or 'bowtie2'.",
                     "help_text": "HISAT2 is splice-aware, which RNA needs and DNA does not: on genomic reads it splits a read across an 'intron' that is not one, and it has no local mode. Under 'auto' each library is classified by the archive's library strategy (RNA-Seq, WGS, AMPLICON, ...), or by its library source when the strategy is OTHER, and by the samplesheet's optional `molecule` column (dna/rna) for local files. Libraries of unknown kind go to HISAT2. The single-cell route (STARsolo), the UniVec pass and --target_taxid alignment are not affected.",
                     "fa_icon": "fas fa-random"
                 },
@@ -320,9 +334,41 @@
                 },
                 "bowtie2_index": {
                     "type": "string",
-                    "description": "Prebuilt Bowtie2 index directory or tarball per host reference, comma-separated in the same order.",
-                    "help_text": "Unset, the index is built - from the host FASTA, or from the sequences of a prebuilt HISAT2 index - and only when some library is aligned with Bowtie2.",
+                    "description": "Prebuilt Bowtie2 index directory, or a `.tar.gz` or `.tar` of one, per host reference, comma-separated in the same order.",
+                    "help_text": "Unset, the index is built - from the host FASTA, or from the sequences of a prebuilt HISAT2 index - and only when some library is aligned with Bowtie2. Hostile's indexes (`<name>.tar`, masked or not) are taken as downloaded.",
                     "fa_icon": "fas fa-database"
+                },
+                "minimap2_preset": {
+                    "type": "string",
+                    "description": "minimap2 preset for every long-read library, in place of the one chosen per library.",
+                    "help_text": "Unset, RNA libraries and those of unknown kind are aligned with `splice` (ONT) or `splice:hq` (PacBio), and DNA libraries with `map-ont` or `map-hifi`. The host index is built with the same preset, since k-mer and window size are fixed in it. Set it for PacBio CLR (`map-pb`) or ONT reads of Q20 and above (`lr:hq`).",
+                    "fa_icon": "fas fa-sliders-h"
+                },
+                "minimap2_args": {
+                    "type": "string",
+                    "description": "Extra arguments passed to minimap2, for the index build and the long-read host alignment.",
+                    "help_text": "Mapping options apply to the alignment and indexing options (`-k`, `-w`) to the index; minimap2 ignores the other half in each step. `--secondary=no` is always set.",
+                    "fa_icon": "fas fa-terminal"
+                },
+                "host_mask": {
+                    "type": "string",
+                    "description": "Genomes to protect from host depletion, as FASTA files (plain or gzipped), comma-separated: every host region they share is replaced with N before indexing.",
+                    "help_text": "Hostile's masking (Constantinides et al., Bioinformatics 2023). Each genome is cut into k-mers of `--host_mask_kmer_length` every `--host_mask_kmer_step` bases, the k-mers are aligned to the host with minimap2, and every host region they reach is masked, in every host reference and before every index is built. A read from a protected organism then has no host sequence to align to. It cannot apply to a prebuilt index: give the host as a FASTA, accession or taxid. The masked regions are published under `reference/mask/`. See docs/usage.md.",
+                    "fa_icon": "fas fa-mask"
+                },
+                "host_mask_kmer_length": {
+                    "type": "integer",
+                    "default": 150,
+                    "minimum": 1,
+                    "description": "Length of the k-mers the --host_mask genomes are cut into: the read length to protect.",
+                    "fa_icon": "fas fa-ruler"
+                },
+                "host_mask_kmer_step": {
+                    "type": "integer",
+                    "default": 10,
+                    "minimum": 1,
+                    "description": "Distance between the starts of consecutive --host_mask k-mers.",
+                    "fa_icon": "fas fa-shoe-prints"
                 },
                 "hisat2_chunk_size": {
                     "type": "integer",
@@ -519,6 +565,21 @@
                     "description": "Extra MetaPhlAn arguments.",
                     "help_text": "`-t rel_ab_w_read_stats` adds the estimated_number_of_reads_from_the_clade column, which count-based differential-abundance methods require. Do not set --input_type, --db_dir, --index, --nproc, --tmp_dir, --mapout or -o; the module sets those.",
                     "fa_icon": "fas fa-terminal"
+                },
+                "metaphlan_minimap2_ps": {
+                    "type": "string",
+                    "default": "-x asm20 -B 3 -O 3,12",
+                    "description": "minimap2 presets for MetaPhlAn under --long_reads: the marker index is built and the reads are mapped with them.",
+                    "help_text": "MetaPhlAn's own `--minimap2_ps` default. The pipeline builds the index once per run and maps each sample itself, since MetaPhlAn would otherwise build the index inside the database directory in every task at once. Put `--minimap2_ps` here rather than in --metaphlan_args, where it would not reach the mapping.",
+                    "fa_icon": "fas fa-sliders-h"
+                },
+                "metaphlan_mm2_index": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "A prebuilt minimap2 index of the MetaPhlAn markers for --metaphlan_minimap2_ps, used under --long_reads instead of building one.",
+                    "help_text": "With --save_reference the index a run builds is published under `reference/metaphlan/`, named as MetaPhlAn names it (`<index>_xasm20_B3_O3_12.mmi` for the default presets); pass it here to skip the build next time.",
+                    "fa_icon": "fas fa-database"
                 },
                 "run_sylph": {
                     "type": "boolean",
@@ -2117,7 +2178,7 @@
                 "target_reference": {
                     "type": "string",
                     "description": "Genome for --target_taxid: NCBI accession, taxid, FASTA, or prebuilt HISAT2 index.",
-                    "help_text": "Detected from the value exactly as --host is: `GCF_*`/`GCA_*` is an assembly accession, digits alone are a taxonomy ID, a directory (or `.tar.gz`) is a prebuilt index, anything else on disk is a FASTA.",
+                    "help_text": "Detected from the value exactly as --host is: `GCF_*`/`GCA_*` is an assembly accession, digits alone are a taxonomy ID, a directory (or a `.tar.gz` or `.tar` of one) is a prebuilt index, anything else on disk is a FASTA.",
                     "fa_icon": "fas fa-dna"
                 },
                 "target_gtf": {

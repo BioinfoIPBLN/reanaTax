@@ -19,9 +19,9 @@ Given a BioProject/SRA/ENA accession, a folder of FASTQ files, or a samplesheet,
 
 1. Fetch reads from ENA/SRA ([`fastq-dl`](https://github.com/rpetit3/fastq-dl)) - each accession is first resolved to its runs so they download in parallel
 2. Read QC ([`FastQC`](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/))
-3. Adapter and quality trimming ([`fastp`](https://github.com/OpenGene/fastp)), followed by a second `FastQC`
-4. Host genome retrieval ([`ncbi-genome-download`](https://github.com/kblin/ncbi-genome-download)) and indexing ([`HISAT2`](https://daehwankimlab.github.io/hisat2/))
-5. Host depletion (HISAT2 with `--very-sensitive` scoring, no soft-clipping and `-k 5` for RNA; `Bowtie2 --very-sensitive` for DNA), saving the aligned reads as sorted, indexed BAM ([`SAMtools`](http://www.htslib.org/)) and the unaligned reads as FASTQ
+3. Adapter and quality trimming ([`fastp`](https://github.com/OpenGene/fastp); [`fastplong`](https://github.com/OpenGene/fastplong) with `--long_reads`), followed by a second `FastQC`
+4. Host genome retrieval ([`ncbi-genome-download`](https://github.com/kblin/ncbi-genome-download)), optional masking of regions shared with protected genomes (`--host_mask`, as in [Hostile](https://github.com/bede/hostile)), and indexing ([`HISAT2`](https://daehwankimlab.github.io/hisat2/))
+5. Host depletion (HISAT2 with `--very-sensitive` scoring, no soft-clipping and `-k 5` for RNA; `Bowtie2 --very-sensitive` for DNA; [`minimap2`](https://github.com/lh3/minimap2) for ONT/PacBio reads under `--long_reads`), saving the aligned reads as sorted, indexed BAM ([`SAMtools`](http://www.htslib.org/)) and the unaligned reads as FASTQ
 6. Alignment QC of the host BAM ([`SAMtools`](http://www.htslib.org/) stats/flagstat/idxstats and [`Qualimap`](http://qualimap.conesalab.org/) BamQC)
 7. Taxonomic classification of the non-host fraction ([`Kraken2`](https://ccb.jhu.edu/software/kraken2/))
 8. Abundance re-estimation ([`Bracken`](https://github.com/jenniferlu717/Bracken)) and interactive charts ([`Krona`](https://github.com/marbl/Krona))

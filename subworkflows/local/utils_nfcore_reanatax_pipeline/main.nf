@@ -107,7 +107,7 @@ workflow PIPELINE_INITIALISATION {
             .map { meta, fastqs -> [ meta, fastqs.flatten() ] }
     }
     else if (params.input_dir) {
-        ch_samplesheet = fastqsFromDir(params.input_dir, params.fastq_pattern, params.single_end)
+        ch_samplesheet = fastqsFromDir(params.input_dir, params.fastq_pattern, params.single_end || params.long_reads)
     }
 
     //
@@ -464,6 +464,35 @@ def validateInputParameters() {
     }
     if (params.host_aligner == 'bowtie2' && params.quantify_host) {
         log.warn("--host_aligner bowtie2 with --quantify_host: Bowtie2 does not split reads across introns, so host gene counts from RNA libraries will miss every spliced read. Use --host_aligner auto (HISAT2 for RNA) for expression.")
+    }
+
+    // --host_mask edits the host FASTA before any index is built from it, so an
+    // index built beforehand is out of its reach. Every host pass is masked: an
+    // unmasked later pass would remove the very reads the first one let through.
+    if (params.host_mask) {
+        if (params.skip_host_removal) {
+            error("--host_mask masks the host genome that reads are depleted against, and --skip_host_removal turns depletion off. Drop one of the two.")
+        }
+        def prebuilt = host_refs.findAll { ref -> ref.kind == 'index' }.collect { ref -> ref.value } + bowtie2_refs + (params.star_index ? [params.star_index] : [])
+        if (prebuilt) {
+            error("--host_mask masks the host genome before its indexes are built, so it cannot apply to a prebuilt index (${prebuilt.join(', ')}). Give the host as a FASTA, accession or taxid and let the pipeline build masked indexes, or drop --host_mask and use an index built from a masked genome, such as Hostile's.")
+        }
+        commaList(params.host_mask).findAll { target -> !target.contains('://') && !file(target).exists() }.each { target ->
+            error("--host_mask entry '${target}' does not exist. It takes FASTA files, plain or gzipped, comma-separated.")
+        }
+    }
+
+    if (params.long_reads) {
+        validateLongReadParameters()
+    }
+    else if (params.host_aligner == 'minimap2') {
+        error("--host_aligner minimap2 is the long-read aligner and needs --long_reads ont or --long_reads pacbio.")
+    }
+    else if (params.minimap2_preset || params.minimap2_args) {
+        error("--minimap2_preset and --minimap2_args apply to long-read libraries only; add --long_reads ont or --long_reads pacbio.")
+    }
+    else if (params.metaphlan_mm2_index) {
+        error("--metaphlan_mm2_index is MetaPhlAn's long-read index; it applies only with --long_reads.")
     }
 
     // Measured, not assumed: with `--very-sensitive -k 1` on the command line
@@ -1057,12 +1086,22 @@ def commaList(value) {
 }
 
 //
+// A prebuilt index given as an archive rather than a directory: gzipped, or a
+// plain .tar, the form Hostile distributes its Bowtie2 indexes in. UNTAR's
+// `tar -xavf` reads either.
+//
+def isIndexArchive(value) {
+    def name = value.toString()
+    return name.endsWith('.tar.gz') || name.endsWith('.tgz') || name.endsWith('.tar')
+}
+
+//
 // Work out what a single --host entry is, so one parameter can take an NCBI
 // accession, a taxid, a genome FASTA or a prebuilt HISAT2 index.
 //
 def classifyHostReference(entry) {
     def value = entry.toString().trim()
-    def tarball = value.endsWith('.tar.gz') || value.endsWith('.tgz')
+    def tarball = isIndexArchive(value)
 
     // Accessions and taxids are identifiers, never paths.
     if (value ==~ /(?i)^GC[AF]_[0-9]+(\.[0-9]+)?$/) {
@@ -1157,6 +1196,86 @@ def bowtie2References() {
 }
 
 //
+// --long_reads covers what is sound for reads of tens of kilobases: fastplong
+// trimming, minimap2 host depletion, and the classifiers that take reads of any
+// length (Kraken2, KrakenUniq, sylph, and MetaPhlAn in its minimap2 mode).
+// Every step built around short reads is refused here rather than run on reads
+// it was never meant for.
+//
+def validateLongReadParameters() {
+    if (params.host_aligner && !(params.host_aligner in ['auto', 'minimap2'])) {
+        error("--long_reads depletes every library with minimap2; --host_aligner ${params.host_aligner} is a short-read aligner. Leave it at auto.")
+    }
+    def refused = [
+        single_cell: 'single-cell barcode chemistries are short-read',
+        sc_plate_based: 'plate-based single-cell libraries are short-read',
+        read2_only: 'a long-read library has no read 2',
+        remove_rrna: 'SortMeRNA is run here with short-read settings',
+        univec: 'the UniVec pass is a HISAT2 alignment with short-read stringency',
+        assembly: 'MEGAHIT and metaSPAdes are short-read assemblers',
+        run_prism: "PRISM's host removal and confirmation steps are short-read",
+        pathseq_microbe_bwa_image: 'PathSeq aligns with BWA-MEM short-read settings',
+        run_metax: 'Metax is not set up for long reads here',
+        run_humann: "HUMAnN's nucleotide and translated searches run Bowtie2 and DIAMOND with short-read settings",
+        host_transcripts: 'kallisto quantification is short-read',
+        target_taxid: 'the targeted-taxon branch aligns with HISAT2',
+        target_transcripts: 'kallisto quantification is short-read',
+        run_polya_check: 'a full-length long read carries its own poly(A) tail, which the internal-run test would count as mispriming',
+    ]
+    def set = refused.findAll { name, _reason -> params[name] }
+    if (set) {
+        error("--long_reads cannot be combined with ${set.collect { name, reason -> "--${name} (${reason})" }.join('; ')}.")
+    }
+    if (params.run_metaphlan && !(params.metaphlan_db && params.metaphlan_index)) {
+        error("--run_metaphlan with --long_reads needs --metaphlan_db and --metaphlan_index: MetaPhlAn's minimap2 index is built from <metaphlan_db>/<metaphlan_index>.fna.")
+    }
+    if (!params.skip_kraken2 && !params.skip_bracken) {
+        error("--long_reads needs --skip_bracken: Bracken redistributes reads with k-mer distributions built for one short read length, and none describes reads of thousands of bases. Kraken2's own report is used instead.")
+    }
+    if (params.hisat2_chunk_size) {
+        log.warn("--hisat2_chunk_size does not apply to long-read libraries: minimap2's memory does not grow with the library, so each is aligned whole.")
+    }
+}
+
+//
+// A library under --long_reads, marked with its platform (meta.long_reads) so
+// that trimming, host depletion and classification take the long-read route.
+// Archive runs carry their instrument, and one that contradicts --long_reads
+// stops the run rather than being aligned as the wrong kind of read.
+//
+def longReadLibrary(meta, reads, long_reads) {
+    def platform = (meta.platform ?: '').toString().toUpperCase()
+    def archive_kind = [OXFORD_NANOPORE: 'ont', PACBIO_SMRT: 'pacbio'][platform]
+    if (!long_reads) {
+        if (archive_kind) {
+            error("Run ${meta.run_accession ?: meta.id} was sequenced on ${platform}. Long reads take their own route: add --long_reads ${archive_kind}, and keep short-read runs to a separate run of the pipeline.")
+        }
+        return [meta, reads]
+    }
+    if (!meta.single_end) {
+        error("--long_reads: '${meta.id}' is paired-end. Long-read libraries are one FASTQ per sample; give it as fastq_1 alone.")
+    }
+    if (platform && archive_kind != long_reads) {
+        error("--long_reads ${long_reads}: run ${meta.run_accession ?: meta.id} was sequenced on ${platform}. Keep each platform to its own run of the pipeline.")
+    }
+    return [meta + [long_reads: long_reads], reads]
+}
+
+//
+// --host_mask as PREPARE_HOST_REFERENCE takes it, or null when it is unset.
+//
+def hostMaskSettings() {
+    if (!params.host_mask) {
+        return null
+    }
+    return [
+        targets: commaList(params.host_mask),
+        length: params.host_mask_kmer_length as int,
+        step: params.host_mask_kmer_step as int,
+    ]
+}
+
+//
 // How many depletion passes the workflow declares. See the comment on the
 // check in validateInputParameters() for what raising it involves.
 //
@@ -1165,14 +1284,15 @@ def maxHostPasses() {
 }
 
 //
-// Mean read length after trimming, from fastp's JSON. Used to pick Bracken's
+// Mean read length after trimming, from fastp's JSON or fastplong's, which
+// keeps one `read_mean_length` instead of one per mate. Used to pick Bracken's
 // -r, which has to match the read length the database was built for.
 //
 def meanReadLength(json_file) {
     try {
         def parsed = new groovy.json.JsonSlurper().parse(json_file.toFile())
         def after = parsed?.summary?.after_filtering
-        def lengths = [after?.read1_mean_length, after?.read2_mean_length].findAll { value -> value }
+        def lengths = [after?.read1_mean_length, after?.read2_mean_length, after?.read_mean_length].findAll { value -> value }
         return lengths ? (lengths.sum() / lengths.size()) as Integer : null
     }
     catch (Exception e) {
@@ -1350,8 +1470,10 @@ def toolCitationText() {
             "Tools used in the workflow included:",
             params.input_accessions ? "fastq-dl (Petit and Read 2023)," : "",
             params.skip_fastqc ? "" : "FastQC (Andrews 2010),",
-            params.skip_trimming ? "" : "fastp (Chen et al. 2018),",
-            params.skip_host_removal ? "" : "HISAT2 (Kim et al. 2019),",
+            params.skip_trimming ? "" : (params.long_reads ? "fastplong (Chen, github.com/OpenGene/fastplong)," : "fastp (Chen et al. 2018),"),
+            params.skip_host_removal || params.long_reads ? "" : "HISAT2 (Kim et al. 2019),",
+            params.host_mask ? "host masking as in Hostile (Constantinides et al. 2023) with BEDTools (Quinlan and Hall 2010)," : "",
+            params.long_reads || params.host_mask ? "minimap2 (Li 2018)," : "",
             params.skip_host_removal || !params.save_host_bam ? "" : "SAMtools (Danecek et al. 2021),",
             params.skip_host_removal || !params.save_host_bam || params.skip_qualimap ? "" : "Qualimap (Okonechnikov et al. 2016),",
             params.skip_kraken2 ? "" : "Kraken2 (Wood et al. 2019),",
@@ -1368,8 +1490,12 @@ def toolBibliographyText() {
     def reference_text = [
             params.input_accessions ? "<li>Petit III, R. A., & Read, T. D. (2023). fastq-dl: efficiently download FASTQ files from SRA or ENA repositories. doi: 10.5281/zenodo.8051230</li>" : "",
             params.skip_fastqc ? "" : "<li>Andrews S, (2010) FastQC, URL: https://www.bioinformatics.babraham.ac.uk/projects/fastqc/</li>",
-            params.skip_trimming ? "" : "<li>Chen, S., Zhou, Y., Chen, Y., & Gu, J. (2018). fastp: an ultra-fast all-in-one FASTQ preprocessor. Bioinformatics, 34(17), i884-i890. doi: 10.1093/bioinformatics/bty560</li>",
-            params.skip_host_removal ? "" : "<li>Kim, D., Paggi, J. M., Park, C., Bennett, C., & Salzberg, S. L. (2019). Graph-based genome alignment and genotyping with HISAT2 and HISAT-genotype. Nature Biotechnology, 37(8), 907-915. doi: 10.1038/s41587-019-0201-4</li>",
+            params.skip_trimming || params.long_reads ? "" : "<li>Chen, S., Zhou, Y., Chen, Y., & Gu, J. (2018). fastp: an ultra-fast all-in-one FASTQ preprocessor. Bioinformatics, 34(17), i884-i890. doi: 10.1093/bioinformatics/bty560</li>",
+            params.skip_trimming || !params.long_reads ? "" : "<li>Chen, S. fastplong: ultra-fast preprocessing and quality control for long-read sequencing data. https://github.com/OpenGene/fastplong</li>",
+            params.host_mask ? "<li>Constantinides, B., Hunt, M., & Crook, D. W. (2023). Hostile: accurate decontamination of microbial host sequences. Bioinformatics, 39(12), btad728. doi: 10.1093/bioinformatics/btad728</li>" : "",
+            params.host_mask ? "<li>Quinlan, A. R., & Hall, I. M. (2010). BEDTools: a flexible suite of utilities for comparing genomic features. Bioinformatics, 26(6), 841-842. doi: 10.1093/bioinformatics/btq033</li>" : "",
+            params.long_reads || params.host_mask ? "<li>Li, H. (2018). Minimap2: pairwise alignment for nucleotide sequences. Bioinformatics, 34(18), 3094-3100. doi: 10.1093/bioinformatics/bty191</li>" : "",
+            params.skip_host_removal || params.long_reads ? "" : "<li>Kim, D., Paggi, J. M., Park, C., Bennett, C., & Salzberg, S. L. (2019). Graph-based genome alignment and genotyping with HISAT2 and HISAT-genotype. Nature Biotechnology, 37(8), 907-915. doi: 10.1038/s41587-019-0201-4</li>",
             params.skip_host_removal || !params.save_host_bam ? "" : "<li>Danecek, P., Bonfield, J. K., Liddle, J., et al. (2021). Twelve years of SAMtools and BCFtools. GigaScience, 10(2), giab008. doi: 10.1093/gigascience/giab008</li>",
             params.skip_host_removal || !params.save_host_bam || params.skip_qualimap ? "" : "<li>Okonechnikov, K., Conesa, A., & García-Alcalde, F. (2016). Qualimap 2: advanced multi-sample quality control for high-throughput sequencing data. Bioinformatics, 32(2), 292-294. doi: 10.1093/bioinformatics/btv566</li>",
             params.skip_kraken2 ? "" : "<li>Wood, D. E., Lu, J., & Langmead, B. (2019). Improved metagenomic analysis with Kraken 2. Genome Biology, 20(1), 257. doi: 10.1186/s13059-019-1891-0</li>",

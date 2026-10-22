@@ -99,6 +99,8 @@ workflow TARGETED_TAXON {
         null,
         null,
         channel.value('hisat2'),
+        channel.empty(),
+        null,
     )
 
     //
@@ -133,6 +135,8 @@ workflow TARGETED_TAXON {
         // a eukaryotic target.
         channel.empty(),
         'hisat2',
+        channel.empty(),
+        null,
     )
     ch_multiqc_files = ch_multiqc_files.mix(TARGET_ALIGNMENT.out.multiqc_files)
     ch_bam = TARGET_ALIGNMENT.out.bam

@@ -210,12 +210,12 @@ by 4.x cannot be read by 6.x/7.x. Rebuild it, or drop `--sortmerna_index`.
 
 `--host` takes the reference in whatever form you have it, and works out which it is from the value:
 
-| You pass                               | Detected as  | Notes                                                              |
-| -------------------------------------- | ------------ | ------------------------------------------------------------------ |
-| `GCF_000001405.40` / `GCA_009914755.4` | Accession    | Downloaded from NCBI.                                              |
-| `9606`                                 | Taxonomy ID  | Resolves to that taxon's RefSeq reference assembly.                |
-| a directory, or a `.tar.gz`/`.tgz`     | HISAT2 index | Fastest — nothing is built. The directory must hold `*.ht2` files. |
-| any other path or URL                  | Genome FASTA | Plain or gzipped. The index is built once and reused in the run.   |
+| You pass                                  | Detected as  | Notes                                                              |
+| ----------------------------------------- | ------------ | ------------------------------------------------------------------ |
+| `GCF_000001405.40` / `GCA_009914755.4`    | Accession    | Downloaded from NCBI.                                              |
+| `9606`                                    | Taxonomy ID  | Resolves to that taxon's RefSeq reference assembly.                |
+| a directory, or a `.tar.gz`/`.tgz`/`.tar` | HISAT2 index | Fastest — nothing is built. The directory must hold `*.ht2` files. |
+| any other path or URL                     | Genome FASTA | Plain or gzipped. The index is built once and reused in the run.   |
 
 ```bash
 --host GCF_000001405.40                    # download it
@@ -290,6 +290,15 @@ reference in the same order. The HISAT2 index is likewise built only for a run
 that has an RNA library. The single-cell route (STARsolo), the UniVec pass and
 `--target_taxid` alignment are unaffected.
 
+A prebuilt index can be a directory or an archive (`.tar.gz`, `.tgz`, `.tar`).
+Hostile's indexes are `.tar` archives of a Bowtie2 index, with the genome they
+were built from beside them as `<name>.fa.gz`; give both, so the HISAT2 and
+minimap2 indexes come from the same genome:
+
+```bash
+--host human-t2t-hla.fa.gz --bowtie2_index human-t2t-hla.tar
+```
+
 ### `--require_both_mates_unmapped`
 
 This switches to a variant module that drops `--no-mixed --no-discordant` and splits the alignment stream on explicit SAM flags instead: `-F 4 -F 8` is the host BAM, `-f 12` (both mates unmapped) is the non-host FASTQ. Pairing is never broken — HISAT2 emits both mates adjacently and `samtools view` preserves that order, so `samtools fastq` stays in sync without a collate or re-pairing pass.
@@ -331,6 +340,41 @@ A fifth reference is refused up front rather than dropped, because a host refere
 The **first** reference given is the primary one: it is the one `--gtf` describes, the one Qualimap reports on, and the one `--quantify_host` counts against. Later passes get no GTF — an annotation belongs to one assembly, and handing it to another would build a nonsense splice index — and no Qualimap report, since one reference's leftovers aligned to a different reference answer no question.
 
 Each pass is named apart in the outputs (`<id>.host1`, `<id>.host2`, `<id>.host3`, and `<id>.host` for the last one), so `read_accounting.tsv` reports what each reference removed separately. Whether you needed a given reference is answerable after the fact from that table, and from the **host carry-over** column described below.
+
+### Protecting organisms from depletion (`--host_mask`)
+
+A host genome can share sequence with the organisms you are looking for:
+horizontally transferred or contaminating microbial sequence in the assembly,
+endogenous viral elements, conserved genes of a eukaryotic parasite. Reads of
+those organisms align to the host there and are removed with it. `--host_mask`
+applies Hostile's remedy (Constantinides et al., _Bioinformatics_ 2023): every
+region of the host that a protected genome also holds is replaced with N
+before any index is built, so those reads have no host sequence to align to.
+
+```bash
+--host GCF_000005575.2 --host_mask wolbachia.fa.gz,plasmodium_falciparum.fa.gz
+```
+
+Each protected genome is cut into k-mers of `--host_mask_kmer_length` (150)
+every `--host_mask_kmer_step` (10) bases; the k-mers are aligned to the host
+with minimap2, keeping every placement (`-N 10000 -p 0.0001`), and the hit
+intervals are merged and masked with bedtools. Set the k-mer length to your
+read length: a shorter read needs a shorter shared stretch to align, and
+150-mers would leave those stretches unmasked. Coordinates do not change, so
+`--gtf` still describes the masked genome.
+
+Every host reference is masked, since an unmasked later pass would remove the
+reads the first one let through. A prebuilt index is refused, because masking
+acts on the FASTA. An index built from a masked genome, such as Hostile's
+`human-t2t-hla.argos-bacteria-985_rs-viral-202401_ml-phage-202401`, is given
+without `--host_mask`, as above.
+
+**Masking is a trade.** A masked host region no longer removes host reads
+either, so host reads from it go on to classification, and they share k-mers
+with exactly the organisms you protected. `reference/mask/<genome>.mask_summary.tsv`
+says how much of the genome was masked. Protect the organisms the question is
+about, not a whole kingdom, and keep `--drop_host_taxon` and the host
+carry-over column in `read_accounting.tsv` in view.
 
 ### Synthetic sequence (`--univec`)
 
@@ -967,6 +1011,57 @@ read 2 is transcript.
 `--read2_only` drops read 1 before trimming and takes each paired library on as
 single-end read 2. Single-end libraries are left as they are. It cannot be
 combined with `--single_cell`, which needs read 1 for the cell barcode.
+
+## Long reads (`--long_reads`)
+
+`--long_reads ont` or `--long_reads pacbio` sends every library down a route
+built for reads of thousands of bases. One platform per run, and one FASTQ per
+sample (`fastq_1` alone). Archive runs are checked against it from their
+instrument platform, and an ONT or PacBio run given without the flag stops
+the run rather than being trimmed and aligned as short reads.
+
+- **Trimming** is [fastplong](https://github.com/OpenGene/fastplong), with
+  `--fastplong_args` (`--length_required 200 --mean_qual 10`) in place of
+  `--fastp_args`. `--trim_poly_x`, `--trim_low_complexity` and `--adapter_fasta`
+  apply as for fastp.
+- **Host depletion** is minimap2, as in Hostile's long-read mode, with
+  `--secondary=no`. A read is host when its primary alignment maps. The preset
+  depends on the library:
+
+  |                              | ONT       | PacBio      |
+  | ---------------------------- | --------- | ----------- |
+  | RNA, or kind unknown         | `splice`  | `splice:hq` |
+  | DNA (`molecule`, or archive) | `map-ont` | `map-hifi`  |
+
+  `--minimap2_preset` sets one for every library (`map-pb` for PacBio CLR,
+  `lr:hq` for ONT reads of Q20 and above), and `--minimap2_args` adds options.
+  The host index is built per preset in use, because k-mer and window size are
+  fixed in a minimap2 index. Multiple `--host` references and `--host_mask`
+  work as for short reads; `--hisat2_chunk_size` does not apply.
+
+- **Classification** is Kraken2, KrakenUniq and sylph, which read sequences of
+  any length, and MetaPhlAn in its long-read mode. Bracken is not: its k-mer
+  distributions are built for one short read length, so `--skip_bracken` is
+  required and Kraken2's report is used.
+- **MetaPhlAn** maps against a minimap2 index of its markers. Left to itself it
+  builds that index inside `--metaphlan_db` the first time it runs, so every
+  sample of a cohort would write the same file at once, and a shared read-only
+  database could not take it. The pipeline builds it once per run
+  (`METAPHLAN_MM2INDEX`, presets `--metaphlan_minimap2_ps`, MetaPhlAn's
+  default), maps each sample itself with MetaPhlAn's command, and hands
+  MetaPhlAn the alignments (`--input_type sam --long_reads --nbases`), which
+  it filters exactly as it filters its own. With `--save_reference` the index
+  is kept under `reference/metaphlan/`; give it back with
+  `--metaphlan_mm2_index` to skip the build. The read-stats columns of a
+  long-read profile count bases, not reads.
+  `--quantify_host` counts with featureCounts' long-read mode (`-L`).
+
+Steps built around short reads are refused up front: `--single_cell`,
+`--sc_plate_based`, `--read2_only`, `--remove_rrna`, `--univec`, `--assembly`,
+`--run_prism`, PathSeq, `--run_metax`, `--host_transcripts`,
+`--target_transcripts`, `--target_taxid`, `--run_polya_check`, and
+`--run_humann`, whose nucleotide and translated searches run with short-read
+settings.
 
 ## Single-cell data (`--single_cell`)
 

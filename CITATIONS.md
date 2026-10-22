@@ -26,9 +26,25 @@
 
   > Chen S, Zhou Y, Chen Y, Gu J. fastp: an ultra-fast all-in-one FASTQ preprocessor. Bioinformatics. 2018 Sep 1;34(17):i884-i890. doi: 10.1093/bioinformatics/bty560. PubMed PMID: 30423086; PubMed Central PMCID: PMC6129281.
 
+- [fastplong](https://github.com/OpenGene/fastplong) (`--long_reads`)
+
+  > Chen S. fastplong: ultra-fast preprocessing and quality control for long-read sequencing data. https://github.com/OpenGene/fastplong
+
 - [HISAT2](https://pubmed.ncbi.nlm.nih.gov/31375807/)
 
   > Kim D, Paggi JM, Park C, Bennett C, Salzberg SL. Graph-based genome alignment and genotyping with HISAT2 and HISAT-genotype. Nat Biotechnol. 2019 Aug;37(8):907-915. doi: 10.1038/s41587-019-0201-4. PubMed PMID: 31375807; PubMed Central PMCID: PMC7605509.
+
+- [minimap2](https://pubmed.ncbi.nlm.nih.gov/29750242/) (`--long_reads`, `--host_mask`)
+
+  > Li H. Minimap2: pairwise alignment for nucleotide sequences. Bioinformatics. 2018 Sep 15;34(18):3094-3100. doi: 10.1093/bioinformatics/bty191. PubMed PMID: 29750242.
+
+- [Hostile](https://pubmed.ncbi.nlm.nih.gov/38039142/) (the masking of `--host_mask`, and the long-read depletion of `--long_reads`)
+
+  > Constantinides B, Hunt M, Crook DW. Hostile: accurate decontamination of microbial host sequences. Bioinformatics. 2023 Dec 1;39(12):btad728. doi: 10.1093/bioinformatics/btad728. PubMed PMID: 38039142.
+
+- [BEDTools](https://pubmed.ncbi.nlm.nih.gov/20110278/) (`--host_mask`)
+
+  > Quinlan AR, Hall IM. BEDTools: a flexible suite of utilities for comparing genomic features. Bioinformatics. 2010 Mar 15;26(6):841-2. doi: 10.1093/bioinformatics/btq033. PubMed PMID: 20110278.
 
 - [SAMtools](https://pubmed.ncbi.nlm.nih.gov/33590861/)
 

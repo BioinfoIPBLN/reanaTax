@@ -37,6 +37,8 @@ workflow FASTQ_DOWNLOAD_FASTQDL {
                 // 'dna', 'rna' or null: decides the host aligner under
                 // --host_aligner auto (Bowtie2 for DNA, HISAT2 otherwise).
                 molecule: libraryMolecule(row.library_strategy, row.library_source),
+                // ILLUMINA, OXFORD_NANOPORE, PACBIO_SMRT...: checked against --long_reads.
+                platform: row.instrument_platform,
                 // Provisional; re-derived below from what actually downloaded.
                 single_end: (row.library_layout ?: '').toUpperCase() != 'PAIRED',
             ]
@@ -97,6 +99,9 @@ workflow FASTQ_DOWNLOAD_FASTQDL {
             }
             if (ordered_metas.collect { meta -> meta.molecule }.unique().size() > 1) {
                 error("Cannot merge runs of '${key}': they are a mix of DNA and RNA libraries (runs: ${ordered_metas.collect { meta -> "${meta.run_accession} ${meta.molecule ?: 'unknown'}" }.join(', ')}), which are depleted with different aligners. Re-run with --group_runs_by run.")
+            }
+            if (ordered_metas.collect { meta -> meta.platform }.unique().size() > 1) {
+                error("Cannot merge runs of '${key}': they come from different platforms (runs: ${ordered_metas.collect { meta -> "${meta.run_accession} ${meta.platform ?: 'unknown'}" }.join(', ')}). Re-run with --group_runs_by run.")
             }
             def meta = ordered_metas.first() + [id: key, n_runs: ordered_metas.size()]
             [meta, ordered_reads]

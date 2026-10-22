@@ -1,7 +1,8 @@
 //
 // Split reads into a host fraction (sorted, indexed BAM) and a non-host
 // fraction (FASTQ) by aligning against the host genome: HISAT2 for RNA,
-// Bowtie2 for DNA (--host_aligner; see hostAligner below).
+// Bowtie2 for DNA, minimap2 for long reads (--host_aligner; see hostAligner
+// below).
 //
 
 include { HISAT2_ALIGN             } from '../../../modules/nf-core/hisat2/align/main'
@@ -10,6 +11,7 @@ include { HISAT2_ALIGN as HISAT2_ALIGN_CHUNK             } from '../../../module
 include { HISAT2_ALIGN_SPLIT as HISAT2_ALIGN_SPLIT_CHUNK } from '../../../modules/local/hisat2/alignsplit/main'
 include { BOWTIE2_ALIGN_SPLIT      } from '../../../modules/local/bowtie2/alignsplit/main'
 include { BOWTIE2_ALIGN_SPLIT as BOWTIE2_ALIGN_SPLIT_CHUNK } from '../../../modules/local/bowtie2/alignsplit/main'
+include { MINIMAP2_ALIGN_SPLIT     } from '../../../modules/local/minimap2/alignsplit/main'
 include { HISAT2_CHUNKSPLIT        } from '../../../modules/local/hisat2/chunksplit/main'
 include { HISAT2_MERGECHUNKS       } from '../../../modules/local/hisat2/mergechunks/main'
 include { SAMTOOLS_FAIDX           } from '../../../modules/local/samtools/faidx/main'
@@ -33,6 +35,8 @@ workflow HOST_DEPLETION_HISAT2 {
     cleanup_intermediates // boolean: delete a sample's chunk files once its merge has succeeded
     ch_bowtie2_index // channel: [ val(meta), path(bowtie2_index_dir) ] - empty unless a library needs it
     aligner_mode // string: 'auto' (DNA to Bowtie2, the rest to HISAT2), 'hisat2' or 'bowtie2'
+    ch_minimap2_index // channel: [ val(meta + preset), path(mmi) ] - empty unless a long-read library needs it
+    minimap2_preset // string: the minimap2 preset for every long-read library, or null to choose per library
 
     main:
 
@@ -52,6 +56,25 @@ workflow HOST_DEPLETION_HISAT2 {
     def ch_fastq = channel.empty()
 
     //
+    // Long-read libraries go to minimap2 whole, each with the index built for
+    // its preset. Chunking is for HISAT2's memory, which grows with what one
+    // process has aligned; minimap2's does not.
+    //
+    def ch_by_aligner = ch_reads.branch { meta, _reads ->
+        minimap2: hostAligner(meta, aligner_mode) == 'minimap2'
+        short_reads: true
+    }
+    def ch_long_input = ch_by_aligner.minimap2
+        .map { meta, reads -> [minimap2Preset(meta, minimap2_preset), meta, reads] }
+        .combine(ch_minimap2_index.map { meta, index -> [meta.preset, meta, index] }, by: 0)
+        .multiMap { _preset, meta, reads, meta_index, index ->
+            reads: [meta, reads]
+            index: [meta_index, index]
+        }
+    MINIMAP2_ALIGN_SPLIT(ch_long_input.reads, ch_long_input.index, true, save_host_bam)
+    def ch_short_reads = ch_by_aligner.short_reads
+
+    //
     // Chunked alignment. HISAT2's memory grows with how much it has aligned in
     // one process - on libraries of a few hundred million pairs with
     // --very-sensitive it can reach the hundreds of GB - and the only thing
@@ -65,7 +88,7 @@ workflow HOST_DEPLETION_HISAT2 {
     // short ones as the executor will schedule.
     //
     if (chunk_size && chunk_size > 0) {
-        HISAT2_CHUNKSPLIT(ch_reads, chunk_size)
+        HISAT2_CHUNKSPLIT(ch_short_reads, chunk_size)
 
         // One list per sample, whether the glob matched one file or several.
         def ch_split = HISAT2_CHUNKSPLIT.out.reads
@@ -162,7 +185,7 @@ workflow HOST_DEPLETION_HISAT2 {
         ch_fastq = HISAT2_MERGECHUNKS.out.fastq
     }
     else {
-        def ch_routed = ch_reads.branch { meta, _reads ->
+        def ch_routed = ch_short_reads.branch { meta, _reads ->
             bowtie2: hostAligner(meta, aligner_mode) == 'bowtie2'
             hisat2: true
         }
@@ -185,6 +208,10 @@ workflow HOST_DEPLETION_HISAT2 {
         ch_summary = ch_summary.mix(BOWTIE2_ALIGN_SPLIT.out.summary)
         ch_fastq = ch_fastq.mix(BOWTIE2_ALIGN_SPLIT.out.fastq)
     }
+
+    ch_aligned = ch_aligned.mix(MINIMAP2_ALIGN_SPLIT.out.bam)
+    ch_summary = ch_summary.mix(MINIMAP2_ALIGN_SPLIT.out.summary)
+    ch_fastq = ch_fastq.mix(MINIMAP2_ALIGN_SPLIT.out.fastq)
 
     ch_multiqc_files = ch_multiqc_files.mix(ch_summary.map { _meta, log -> log })
 
@@ -287,17 +314,38 @@ workflow HOST_DEPLETION_HISAT2 {
     multiqc_files = ch_multiqc_files // channel: path(file)
 }
 
-// Which aligner depletes this library. HISAT2 is splice-aware, which RNA needs
+// Which aligner depletes this library. A long-read library (meta.long_reads,
+// set from --long_reads) always goes to minimap2: neither short-read aligner
+// takes reads of tens of kilobases. HISAT2 is splice-aware, which RNA needs
 // and DNA does not: it would split a genomic read across an intron that is not
 // one. Under 'auto' a library known to be DNA (meta.molecule, from the archive's
 // library strategy and source or the samplesheet's `molecule` column) goes to
 // Bowtie2, and everything else - RNA, and libraries of unknown kind, since this
 // is an RNA-seq pipeline first - to HISAT2. 'hisat2' or 'bowtie2' forces one.
 def hostAligner(meta, mode) {
+    if (meta.long_reads) {
+        return 'minimap2'
+    }
     if (mode && mode != 'auto') {
         return mode
     }
     return meta.molecule == 'dna' ? 'bowtie2' : 'hisat2'
+}
+
+// The minimap2 preset a long-read library is aligned with, unless
+// --minimap2_preset names one for every library. Spliced for RNA and for
+// libraries of unknown kind, as hostAligner treats them; genomic for DNA. Each
+// in its platform's flavour: HiFi accuracy for PacBio, the ONT error model
+// otherwise.
+def minimap2Preset(meta, override) {
+    if (override) {
+        return override
+    }
+    def rna = meta.molecule != 'dna'
+    if (meta.long_reads == 'pacbio') {
+        return rna ? 'splice:hq' : 'map-hifi'
+    }
+    return rna ? 'splice' : 'map-ont'
 }
 
 // The chunk a file belongs to, from the name HISAT2_CHUNKSPLIT gives it:

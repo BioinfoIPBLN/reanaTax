@@ -39,7 +39,8 @@ def sample_name(path, suffixes):
 
 
 def read_fastp(path):
-    """Reads before and after trimming. fastp counts READS, both mates included."""
+    """Reads before and after trimming. fastp counts READS, both mates included.
+    fastplong writes the same summary with one `read_mean_length`."""
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
@@ -50,7 +51,7 @@ def read_fastp(path):
     return {
         "raw_reads": (data.get("summary", {}).get("before_filtering", {}) or {}).get("total_reads", 0),
         "trimmed_reads": after.get("total_reads", 0),
-        "trimmed_mean_length": after.get("read1_mean_length", 0),
+        "trimmed_mean_length": after.get("read1_mean_length", after.get("read_mean_length", 0)),
         "per_fragment": 2 if after.get("read2_mean_length") else 1,
     }
 
@@ -182,19 +183,20 @@ def collect(args):
         return rows.setdefault(sample, {"sample": sample})
 
     for path in args.fastp:
-        slot(sample_name(path, [".fastp.json"])).update(read_fastp(path))
+        slot(sample_name(path, [".fastp.json", ".fastplong.json"])).update(read_fastp(path))
 
     # Host-depletion logs are named <sample>.<label>.<aligner>.summary.log, the
-    # aligner being HISAT2 (RNA) or Bowtie2 (DNA), which write the same format.
+    # aligner being HISAT2 (RNA), Bowtie2 (DNA) or minimap2 (long reads), which
+    # all write the same format.
     # The label says which host reference the pass used; keep the passes apart
     # so a two-reference run shows what each one removed.
     for path in args.hisat2:
         name = os.path.basename(path)
-        match = re.match(r"^(.+?)\.([^.]+)\.(?:hisat2|bowtie2)\.summary\.log$", name)
+        match = re.match(r"^(.+?)\.([^.]+)\.(?:hisat2|bowtie2|minimap2)\.summary\.log$", name)
         if match:
             sample, label = match.group(1), match.group(2)
         else:
-            sample, label = sample_name(path, [".hisat2.summary.log", ".bowtie2.summary.log"]), "host"
+            sample, label = sample_name(path, [".hisat2.summary.log", ".bowtie2.summary.log", ".minimap2.summary.log"]), "host"
         stats = read_hisat2(path)
         entry = slot(sample)
         for key, value in stats.items():
@@ -386,8 +388,8 @@ def write_mqc_generalstats(path, rows):
 
 def main():
     parser = argparse.ArgumentParser(description="Per-sample read accounting across the pipeline.")
-    parser.add_argument("--fastp", nargs="*", default=[], help="fastp *.fastp.json files")
-    parser.add_argument("--hisat2", nargs="*", default=[], help="host-depletion *.hisat2.summary.log / *.bowtie2.summary.log files")
+    parser.add_argument("--fastp", nargs="*", default=[], help="fastp *.fastp.json / fastplong *.fastplong.json files")
+    parser.add_argument("--hisat2", nargs="*", default=[], help="host-depletion *.{hisat2,bowtie2,minimap2}.summary.log files")
     parser.add_argument("--sortmerna", nargs="*", default=[], help="SortMeRNA *.sortmerna.log files")
     parser.add_argument("--kraken2", nargs="*", default=[], help="Kraken2 *.report.txt files")
     parser.add_argument("--host-taxid", type=int, default=HOST_DEFAULT_TAXID,
