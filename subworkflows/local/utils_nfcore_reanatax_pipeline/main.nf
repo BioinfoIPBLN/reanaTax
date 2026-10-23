@@ -237,6 +237,39 @@ def validateBuildParameters() {
 }
 
 //
+// Metax and PRISM are not on bioconda, so the pipeline does not provide them:
+// whoever asks for one installs it. This names what is missing, or returns null
+// when the tool can be reached - through its image, through a profile that
+// builds the module's conda environment, or on the PATH, which is where a task
+// without an image runs. The PATH looked at is the one Nextflow runs with, so
+// on a cluster it stands in for the compute nodes'.
+//
+def externalToolProblem(String tool) {
+    def problems = []
+    if (tool == 'prism') {
+        def dir = params.prism_path ? file(params.prism_path) : null
+        def absent = dir ? ['PRISM.R', 'genbank', 'sorted_accession_map.txt'].findAll { name -> !dir.resolve(name).exists() } : []
+        if (!dir) {
+            problems << 'no --prism_path'
+        }
+        else if (absent) {
+            problems << "${params.prism_path} has no ${absent.join(', ')}"
+        }
+    }
+    def image = tool == 'metax' ? params.metax_container : params.prism_container
+    def builds_environment = workflow.profile.tokenize(',').intersect(['conda', 'mamba', 'micromamba', 'wave'])
+    if (!(image && workflow.containerEngine) && !builds_environment) {
+        def commands = tool == 'metax' ? ['metax', 'maCMD'] : ['Rscript', 'kraken2', 'seqkit', 'STAR', 'minimap2', 'blastn']
+        def path = (System.getenv('PATH') ?: '').tokenize(File.pathSeparator)
+        def missing = commands.findAll { command -> !path.any { dir -> new File(dir, command).canExecute() } }
+        if (missing) {
+            problems << "${missing.join(', ')} not on the PATH"
+        }
+    }
+    return problems ? problems.join('; ') : null
+}
+
+//
 // Check that the combination of parameters actually describes a runnable job.
 // These are cross-parameter rules that the JSON schema cannot express.
 //
@@ -343,10 +376,11 @@ def validateInputParameters() {
         error("--univec needs --univec_source: it names the vector database to deplete against, and defaults to NCBI's UniVec_Core. Set it to a local FASTA to run offline.")
     }
 
-    if (params.run_prism) {
-        if (!params.prism_path) {
-            error("--run_prism needs --prism_path, pointing at a prepared clone of sjdlabgroup/PRISM. The clone alone is not enough: it must also hold `genbank/` (the processed GenBank RDS files, distributed separately by the authors) and `sorted_accession_map.txt` (built once with blastdbcmd against the BLAST database). See docs/usage.md.")
-        }
+    def prism_problem = params.run_prism ? externalToolProblem('prism') : null
+    if (prism_problem) {
+        log.warn("--run_prism is set but PRISM cannot be reached (${prism_problem}), so this run goes on without it. Clone https://github.com/sjdlabgroup/PRISM, add the authors' processed GenBank files as `genbank/` and a `sorted_accession_map.txt` built with blastdbcmd, and point --prism_path at it. Its tools - Rscript with xgboost 1.7, kraken2, seqkit, STAR, minimap2 and blastn - go on the PATH, or come from --prism_container or -profile conda. See docs/usage.md.")
+    }
+    else if (params.run_prism) {
         def missing = [
             prism_blast_db: params.prism_blast_db,
             prism_star_genome_dir: params.prism_star_genome_dir,
@@ -360,9 +394,6 @@ def validateInputParameters() {
         }
         if (params.single_cell && !params.prism_barcode_only) {
             error("--run_prism with --single_cell needs --prism_barcode_only. On 10x chemistry read 1 is barcode plus UMI with no biological sequence in it, so without that flag PRISM classifies and BLASTs it as if it were cDNA. Setting it drops the barcode read before PRISM sees anything, so Kraken2, STAR, minimap2 and BLAST all work on the cDNA read alone.")
-        }
-        if (workflow.containerEngine in ['docker', 'singularity', 'apptainer', 'podman'] && !params.prism_container) {
-            error("--run_prism under -profile ${workflow.containerEngine} needs --prism_container. PRISM is an R script that shells out to Kraken2, minimap2, STAR, BLAST and SeqKit, and no public image carries that set - so there is no default to fall back to. Build one from modules/local/prism/run/environment.yml, or use -profile conda, which builds that environment directly.")
         }
     }
 
@@ -580,7 +611,12 @@ def validateInputParameters() {
         error("--run_humann needs the Kraken2 report to build HUMAnN's taxonomic profile; it cannot be combined with --skip_kraken2.")
     }
 
-    if (params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan && !params.run_sylph && !params.run_metax && !params.run_emu && !params.pathseq_microbe_bwa_image && !params.run_prism) {
+    def metax_problem = params.run_metax ? externalToolProblem('metax') : null
+    if (metax_problem) {
+        log.warn("--run_metax is set but Metax cannot be reached (${metax_problem}), so this run goes on without it. Metax is not on bioconda: install it from its author's channel (`conda create -n metax -c zldeng -c bioconda metax ma=1.1.4`) and put `metax` and `maCMD` on the PATH, or give --metax_container an image providing both, or run with -profile conda or wave, which build the module's environment.")
+    }
+
+    if (params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan && !params.run_sylph && !(params.run_metax && !metax_problem) && !params.run_emu && !params.pathseq_microbe_bwa_image && !(params.run_prism && !prism_problem)) {
         log.warn("--skip_kraken2 with none of --krakenuniq_db, --run_metaphlan, --run_sylph, --run_metax, --run_emu, --pathseq_microbe_bwa_image or --run_prism leaves nothing to classify the non-host reads with.")
     }
 
@@ -598,7 +634,7 @@ def validateInputParameters() {
         }
     }
 
-    if (params.run_metax && (!params.metax_db || !params.metax_dmp_dir)) {
+    if (params.run_metax && !metax_problem && (!params.metax_db || !params.metax_dmp_dir)) {
         error("--run_metax needs --metax_db (a Metax database's metax_db.json, or the directory holding it) and --metax_dmp_dir (an NCBI taxonomy dump: nodes.dmp, names.dmp, merged.dmp). Pre-built databases are listed at https://github.com/hzi-bifo/Metax")
     }
 
@@ -608,10 +644,6 @@ def validateInputParameters() {
 
     if (params.run_taxpasta && params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan) {
         log.warn("--run_taxpasta has nothing to standardise: it reads Kraken2, Bracken, KrakenUniq and MetaPhlAn output, and none of them is running. sylph, Metax and PathSeq write their own cohort tables.")
-    }
-
-    if (params.run_metax && workflow.containerEngine && !params.metax_container) {
-        log.warn("Metax has no public container image: it is not on bioconda. Without --metax_container, METAX_PROFILE runs outside ${workflow.containerEngine} and needs metax and maCMD on the PATH - unless -profile wave is active too, in which case Wave builds an image from the module's conda environment.")
     }
 
     if (params.run_sylph && !params.sylph_db) {

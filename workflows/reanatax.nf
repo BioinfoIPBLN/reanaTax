@@ -87,6 +87,7 @@ include { resolveBrackenReadLength  } from '../subworkflows/local/utils_nfcore_r
 include { daMethods                } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { hostDeMethods            } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 include { targetReference          } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
+include { externalToolProblem      } from '../subworkflows/local/utils_nfcore_reanatax_pipeline'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -897,7 +898,10 @@ workflow REANATAX {
     // the GenBank annotation the alignments land on, host mapping and k-mer
     // composition - and returns a probability per taxon.
     //
-    if (params.run_prism) {
+    // Not installed by the pipeline: when it cannot be reached, startup has
+    // already warned and the run goes on without it.
+    //
+    if (params.run_prism && !externalToolProblem('prism')) {
         PRISM_RUN(
             ch_trimmed_reads,
             channel.value(file(params.prism_path, checkIfExists: true)),
@@ -1038,9 +1042,11 @@ workflow REANATAX {
     // `--skip_kraken2` restrictions. The pre-built databases include the human
     // reference where applicable (the 2022 one names GRCh38), and with it in
     // the index, host reads under `--skip_host_removal` land on Homo sapiens
-    // rather than on whatever microbe they happen to resemble.
+    // rather than on whatever microbe they happen to resemble. Like PRISM it is
+    // not installed by the pipeline, and skipped with a startup warning when it
+    // cannot be reached.
     //
-    if (params.run_metax) {
+    if (params.run_metax && !externalToolProblem('metax')) {
         TAXONOMY_METAX(
             ch_nonhost_reads,
             params.metax_db,

@@ -640,7 +640,7 @@
                 "run_metax": {
                     "type": "boolean",
                     "description": "Also profile the non-host reads with Metax.",
-                    "help_text": "Metax aligns reads to a genome collection and keeps a taxon only if its reads cover the genome the way random sampling would (observed over expected breadth, OEBR), which drops artifacts from contaminated references, kitome fragments and shared conserved regions. It reports NCBI taxids. Additive: `--run_metax --skip_kraken2` uses it instead of Kraken2. No public container exists - see --metax_container. Its authors note that coverage-based filtering can drop true taxa in RNA-derived data, so on transcriptomes a missing call is weak evidence of absence.",
+                    "help_text": "Metax aligns reads to a genome collection and keeps a taxon only if its reads cover the genome the way random sampling would (observed over expected breadth, OEBR), which drops artifacts from contaminated references, kitome fragments and shared conserved regions. It reports NCBI taxids. Additive: `--run_metax --skip_kraken2` uses it instead of Kraken2. Not installed by the pipeline: Metax is not on bioconda, so install it yourself and put `metax` and `maCMD` on the PATH, or see --metax_container. If it cannot be reached the run warns at startup and goes on without it. Its authors note that coverage-based filtering can drop true taxa in RNA-derived data, so on transcriptomes a missing call is weak evidence of absence.",
                     "fa_icon": "fas fa-dna"
                 },
                 "metax_db": {
@@ -671,7 +671,7 @@
                 "metax_container": {
                     "type": "string",
                     "description": "A container image providing metax and maCMD.",
-                    "help_text": "Metax is published on its author's conda channel (zldeng), not on bioconda, so no public image exists. Without this, `-profile wave` builds one from the module's conda environment, `-profile conda` or `mamba` installs it, and otherwise METAX_PROFILE needs metax and maCMD on the host PATH.",
+                    "help_text": "Metax is published on its author's conda channel (zldeng), not on bioconda, so no public image exists. Without this, `-profile wave` builds one from the module's conda environment, `-profile conda` or `mamba` installs it, and otherwise METAX_PROFILE runs on the host and needs metax and maCMD on the PATH. If none of these provides them, the run warns at startup and goes on without Metax.",
                     "fa_icon": "fab fa-docker"
                 },
                 "run_taxpasta": {
@@ -1065,19 +1065,19 @@
                 "run_prism": {
                     "type": "boolean",
                     "description": "Run PRISM to confirm candidate taxa against independent evidence",
-                    "help_text": "PRISM (sjdlabgroup/PRISM) is not a classifier: it takes candidate taxa and tries to CONFIRM each one with full-length BLAST against nt, the GenBank annotation those alignments land on, host mapping with STAR and minimap2, and k-mer composition at every rank, then scores it with an XGBoost model over forty features. It runs on the TRIMMED reads, not the non-host ones, because it does its own host removal and several of its features are statistics of that removal. Not packaged anywhere - see --prism_path.",
+                    "help_text": "PRISM (sjdlabgroup/PRISM) is not a classifier: it takes candidate taxa and tries to CONFIRM each one with full-length BLAST against nt, the GenBank annotation those alignments land on, host mapping with STAR and minimap2, and k-mer composition at every rank, then scores it with an XGBoost model over forty features. It runs on the TRIMMED reads, not the non-host ones, because it does its own host removal and several of its features are statistics of that removal. Not installed by the pipeline - see --prism_path. If it cannot be reached the run warns at startup and goes on without it.",
                     "fa_icon": "fas fa-gem"
                 },
                 "prism_path": {
                     "type": "string",
                     "description": "A prepared clone of sjdlabgroup/PRISM",
-                    "help_text": "The clone alone is not enough. It must also hold `genbank/` (the processed GenBank RDS files, distributed separately by the authors) and `sorted_accession_map.txt` (built once with blastdbcmd against the BLAST database). The run fails at validation if this is missing.",
+                    "help_text": "The clone alone is not enough. It must also hold `genbank/` (the processed GenBank RDS files, distributed separately by the authors) and `sorted_accession_map.txt` (built once with blastdbcmd against the BLAST database). If this is missing or incomplete, the run warns and goes on without PRISM. Its tools (Rscript with xgboost 1.7, kraken2, seqkit, STAR, minimap2, blastn) come from the PATH unless --prism_container or -profile conda provides them.",
                     "fa_icon": "fas fa-folder-open"
                 },
                 "prism_container": {
                     "type": "string",
-                    "description": "Container image for PRISM; required under docker/singularity",
-                    "help_text": "PRISM is an R script that shells out to Kraken2, minimap2, STAR, BLAST and SeqKit, and no public image carries that set, so there is no default. Build one from modules/local/prism/run/environment.yml, or use -profile conda which builds that environment directly.",
+                    "description": "Container image for PRISM's tools; without one they come from the PATH",
+                    "help_text": "PRISM is an R script that shells out to Kraken2, minimap2, STAR, BLAST and SeqKit, and no public image carries that set, so there is no default. Without an image the task runs on the host and finds them on the PATH; -profile conda builds modules/local/prism/run/environment.yml instead.",
                     "fa_icon": "fas fa-box"
                 },
                 "prism_kraken_db": {

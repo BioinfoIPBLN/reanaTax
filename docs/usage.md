@@ -1953,12 +1953,23 @@ plus a BLAST `nt` database, a host STAR index and a host minimap2 index. The
 run stops at validation if any of the parameters naming these is missing,
 rather than failing several hours in.
 
-**There is no public container.** PRISM is an R script that shells out to
-Kraken2, minimap2, STAR, BLAST and SeqKit, and no biocontainer carries that
-set. Under `-profile conda` the module's `environment.yml` builds it. Under
-docker or singularity you must supply `--prism_container` pointing at an image
-you built — the run refuses to start otherwise, rather than trying to pull
-something that does not exist. The four databases are mounted into it read-only
+**The pipeline does not install PRISM.** PRISM is an R script that shells out
+to Kraken2, minimap2, STAR, BLAST and SeqKit, and no biocontainer carries that
+set, so the tools come from one of three places:
+
+- **The PATH.** Without an image the task runs on the host, so `Rscript` (with
+  xgboost 1.7, below), `kraken2`, `seqkit`, `STAR`, `minimap2` and `blastn`
+  must be found there — under docker or singularity too.
+- **`-profile conda`**, which builds the module's `environment.yml`.
+- **`--prism_container`**, an image you built.
+
+At startup the pipeline checks the prepared directory (`PRISM.R`, `genbank/`,
+`sorted_accession_map.txt`) and, unless an image or a conda profile provides
+them, those six commands on the PATH. If anything is missing it warns, names
+what, and runs without PRISM rather than stopping. The PATH it checks is the
+one Nextflow runs with, so on a cluster the compute nodes need the same.
+
+With an image, the four databases are mounted into it read-only
 (the Kraken2 and STAR directories, and the directories holding the BLAST
 database and the minimap2 index): they are passed as paths rather than staged,
 because they run to hundreds of gigabytes, so nothing else would mount them.
@@ -2712,7 +2723,7 @@ Like sylph it is additive: leave Kraken2 on to compare the two on the same reads
 
 Read these before relying on it:
 
-- **No public container.** Metax is published on its author's conda channel (`zldeng`), not on bioconda, and that package ships the `metax` binary without the `maCMD` aligner it calls. The module's conda environment supplies both, so `-profile conda` or `mamba` works, and `-profile wave` builds an image from it. Otherwise pass an image with `--metax_container`; without one, under Docker or Singularity the task runs on the host and needs `metax` and `maCMD` on the PATH. The pipeline warns about this at startup.
+- **Not installed by the pipeline.** Metax is published on its author's conda channel (`zldeng`), not on bioconda, and that package ships the `metax` binary without the `maCMD` aligner it calls. Install both yourself (`conda create -n metax -c zldeng -c bioconda metax ma=1.1.4`) and put them on the PATH: without an image the task runs on the host, under Docker or Singularity too. Alternatively the module's conda environment supplies both, so `-profile conda` or `mamba` works and `-profile wave` builds an image from it, or `--metax_container` names an image you built. At startup the pipeline checks for `metax` and `maCMD` on the PATH unless an image or one of those profiles provides them; if they are missing it warns and runs without Metax. The PATH it checks is the one Nextflow runs with, so on a cluster the compute nodes need the same.
 - **Coverage-based filtering and RNA.** Metax's authors say plainly that true taxa can be over-filtered where genome-wide coverage is not expected, "such as in RNA-derived data". A transcriptome covers what is expressed, so on RNA a missing Metax call is weak evidence of absence. RNA viruses are the exception worth knowing: there the transcript is the genome.
 - **Memory.** Alignment against a full database is the heavy part — about 55 GB peak for the 33,000-genome RefSeq databases in the paper. A fractional index (`metax index -f 0.05`) takes that to about 5 GB at a modest cost in recall, and Metax then skips the per-read output.
 - **The database is used as a directory.** `maCMD` finds the index files through `metax_db.json`, so `--metax_db` may name the JSON or the directory holding it; either way the whole directory is staged.
