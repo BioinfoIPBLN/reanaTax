@@ -1992,10 +1992,11 @@ set, so the tools come from one of three places:
 - **The PATH.** Without an image the task runs on the host, so `Rscript` (with
   xgboost 1.7, below), `kraken2`, `seqkit`, `STAR`, `minimap2` and `blastn`
   must be found there — under docker or singularity too.
-- **`--prism_bin_dir`**, a tool installation (e.g. a conda env prefix) whose
-  `bin/` holds those six commands. When set it is prepended to the PATH and the
-  startup check looks there instead, so a run is not at the mercy of whichever
-  tool happens to be first on the PATH.
+- **`--prism_bin_dir`**, a comma-separated list of tool installations (e.g.
+  conda env prefixes) whose `bin/` directories together hold those six commands.
+  Each `<dir>/bin` is prepended to the PATH in order (leftmost first), and the
+  startup check looks there instead of the PATH, so a run is not at the mercy of
+  whichever tool happens to be first on the PATH.
 - **`-profile conda`**, which builds the module's `environment.yml`.
 - **`--prism_container`**, an image you built.
 
@@ -2760,7 +2761,7 @@ Like sylph it is additive: leave Kraken2 on to compare the two on the same reads
 
 Read these before relying on it:
 
-- **Not installed by the pipeline.** Metax is published on its author's conda channel (`zldeng`), not on bioconda, and that package ships the `metax` binary without the `maCMD` aligner it calls. Install both yourself (`conda create -n metax -c zldeng -c bioconda metax ma=1.1.4`) and put them on the PATH, or point `--metax_bin_dir` at an installation (e.g. a conda env prefix) whose `bin/` holds them — when set it is prepended to the PATH and the startup check looks there, so a run is not at the mercy of whichever tool happens to be first on the PATH. Alternatively the module's conda environment supplies both, so `-profile conda` or `mamba` works and `-profile wave` builds an image from it, or `--metax_container` names an image you built. At startup the pipeline checks for `metax` and `maCMD` on the PATH (or under `--metax_bin_dir`) unless an image or one of those profiles provides them; if they are missing it warns and runs without Metax. The PATH it checks is the one Nextflow runs with, so on a cluster the compute nodes need the same. Note the version must match the database: Metax 2.0.x reads a `metax_db.tsv.gz`, while older 0.9.x databases are a small JSON — a `bin_dir` with the wrong metax still fails at the database read, it just fails the task rather than silently skipping it.
+- **Not installed by the pipeline.** Metax is published on its author's conda channel (`zldeng`), not on bioconda, and that package ships the `metax` binary without the `maCMD` aligner it calls. Install both yourself (`conda create -n metax -c zldeng -c bioconda metax ma=1.1.4`) and put them on the PATH, or point `--metax_bin_dir` at a comma-separated list of installations (e.g. conda env prefixes) whose `bin/` directories together hold them — each `<dir>/bin` is prepended to the PATH in order, and the startup check looks there, so a run is not at the mercy of whichever tool happens to be first on the PATH. Alternatively the module's conda environment supplies both, so `-profile conda` or `mamba` works and `-profile wave` builds an image from it, or `--metax_container` names an image you built. At startup the pipeline checks for `metax` and `maCMD` on the PATH (or under `--metax_bin_dir`) unless an image or one of those profiles provides them; if they are missing it warns and runs without Metax. The PATH it checks is the one Nextflow runs with, so on a cluster the compute nodes need the same. Note the version must match the database: Metax 2.0.x reads a `metax_db.tsv.gz`, while older 0.9.x databases are a small JSON — a `bin_dir` with the wrong metax still fails at the database read, it just fails the task rather than silently skipping it.
 - **Coverage-based filtering and RNA.** Metax's authors say plainly that true taxa can be over-filtered where genome-wide coverage is not expected, "such as in RNA-derived data". A transcriptome covers what is expressed, so on RNA a missing Metax call is weak evidence of absence. RNA viruses are the exception worth knowing: there the transcript is the genome.
 - **Memory.** Alignment against a full database is the heavy part — about 55 GB peak for the 33,000-genome RefSeq databases in the paper. A fractional index (`metax index -f 0.05`) takes that to about 5 GB at a modest cost in recall, and Metax then skips the per-read output.
 - **The database is used as a directory.** `maCMD` finds the index files through `metax_db.json`, so `--metax_db` may name the JSON or the directory holding it; either way the whole directory is staged.

@@ -262,18 +262,19 @@ def externalToolProblem(String tool) {
         def commands = tool == 'metax' ? ['metax', 'maCMD'] : ['Rscript', 'kraken2', 'seqkit', 'STAR', 'minimap2', 'blastn']
         def bin_dir = (tool == 'metax' ? params.metax_bin_dir : params.prism_bin_dir) ?: ''
         if (bin_dir) {
-            // An explicit tool directory wins over the PATH: the module prepends
-            // <bin_dir>/bin and this check looks there, so a run is not at the
-            // mercy of whichever tool happens to be first on the PATH.
-            def bin = new File(bin_dir, 'bin')
-            if (!bin.isDirectory()) {
-                problems << "--${tool}_bin_dir ${bin_dir} holds no bin/ (point it at a tool installation, e.g. a conda env prefix)"
+            // Explicit tool directories win over the PATH: the module prepends
+            // each <dir>/bin and this check looks there, so a run is not at the
+            // mercy of whichever tool happens to be first on the PATH. A comma
+            // list is accepted, e.g. /a/env,/b/env; leftmost has PATH priority.
+            def bin_dirs = commaList(bin_dir)
+            def bins = bin_dirs.collect { dir -> new File(dir, 'bin') }
+            def missing_dirs = bin_dirs.findAll { dir -> !new File(dir, 'bin').isDirectory() }
+            if (missing_dirs) {
+                problems << "--${tool}_bin_dir ${missing_dirs.join(', ')} hold${missing_dirs.size() == 1 ? 's' : ''} no bin/ (point it at a tool installation, e.g. a conda env prefix)"
             }
-            else {
-                def missing = commands.findAll { command -> !new File(bin, command).canExecute() }
-                if (missing) {
-                    problems << "--${tool}_bin_dir ${bin_dir} has no ${missing.join(', ')}"
-                }
+            def missing = commands.findAll { command -> !bins.any { bin -> new File(bin, command).canExecute() } }
+            if (missing) {
+                problems << "--${tool}_bin_dir has no ${missing.join(', ')} among ${bin_dirs.join(', ')}"
             }
         }
         else {

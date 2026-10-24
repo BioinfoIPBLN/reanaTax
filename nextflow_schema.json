@@ -683,8 +683,8 @@
                 "metax_bin_dir": {
                     "type": "string",
                     "format": "directory-path",
-                    "description": "A tool installation whose bin/ holds metax and maCMD.",
-                    "help_text": "Point this at an installation (e.g. a conda env prefix) whose `bin/` directory holds `metax` and `maCMD`. When set, METAX_PROFILE prepends `<metax_bin_dir>/bin` to the PATH and the startup reachability check looks there instead of on the PATH, so a run is not at the mercy of whichever tool happens to be first on the PATH. Left empty (default), the tools are taken from the PATH. The version must match the database: Metax 2.0.x reads a `metax_db.tsv.gz`, while older 0.9.x databases are a small JSON. This is a host-side alternative to `--metax_container` / `-profile conda`.",
+                    "description": "A tool installation whose bin/ holds metax and maCMD (comma-separated list allowed).",
+                    "help_text": "A comma-separated list of installations (e.g. conda env prefixes) whose `bin/` directories together hold `metax` and `maCMD`. Each `<metax_bin_dir>/bin` is prepended to the PATH in order and the startup reachability check looks there instead of on the PATH, so a run is not at the mercy of whichever tool happens to be first on the PATH; a command is only flagged missing if it is in none of the listed directories. Left empty (default), the tools are taken from the PATH. The version must match the database: Metax 2.0.x reads a `metax_db.tsv.gz`, while older 0.9.x databases are a small JSON. This is a host-side alternative to `--metax_container` / `-profile conda`.",
                     "fa_icon": "fas fa-folder-open"
                 },
                 "run_taxpasta": {
@@ -1096,8 +1096,8 @@
                 "prism_bin_dir": {
                     "type": "string",
                     "format": "directory-path",
-                    "description": "A tool installation whose bin/ holds Rscript, kraken2, seqkit, STAR, minimap2 and blastn",
-                    "help_text": "Point this at an installation (e.g. a conda env prefix) whose `bin/` directory holds Rscript (with xgboost 1.7), kraken2, seqkit, STAR, minimap2 and blastn. When set, PRISM_RUN prepends `<prism_bin_dir>/bin` to the PATH and the startup reachability check looks there instead of on the PATH, so a run is not at the mercy of whichever tool happens to be first on the PATH. Left empty (default), the tools are taken from the PATH. This is a host-side alternative to `--prism_container` / `-profile conda`.",
+                    "description": "Tool installations whose bin/ holds Rscript, kraken2, seqkit, STAR, minimap2 and blastn (comma-separated list allowed).",
+                    "help_text": "A comma-separated list of installations (e.g. conda env prefixes) whose `bin/` directories together hold Rscript (with xgboost 1.7), kraken2, seqkit, STAR, minimap2 and blastn. Each `<prism_bin_dir>/bin` is prepended to the PATH in order and the startup reachability check looks there instead of on the PATH, so a run is not at the mercy of whichever tool happens to be first on the PATH; a command is only flagged missing if it is in none of the listed directories. Left empty (default), the tools are taken from the PATH. This is a host-side alternative to `--prism_container` / `-profile conda`.",
                     "fa_icon": "fas fa-folder-open"
                 },
                 "prism_kraken_db": {

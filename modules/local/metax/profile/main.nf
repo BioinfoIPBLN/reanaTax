@@ -62,7 +62,8 @@ process METAX_PROFILE {
     def classify = save_classify
         ? "if [ -f ${prefix}.classify.txt ]; then gzip -n ${prefix}.classify.txt; fi"
         : "rm -f ${prefix}.classify.txt"
-    def prepend = bin_dir ? "export PATH=${bin_dir}/bin:\$PATH" : ''
+    def dirs = bin_dir.tokenize(',').collect { it.trim() }.findAll { it }
+    def prepend = dirs ? "export PATH=${dirs.collect { it + '/bin' }.join(':')}:\$PATH" : ''
     """
     ${prepend}
     metax profile \\

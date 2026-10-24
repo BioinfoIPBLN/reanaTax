@@ -99,7 +99,8 @@ process PRISM_RUN {
         : cdna_only
             ? "gzip -cdf ${reads[1]} > prism_in/${prefix}_1.fastq"
             : "gzip -cdf ${reads[0]} > prism_in/${prefix}_1.fastq\n    gzip -cdf ${reads[1]} > prism_in/${prefix}_2.fastq"
-    def prepend = bin_dir ? "export PATH=${bin_dir}/bin:\$PATH" : ''
+    def dirs = bin_dir.tokenize(',').collect { it.trim() }.findAll { it }
+    def prepend = dirs ? "export PATH=${dirs.collect { it + '/bin' }.join(':')}:\$PATH" : ''
     """
     ${prepend}
     mkdir -p prism_in prism_out
@@ -115,9 +116,9 @@ process PRISM_RUN {
     Rscript ${prism_dir}/PRISM.R \\
         ${args} \\
         --sample ${prefix} \\
-        --data_path prism_in \\
-        --out_path prism_out \\
-        --prism_path ${prism_dir} \\
+        --data_path \$PWD/prism_in \\
+        --out_path \$PWD/prism_out \\
+        --prism_path \$PWD/${prism_dir} \\
         --kraken_path \$(command -v kraken2) \\
         --kraken_db_path ${kraken_db} \\
         --seqkit_path \$(command -v seqkit) \\
