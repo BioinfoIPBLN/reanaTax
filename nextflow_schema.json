@@ -140,6 +140,12 @@
                     "help_text": "One parameter for every way of naming a host reference; what each entry is is detected from the value. `GCF_*`/`GCA_*` is an assembly accession, digits alone are a taxonomy ID, a directory (or a `.tar.gz` or `.tar` of one) is a prebuilt HISAT2 index, and anything else on disk is a genome FASTA. Up to four references are depleted against in the order given - a read must fail against every one of them to be called non-host - and the first is the primary one that `--gtf`, Qualimap and `--quantify_host` describe. Example: `--host GCF_000001405.40,/data/chm13.fa`.",
                     "fa_icon": "fas fa-dna"
                 },
+                "host_bundle": {
+                    "type": "string",
+                    "description": "Multiple host genomes concatenated into one combined reference before indexing.",
+                    "help_text": "A comma-separated list of genome FASTA paths (each optionally gzipped) that the pipeline concatenates and collapses - exact duplicate sequences removed, case-insensitively (`seqkit rmdup --by-seq --ignore-case`) - into a single reference, then builds the index from. Where `--host` treats each comma entry as a separate depletion pass, the bundle is depleted against once, as one genome. It is the primary reference, so `--gtf` may describe it, and it is the genome PRISM removes the host against. Example: `--host_bundle /data/hg38.fa,/data/chm13.fa.gz`.",
+                    "fa_icon": "fas fa-dna"
+                },
                 "fasta": {
                     "type": "string",
                     "description": "Path to the host genome FASTA file (optionally gzipped). Superseded by --host.",
@@ -674,6 +680,13 @@
                     "help_text": "Metax is published on its author's conda channel (zldeng), not on bioconda, so no public image exists. Without this, `-profile wave` builds one from the module's conda environment, `-profile conda` or `mamba` installs it, and otherwise METAX_PROFILE runs on the host and needs metax and maCMD on the PATH. If none of these provides them, the run warns at startup and goes on without Metax.",
                     "fa_icon": "fab fa-docker"
                 },
+                "metax_bin_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "A tool installation whose bin/ holds metax and maCMD.",
+                    "help_text": "Point this at an installation (e.g. a conda env prefix) whose `bin/` directory holds `metax` and `maCMD`. When set, METAX_PROFILE prepends `<metax_bin_dir>/bin` to the PATH and the startup reachability check looks there instead of on the PATH, so a run is not at the mercy of whichever tool happens to be first on the PATH. Left empty (default), the tools are taken from the PATH. The version must match the database: Metax 2.0.x reads a `metax_db.tsv.gz`, while older 0.9.x databases are a small JSON. This is a host-side alternative to `--metax_container` / `-profile conda`.",
+                    "fa_icon": "fas fa-folder-open"
+                },
                 "run_taxpasta": {
                     "type": "boolean",
                     "description": "Standardise the per-sample outputs of Kraken2, Bracken, KrakenUniq and MetaPhlAn with Taxpasta.",
@@ -1079,6 +1092,13 @@
                     "description": "Container image for PRISM's tools; without one they come from the PATH",
                     "help_text": "PRISM is an R script that shells out to Kraken2, minimap2, STAR, BLAST and SeqKit, and no public image carries that set, so there is no default. Without an image the task runs on the host and finds them on the PATH; -profile conda builds modules/local/prism/run/environment.yml instead.",
                     "fa_icon": "fas fa-box"
+                },
+                "prism_bin_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "A tool installation whose bin/ holds Rscript, kraken2, seqkit, STAR, minimap2 and blastn",
+                    "help_text": "Point this at an installation (e.g. a conda env prefix) whose `bin/` directory holds Rscript (with xgboost 1.7), kraken2, seqkit, STAR, minimap2 and blastn. When set, PRISM_RUN prepends `<prism_bin_dir>/bin` to the PATH and the startup reachability check looks there instead of on the PATH, so a run is not at the mercy of whichever tool happens to be first on the PATH. Left empty (default), the tools are taken from the PATH. This is a host-side alternative to `--prism_container` / `-profile conda`.",
+                    "fa_icon": "fas fa-folder-open"
                 },
                 "prism_kraken_db": {
                     "type": "string",

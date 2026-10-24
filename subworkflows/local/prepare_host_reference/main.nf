@@ -34,12 +34,13 @@ include { BOWTIE2_BUILD             } from '../../../modules/local/bowtie2/build
 include { UNTAR as UNTAR_BOWTIE2    } from '../../../modules/nf-core/untar/main'
 include { HOST_MASK                 } from '../../../modules/local/hostmask/main'
 include { MINIMAP2_INDEX            } from '../../../modules/local/minimap2/index/main'
-include { isIndexArchive            } from '../utils_nfcore_reanatax_pipeline'
+include { FASTA_CONCAT_RMDUP        } from '../../../modules/local/fasta_concat_rmdup/main'
+include { commaList, isIndexArchive } from '../utils_nfcore_reanatax_pipeline'
 
 workflow PREPARE_HOST_REFERENCE {
 
     take:
-    fasta // string: path to a host genome FASTA (optionally gzipped), or null
+    fasta // string: path to a host genome FASTA (optionally gzipped), a comma-separated bundle (--host_bundle) to concatenate+collapse, or null
     hisat2_index // string: path to a prebuilt HISAT2 index directory or tarball, or null
     host_accession // string: NCBI assembly accession (GCF_*/GCA_*), or null
     host_taxid // string: NCBI taxonomy ID, or null
@@ -84,8 +85,21 @@ workflow PREPARE_HOST_REFERENCE {
         //
         def ch_fasta_maybe_gz = channel.empty()
 
+        // --host_bundle hands a comma-separated list of genomes, concatenated
+        // and collapsed into one reference before any index is built.
+        def fasta_entries = fasta ? commaList(fasta) : []
+        def is_bundle = fasta_entries.size() > 1
+
         if (fasta) {
-            ch_fasta_maybe_gz = channel.value([[id: file(fasta).baseName], file(fasta, checkIfExists: true)])
+            if (is_bundle) {
+                FASTA_CONCAT_RMDUP(
+                    channel.value([[id: 'host_bundle'], fasta_entries.collect { entry -> file(entry, checkIfExists: true) }])
+                )
+                ch_fasta_maybe_gz = FASTA_CONCAT_RMDUP.out.fasta
+            }
+            else {
+                ch_fasta_maybe_gz = channel.value([[id: file(fasta_entries.first()).baseName], file(fasta_entries.first(), checkIfExists: true)])
+            }
         }
         else {
             // ncbi-genome-download reads its accessions/taxids from files, so

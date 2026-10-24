@@ -14,6 +14,7 @@ workflow TAXONOMY_METAX {
     metax_dmp_dir // string: taxonomy dump directory (nodes.dmp, names.dmp, merged.dmp)
     save_classify // boolean: publish the per-read classify.txt
     ch_taxonomy_drop // channel: path(txt) - the Kraken2 route's taxonomy verdicts (host clade, non-microbial, host taxon), or empty
+    bin_dir // string: a tool installation whose bin/ holds metax and maCMD, or '' to use the PATH
 
     main:
 
@@ -32,6 +33,7 @@ workflow TAXONOMY_METAX {
         db_json.name,
         channel.value(file(metax_dmp_dir, checkIfExists: true)),
         save_classify,
+        bin_dir,
     )
 
     // Sorted so the column order of the cohort tables is reproducible.

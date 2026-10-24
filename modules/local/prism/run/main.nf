@@ -66,6 +66,7 @@ process PRISM_RUN {
     val min_uniq_frac
     val max_sample
     val barcode_only
+    val bin_dir
 
     output:
     tuple val(meta), path("prism_out/*-counts.csv"), emit: counts
@@ -98,7 +99,9 @@ process PRISM_RUN {
         : cdna_only
             ? "gzip -cdf ${reads[1]} > prism_in/${prefix}_1.fastq"
             : "gzip -cdf ${reads[0]} > prism_in/${prefix}_1.fastq\n    gzip -cdf ${reads[1]} > prism_in/${prefix}_2.fastq"
+    def prepend = bin_dir ? "export PATH=${bin_dir}/bin:\$PATH" : ''
     """
+    ${prepend}
     mkdir -p prism_in prism_out
     ${decompress}
 

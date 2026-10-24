@@ -43,6 +43,7 @@ process METAX_PROFILE {
     val db_json
     path taxonomy, stageAs: 'taxonomy'
     val save_classify
+    val bin_dir
 
     output:
     tuple val(meta), path("*.profile.txt")    , emit: profile
@@ -61,7 +62,9 @@ process METAX_PROFILE {
     def classify = save_classify
         ? "if [ -f ${prefix}.classify.txt ]; then gzip -n ${prefix}.classify.txt; fi"
         : "rm -f ${prefix}.classify.txt"
+    def prepend = bin_dir ? "export PATH=${bin_dir}/bin:\$PATH" : ''
     """
+    ${prepend}
     metax profile \\
         --db metax_db/${db_json} \\
         --dmp-dir taxonomy \\

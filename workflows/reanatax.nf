@@ -15,6 +15,8 @@ include { HOST_DEPLETION_HISAT2 as HOST_DEPLETION_EXTRA1 } from '../subworkflows
 include { HOST_DEPLETION_HISAT2 as HOST_DEPLETION_EXTRA2 } from '../subworkflows/local/host_depletion_hisat2'
 include { HOST_DEPLETION_HISAT2 as HOST_DEPLETION_FINAL } from '../subworkflows/local/host_depletion_hisat2'
 include { PREPARE_HOST_REFERENCE as PREPARE_HOST_REFERENCE_UNIVEC } from '../subworkflows/local/prepare_host_reference'
+include { PREPARE_HOST_REFERENCE as PREPARE_HOST_REFERENCE_PRISM } from '../subworkflows/local/prepare_host_reference'
+include { MINIMAP2_INDEX         } from '../modules/local/minimap2/index/main'
 include { HOST_DEPLETION_HISAT2 as HOST_DEPLETION_UNIVEC } from '../subworkflows/local/host_depletion_hisat2'
 include { TAXONOMY_KRAKEN2_BRACKEN  } from '../subworkflows/local/taxonomy_kraken2_bracken'
 include { TAXONOMY_KRAKENUNIQ      } from '../subworkflows/local/taxonomy_krakenuniq'
@@ -241,7 +243,14 @@ workflow REANATAX {
     // second organism the library really contains (a blood meal, a graft) or a
     // synthetic reference such as UniVec; validateInputParameters() caps the
     // count at maxHostPasses().
-    def host_refs = hostReferences()
+    // --host_bundle concatenates several genomes into one combined reference
+    // that is depleted against ONCE, so it is handed in as a single 'fasta' host
+    // reference - the same object the multi-pass --host logic already feeds the
+    // primary index-build from. --host comma entries stay separate passes and
+    // are not mixed with the bundle.
+    def host_refs = params.host_bundle
+        ? [[kind: 'fasta', value: params.host_bundle]]
+        : hostReferences()
     def bowtie2_refs = bowtie2References()
     // Each library's aligner: HISAT2 for RNA, Bowtie2 for DNA under
     // --host_aligner auto. The reference subworkflows build only the indexes
@@ -902,18 +911,63 @@ workflow REANATAX {
     // already warned and the run goes on without it.
     //
     if (params.run_prism && !externalToolProblem('prism')) {
+        //
+        // PRISM does its own host removal with STAR and minimap2, on the
+        // TRIMMED reads. --prism_star_genome_dir / --prism_minimap2_index exist
+        // for callers that already have the indices; when they are absent the
+        // indices are built here from the run's host genome - the --host_bundle
+        // if one was given, else the --host FASTA/accession/taxid - so a run
+        // needs no hand-built PRISM indices. The built STAR/minimap2 indexes
+        // live in the run's work directory and stay valid for its duration.
+        //
+        def ch_prism_star_genome
+        def ch_prism_minimap2_index
+        if (params.prism_star_genome_dir) {
+            ch_prism_star_genome = channel.value(params.prism_star_genome_dir)
+            ch_prism_minimap2_index = channel.value(params.prism_minimap2_index)
+        }
+        else {
+            def prism_host = host_refs.first()
+            PREPARE_HOST_REFERENCE_PRISM(
+                prism_host.kind == 'fasta' ? prism_host.value : null,
+                null,
+                prism_host.kind == 'accession' ? prism_host.value : null,
+                prism_host.kind == 'taxid' ? prism_host.value : null,
+                params.ncbi_group,
+                null,
+                'star',
+                null,
+                null,
+                channel.empty(),
+                channel.empty(),
+                null,
+            )
+            ch_prism_star_genome = PREPARE_HOST_REFERENCE_PRISM.out.index
+                .map { _meta, index -> index.toString() }
+                .first()
+            // PREPARE with aligner 'star' builds no minimap2 index, so build one
+            // for PRISM's short-read host pass (-x sr) from the same host FASTA.
+            MINIMAP2_INDEX(
+                PREPARE_HOST_REFERENCE_PRISM.out.fasta
+                    .map { meta, genome -> [meta + [preset: 'sr'], genome] }
+            )
+            ch_prism_minimap2_index = MINIMAP2_INDEX.out.index
+                .map { _meta, index -> index.toString() }
+                .first()
+        }
         PRISM_RUN(
             ch_trimmed_reads,
             channel.value(file(params.prism_path, checkIfExists: true)),
             params.prism_kraken_db ?: params.kraken2_db,
             params.prism_blast_db,
-            params.prism_star_genome_dir,
-            params.prism_minimap2_index,
+            ch_prism_star_genome,
+            ch_prism_minimap2_index,
             params.prism_min_qcovs,
             params.prism_min_read_per,
             params.prism_min_uniq_frac,
             params.prism_max_sample,
             params.prism_barcode_only,
+            params.prism_bin_dir ?: '',
         )
         PRISM_COMBINE(
             PRISM_RUN.out.counts
@@ -1053,6 +1107,7 @@ workflow REANATAX {
             params.metax_dmp_dir,
             params.metax_save_readclassifications,
             params.skip_kraken2 ? channel.empty() : TAXONOMY_KRAKEN2_BRACKEN.out.taxonomy_drop,
+            params.metax_bin_dir ?: '',
         )
     }
 

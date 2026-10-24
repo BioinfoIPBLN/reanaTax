@@ -341,6 +341,28 @@ The **first** reference given is the primary one: it is the one `--gtf` describe
 
 Each pass is named apart in the outputs (`<id>.host1`, `<id>.host2`, `<id>.host3`, and `<id>.host` for the last one), so `read_accounting.tsv` reports what each reference removed separately. Whether you needed a given reference is answerable after the fact from that table, and from the **host carry-over** column described below.
 
+### One combined host from several genomes (`--host_bundle`)
+
+Sometimes the "host" you want to deplete against is really several genomes,
+and you want them treated as **one** reference rather than as separate passes.
+`--host_bundle` takes a comma-separated list of genome FASTA paths — each
+optionally gzipped — which the pipeline concatenates and collapses (exact
+duplicate sequences removed, case-insensitively, with `seqkit rmdup
+--by-seq --ignore-case`) into a single reference, then builds the index from:
+
+```bash
+--host_bundle /data/hg38.fa,/data/chm13.fa.gz
+```
+
+The bundle is depleted against once, as one genome, and is the primary
+reference: `--gtf` may describe it. It is also the genome PRISM removes the
+host against. The collapsed reference is published under
+`<outdir>/reference/fasta_concat/` when `--save_reference` is on.
+
+`--host_bundle` and `--host` are alternatives — if both are given the bundle
+wins and the `--host` entries are ignored. Use `--host_bundle` when you want a
+single combined genome, `--host` when you want separate depletion passes.
+
 ### Protecting organisms from depletion (`--host_mask`)
 
 A host genome can share sequence with the organisms you are looking for:
@@ -1918,6 +1940,18 @@ the probability that the taxon is genuinely present rather than a contaminant.
 ```bash
 --run_prism --prism_path /refs/PRISM \
   --prism_blast_db /refs/blast/nt \
+  --host /data/GRCh38.fa
+```
+
+The host STAR index and minimap2 index (for PRISM's own host removal) are
+**built from `--host` (or `--host_bundle`) when you do not give them**, so
+`--run_prism` on a run that already has a host needs nothing but the blast
+database. If you have ready-made indices you can pass them instead — in which
+case both must be given together:
+
+```bash
+--run_prism --prism_path /refs/PRISM \
+  --prism_blast_db /refs/blast/nt \
   --prism_star_genome_dir /refs/star_GRCh38 \
   --prism_minimap2_index /refs/GRCh38.mmi
 ```
@@ -1949,9 +1983,7 @@ enough. The directory must also hold:
 - `sorted_accession_map.txt` — the accession→taxid map, built once with
   `blastdbcmd` against your BLAST database.
 
-plus a BLAST `nt` database, a host STAR index and a host minimap2 index. The
-run stops at validation if any of the parameters naming these is missing,
-rather than failing several hours in.
+plus a BLAST `nt` database (and, unless you hand over prebuilt `--prism_star_genome_dir` / `--prism_minimap2_index`, a host reference `--host` / `--host_bundle` for the pipeline to build its STAR and minimap2 indices from). The run stops at validation if any required parameter is missing, rather than failing several hours in.
 
 **The pipeline does not install PRISM.** PRISM is an R script that shells out
 to Kraken2, minimap2, STAR, BLAST and SeqKit, and no biocontainer carries that
@@ -1960,14 +1992,19 @@ set, so the tools come from one of three places:
 - **The PATH.** Without an image the task runs on the host, so `Rscript` (with
   xgboost 1.7, below), `kraken2`, `seqkit`, `STAR`, `minimap2` and `blastn`
   must be found there — under docker or singularity too.
+- **`--prism_bin_dir`**, a tool installation (e.g. a conda env prefix) whose
+  `bin/` holds those six commands. When set it is prepended to the PATH and the
+  startup check looks there instead, so a run is not at the mercy of whichever
+  tool happens to be first on the PATH.
 - **`-profile conda`**, which builds the module's `environment.yml`.
 - **`--prism_container`**, an image you built.
 
 At startup the pipeline checks the prepared directory (`PRISM.R`, `genbank/`,
 `sorted_accession_map.txt`) and, unless an image or a conda profile provides
-them, those six commands on the PATH. If anything is missing it warns, names
-what, and runs without PRISM rather than stopping. The PATH it checks is the
-one Nextflow runs with, so on a cluster the compute nodes need the same.
+them, those six commands on the PATH (or under `--prism_bin_dir`). If anything
+is missing it warns, names what, and runs without PRISM rather than stopping.
+The PATH it checks is the one Nextflow runs with, so on a cluster the compute
+nodes need the same.
 
 With an image, the four databases are mounted into it read-only
 (the Kraken2 and STAR directories, and the directories holding the BLAST
@@ -2723,7 +2760,7 @@ Like sylph it is additive: leave Kraken2 on to compare the two on the same reads
 
 Read these before relying on it:
 
-- **Not installed by the pipeline.** Metax is published on its author's conda channel (`zldeng`), not on bioconda, and that package ships the `metax` binary without the `maCMD` aligner it calls. Install both yourself (`conda create -n metax -c zldeng -c bioconda metax ma=1.1.4`) and put them on the PATH: without an image the task runs on the host, under Docker or Singularity too. Alternatively the module's conda environment supplies both, so `-profile conda` or `mamba` works and `-profile wave` builds an image from it, or `--metax_container` names an image you built. At startup the pipeline checks for `metax` and `maCMD` on the PATH unless an image or one of those profiles provides them; if they are missing it warns and runs without Metax. The PATH it checks is the one Nextflow runs with, so on a cluster the compute nodes need the same.
+- **Not installed by the pipeline.** Metax is published on its author's conda channel (`zldeng`), not on bioconda, and that package ships the `metax` binary without the `maCMD` aligner it calls. Install both yourself (`conda create -n metax -c zldeng -c bioconda metax ma=1.1.4`) and put them on the PATH, or point `--metax_bin_dir` at an installation (e.g. a conda env prefix) whose `bin/` holds them — when set it is prepended to the PATH and the startup check looks there, so a run is not at the mercy of whichever tool happens to be first on the PATH. Alternatively the module's conda environment supplies both, so `-profile conda` or `mamba` works and `-profile wave` builds an image from it, or `--metax_container` names an image you built. At startup the pipeline checks for `metax` and `maCMD` on the PATH (or under `--metax_bin_dir`) unless an image or one of those profiles provides them; if they are missing it warns and runs without Metax. The PATH it checks is the one Nextflow runs with, so on a cluster the compute nodes need the same. Note the version must match the database: Metax 2.0.x reads a `metax_db.tsv.gz`, while older 0.9.x databases are a small JSON — a `bin_dir` with the wrong metax still fails at the database read, it just fails the task rather than silently skipping it.
 - **Coverage-based filtering and RNA.** Metax's authors say plainly that true taxa can be over-filtered where genome-wide coverage is not expected, "such as in RNA-derived data". A transcriptome covers what is expressed, so on RNA a missing Metax call is weak evidence of absence. RNA viruses are the exception worth knowing: there the transcript is the genome.
 - **Memory.** Alignment against a full database is the heavy part — about 55 GB peak for the 33,000-genome RefSeq databases in the paper. A fractional index (`metax index -f 0.05`) takes that to about 5 GB at a modest cost in recall, and Metax then skips the per-read output.
 - **The database is used as a directory.** `maCMD` finds the index files through `metax_db.json`, so `--metax_db` may name the JSON or the directory holding it; either way the whole directory is staged.

@@ -260,10 +260,28 @@ def externalToolProblem(String tool) {
     def builds_environment = workflow.profile.tokenize(',').intersect(['conda', 'mamba', 'micromamba', 'wave'])
     if (!(image && workflow.containerEngine) && !builds_environment) {
         def commands = tool == 'metax' ? ['metax', 'maCMD'] : ['Rscript', 'kraken2', 'seqkit', 'STAR', 'minimap2', 'blastn']
-        def path = (System.getenv('PATH') ?: '').tokenize(File.pathSeparator)
-        def missing = commands.findAll { command -> !path.any { dir -> new File(dir, command).canExecute() } }
-        if (missing) {
-            problems << "${missing.join(', ')} not on the PATH"
+        def bin_dir = (tool == 'metax' ? params.metax_bin_dir : params.prism_bin_dir) ?: ''
+        if (bin_dir) {
+            // An explicit tool directory wins over the PATH: the module prepends
+            // <bin_dir>/bin and this check looks there, so a run is not at the
+            // mercy of whichever tool happens to be first on the PATH.
+            def bin = new File(bin_dir, 'bin')
+            if (!bin.isDirectory()) {
+                problems << "--${tool}_bin_dir ${bin_dir} holds no bin/ (point it at a tool installation, e.g. a conda env prefix)"
+            }
+            else {
+                def missing = commands.findAll { command -> !new File(bin, command).canExecute() }
+                if (missing) {
+                    problems << "--${tool}_bin_dir ${bin_dir} has no ${missing.join(', ')}"
+                }
+            }
+        }
+        else {
+            def path = (System.getenv('PATH') ?: '').tokenize(File.pathSeparator)
+            def missing = commands.findAll { command -> !path.any { dir -> new File(dir, command).canExecute() } }
+            if (missing) {
+                problems << "${missing.join(', ')} not on the PATH"
+            }
         }
     }
     return problems ? problems.join('; ') : null
@@ -378,16 +396,26 @@ def validateInputParameters() {
 
     def prism_problem = params.run_prism ? externalToolProblem('prism') : null
     if (prism_problem) {
-        log.warn("--run_prism is set but PRISM cannot be reached (${prism_problem}), so this run goes on without it. Clone https://github.com/sjdlabgroup/PRISM, add the authors' processed GenBank files as `genbank/` and a `sorted_accession_map.txt` built with blastdbcmd, and point --prism_path at it. Its tools - Rscript with xgboost 1.7, kraken2, seqkit, STAR, minimap2 and blastn - go on the PATH, or come from --prism_container or -profile conda. See docs/usage.md.")
+        log.warn("--run_prism is set but PRISM cannot be reached (${prism_problem}), so this run goes on without it. Clone https://github.com/sjdlabgroup/PRISM, add the authors' processed GenBank files as `genbank/` and a `sorted_accession_map.txt` built with blastdbcmd, and point --prism_path at it. Its tools - Rscript with xgboost 1.7, kraken2, seqkit, STAR, minimap2 and blastn - go on the PATH, on --prism_bin_dir, or come from --prism_container or -profile conda. See docs/usage.md.")
     }
     else if (params.run_prism) {
-        def missing = [
-            prism_blast_db: params.prism_blast_db,
-            prism_star_genome_dir: params.prism_star_genome_dir,
-            prism_minimap2_index: params.prism_minimap2_index,
-        ].findAll { _name, value -> !value }.keySet()
-        if (missing) {
-            error("--run_prism also needs ${missing.collect { name -> '--' + name }.join(', ')}. PRISM shells out to BLAST, STAR and minimap2 and validates every path before it starts, so a missing one fails the task rather than degrading the result.")
+        if (!params.prism_blast_db) {
+            error("--run_prism needs --prism_blast_db (a BLAST nt database). PRISM validates every path before it starts, so a missing one fails the task rather than degrading the result.")
+        }
+        def prism_prebuilt = params.prism_star_genome_dir && params.prism_minimap2_index
+        if (prism_prebuilt != ((params.prism_star_genome_dir ? true : false) || (params.prism_minimap2_index ? true : false))) {
+            error("--run_prism needs --prism_star_genome_dir and --prism_minimap2_index together (PRISM does its own host removal with STAR and minimap2). Leave both unset to have them built from the host reference.")
+        }
+        if (!prism_prebuilt) {
+            // The host indices are built from the genome FASTA the run's host
+            // resolves to. A prebuilt HISAT2 index holds no FASTA, so it cannot
+            // serve here.
+            def buildable_host = params.host_bundle
+                ? true
+                : hostReferences().any { ref -> ref.kind == 'fasta' || ref.kind == 'accession' || ref.kind == 'taxid' }
+            if (!buildable_host) {
+                error("--run_prism needs a host genome to remove reads against: give both --prism_star_genome_dir and --prism_minimap2_index (prebuilt), or a host reference that provides a FASTA (--host_bundle, or --host/--fasta as an accession, taxid or FASTA file - not a prebuilt index) so the indices can be built.")
+            }
         }
         if (!(params.prism_kraken_db ?: params.kraken2_db)) {
             error("--run_prism needs a Kraken2 database: give --prism_kraken_db, or --kraken2_db, which it falls back to.")
@@ -472,7 +500,13 @@ def validateInputParameters() {
         error("--remove_rrna needs rRNA references: give --sortmerna_db (e.g. the smr_*_db.fasta shipped in SortMeRNA's database.tar.gz), or drop --remove_rrna.")
     }
 
-    def host_refs = hostReferences()
+    def host_refs = params.host_bundle
+        ? [[kind: 'fasta', value: params.host_bundle]]
+        : hostReferences()
+
+    if (params.host_bundle && !hostReferences().isEmpty()) {
+        log.warn("--host_bundle and --host were both given; the bundle is the single combined host reference and the --host entries are ignored. Use --host_bundle alone for a combined genome, or --host alone for separate depletion passes.")
+    }
 
     if (!params.skip_host_removal && host_refs.isEmpty()) {
         error("Host depletion is enabled but no host genome was given. Provide one of --fasta, --hisat2_index, --host_accession or --host_taxid, or disable the step with --skip_host_removal.")
@@ -613,7 +647,7 @@ def validateInputParameters() {
 
     def metax_problem = params.run_metax ? externalToolProblem('metax') : null
     if (metax_problem) {
-        log.warn("--run_metax is set but Metax cannot be reached (${metax_problem}), so this run goes on without it. Metax is not on bioconda: install it from its author's channel (`conda create -n metax -c zldeng -c bioconda metax ma=1.1.4`) and put `metax` and `maCMD` on the PATH, or give --metax_container an image providing both, or run with -profile conda or wave, which build the module's environment.")
+        log.warn("--run_metax is set but Metax cannot be reached (${metax_problem}), so this run goes on without it. Metax is not on bioconda: install it from its author's channel (`conda create -n metax -c zldeng -c bioconda metax ma=1.1.4`) and put `metax` and `maCMD` on the PATH or on --metax_bin_dir, or give --metax_container an image providing both, or run with -profile conda or wave, which build the module's environment.")
     }
 
     if (params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan && !params.run_sylph && !(params.run_metax && !metax_problem) && !params.run_emu && !params.pathseq_microbe_bwa_image && !(params.run_prism && !prism_problem)) {
