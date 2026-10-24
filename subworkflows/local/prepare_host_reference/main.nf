@@ -35,7 +35,8 @@ include { UNTAR as UNTAR_BOWTIE2    } from '../../../modules/nf-core/untar/main'
 include { HOST_MASK                 } from '../../../modules/local/hostmask/main'
 include { MINIMAP2_INDEX            } from '../../../modules/local/minimap2/index/main'
 include { FASTA_CONCAT_RMDUP        } from '../../../modules/local/fasta_concat_rmdup/main'
-include { commaList, isIndexArchive } from '../utils_nfcore_reanatax_pipeline'
+include { commaList                 } from '../utils_nfcore_reanatax_pipeline'
+include { isIndexArchive            } from '../utils_nfcore_reanatax_pipeline'
 
 workflow PREPARE_HOST_REFERENCE {
 
