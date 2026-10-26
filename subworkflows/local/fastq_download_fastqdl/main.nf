@@ -49,9 +49,28 @@ workflow FASTQ_DOWNLOAD_FASTQDL {
         .unique { meta, _accession -> meta.run_accession }
 
     //
+    // Platform audit before download. --long_reads is a whole-run mode (all
+    // short or all long). Each run's platform is already on the run sheet here
+    // (metadata only - no bytes), so a run that cannot analyse as requested is
+    // rejected before its FASTQ is fetched. longReadLibrary is the later,
+    // redundant guard.
+    def ch_runs_validated = ch_runs.map { meta, accession ->
+        def platform = (meta.platform ?: '').toString().toUpperCase()
+        def archive_kind = [OXFORD_NANOPORE: 'ont', PACBIO_SMRT: 'pacbio'][platform]
+        if (!params.long_reads) {
+            if (archive_kind) {
+                error("Run ${meta.run_accession ?: meta.id} was sequenced on ${platform}. Long reads take their own route: add --long_reads ${archive_kind}, and keep short-read runs to a separate run of the pipeline.")
+            }
+        } else if (platform && archive_kind != params.long_reads) {
+            error("--long_reads ${params.long_reads}: run ${meta.run_accession ?: meta.id} was sequenced on ${platform}. Keep each platform to its own run of the pipeline.")
+        }
+        [meta, accession]
+    }
+
+    //
     // MODULE: Download one run per task
     //
-    FASTQDL(ch_runs)
+    FASTQDL(ch_runs_validated)
 
     //
     // Trust the files on disk over the archive's `library_layout` field: runs
