@@ -210,6 +210,22 @@ ${reset_daemon}
             echo "[KRAKEN2_DAEMON] /tmp/classify.pid names PID \${daemon_pid:-<empty>}; its cmdline is \${daemon_cmd:-<no such process>}" >&2
         fi
 
+        # k2 keys the daemon off /tmp/classify.pid by PID-existence alone, which
+        # is how a dead daemon strands its next client in open(2) at 0% CPU until
+        # the 3h timeout (note 4). So, every attempt - not just after the timeout -
+        # if the recorded PID is not a live classify process, clear the stale state
+        # NOW so a fresh daemon starts here rather than a client blocking on an
+        # orphaned FIFO. A healthy shared daemon is a live classify process and so
+        # is never touched, which is what keeps this from orphaning a co-tenant.
+        stale=\$(tr -dc '0-9' < /tmp/classify.pid 2>/dev/null || true)
+        if [ -n "\${stale}" ] \\
+           && [ "\$(cat /proc/\${stale}/comm 2>/dev/null)" != "classify" ]; then
+            echo "[KRAKEN2_DAEMON] /tmp/classify.pid names PID \${stale}, which is not a live classify daemon. Clearing stale k2 daemon state so a fresh daemon starts." >&2
+            rm -f /tmp/classify.pid /tmp/classify_stdin /tmp/classify_stdout
+        elif [ -z "\${stale}" ]; then
+            rm -f /tmp/classify_stdin /tmp/classify_stdout
+        fi
+
         timeout --preserve-status --signal=TERM --kill-after=60 ${classify_timeout} \\
         k2 classify \\
             --use-daemon \\
