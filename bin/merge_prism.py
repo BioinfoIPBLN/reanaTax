@@ -96,10 +96,11 @@ def main():
             names.setdefault(taxid, name)
 
     if not names:
-        sys.exit(
+        print(
             "[merge_prism] PRISM confirmed no taxon in any sample. That is a result, not an "
             "error, but it is also what an unprepared reference directory produces - check the "
-            "per-sample logs before reading it as biology."
+            "per-sample logs before reading it as biology. Writing empty outputs and continuing.",
+            file=sys.stderr,
         )
 
     taxids = sorted(names, key=lambda t: -sum(
