@@ -727,6 +727,28 @@ The taxids that fail are handed to the abundance filter rather than removed on
 the spot, so one step owns every removal from the combined tables and one
 `.removed.tsv` records them all.
 
+#### Is a narrow taxon just its rRNA? (`--rrna_annotation`)
+
+Reads from a bacterium's rRNA pile onto an operon of about 5 kb, so a taxon
+seen mostly through its rRNA looks narrow to this filter, which is the same
+shape as a contaminated reference contig. On GSE152924 (mosquito RNA-seq,
+mostly mRNA) the low-coverage drops included two low-abundance Firmicutes
+whose reads were 46% and 62% rRNA, beside contaminants with none, while the
+bacteria kept were at 0-3%. On total-RNA libraries rRNA can be most of what a
+bacterium contributes.
+
+```bash
+--rrna_annotation --sortmerna_db smr_v6.0.2_default_db.fasta --kraken2_save_readclassifications
+```
+
+SortMeRNA flags the rRNA reads among those Kraken2 classified, without
+removing anything, and `rrna_share/reanatax.rrna_share.tsv` gives every taxon's
+reads, rRNA reads and rRNA share, rolled up the taxonomy like the filter's own
+counts, with the minimizer verdict, coverage and duplication beside it. No
+verdict changes. A low-coverage drop with a high rRNA share is a call to read
+the taxon, not to keep it: "uncultured bacterium" in nt is almost entirely 16S
+sequence, and dropping it is right.
+
 #### Does the evidence scale? (`--minimizer_correlation`)
 
 The thresholds above ask whether a taxon's evidence is broad **enough**.
@@ -1201,6 +1223,12 @@ reason.
 (STARsolo's own `--readFilesIn` takes them in the opposite order; the module
 handles that, so you don't.)
 
+**5' kits** have their own presets: `--sc_chemistry 10x5v2` (5' v1, v1.1 and
+v2, with `737K-august-2016.txt`) and `10x5v3` (GEM-X 5' v3, with
+`3M-5pgex-jan-2023.txt`). Their cDNA read is antisense to the transcript, so
+these presets also count with `--soloStrand Reverse`. Run as a 3' kit, a 5'
+library completes with almost no reads in genes and next to no cells called.
+
 ### How the two halves stay consistent
 
 The non-host reads come out as an ordinary **single-end FASTQ with the corrected
@@ -1326,12 +1354,16 @@ Cell types are the one input the pipeline cannot produce — STARsolo gives a
 count matrix, not clusters — so bring them from Seurat or scanpy. Without
 `--sc_cell_metadata` the step is skipped.
 
-**Co-occurrence** (per-sample hypergeometric → Stouffer → BH) is emitted
-alongside, and with it a **doublet check**: cells carrying two taxa may simply be
-undetected doublets, which would explain the co-occurrence entirely. The check
-compares host UMI counts between multi- and singly-infected cells (needs the
-optional `host_umis` column). Treat a significant result there as invalidating
-any polymicrobial-cell claim.
+**Co-occurrence and exclusion** (per-sample hypergeometric in both tails →
+Stouffer per tail → twice the smaller → BH) are emitted alongside. A pair is
+reported with its `direction`: `co-occurrence` when the taxa share more cells
+than independence predicts, `exclusion` when they share fewer, as Lloréns-Rico
+et al. found for bacteria and SARS-CoV-2 in BAL cells. With it comes a
+**doublet check**: cells carrying two taxa may simply be undetected doublets,
+which would explain a co-occurrence entirely. The check compares host UMI
+counts between multi- and singly-infected cells (needs the optional
+`host_umis` column). Treat a significant result there as invalidating any
+polymicrobial-cell claim.
 
 ### Cell association vs the ambient pool (`--sc_ambient`)
 
@@ -1944,6 +1976,27 @@ evenness) comes out alongside, on raw counts.
 --run_diversity --diversity_metadata metadata.tsv
 ```
 
+**Repeated samples of one subject.** A longitudinal cohort breaks the tests'
+assumption that samples are independent, and with several samples per patient
+a patient-level difference can pass for an effect of whatever changed over
+time. Two options handle it, separately or together:
+
+- `--diversity_strata patient` keeps every permutation within one patient's
+  samples, so a variable is judged on how it changes within patients. A
+  variable that never changes within any patient (sex, age at admission)
+  cannot be judged that way and is skipped, with a message.
+- `--diversity_condition antibiotics,patient` partials those columns out of
+  every test: `Condition()` in the dbRDA and the stepwise model, leading terms
+  with marginal tests in PERMANOVA. A variable's adjusted R² is then the share
+  it explains beyond them. This is how Lloréns-Rico et al. separated the type
+  of oxygen support from the antibiotics given with it and from the patient.
+
+Neither column is tested itself, and samples missing a value in them are left
+out. Under `--diversity_condition`, a variable the conditions fully explain (sex,
+when patient is one of them) has nothing left to test and is skipped, with a
+message. The `condition` and `strata` columns of `beta_variance.tsv` record what a
+run used.
+
 **Metadata is optional.** Without it you still get alpha diversity and an
 unconstrained Aitchison PCoA; the variance partitioning simply has nothing to
 partition by and is skipped rather than faked. It falls back to `--da_metadata`
@@ -2075,6 +2128,30 @@ README:
 | `--prism_score_threshold` | 0.5            | median score below which a taxon is a contaminant   |
 | `--prism_min_reads`       | 10             | below this, PRISM has nothing to confirm either way |
 | `--prism_filter`          | false          | apply the verdict to the combined Bracken table     |
+| `--prism_decoy_taxids`    | the host taxid | decoys besides human; `prism` = PRISM's own list    |
+
+**Decoys.** PRISM puts every nt sequence of a few "model organisms" into its
+per-sample BLAST database, and a read whose best hit is one of them is not
+counted for the microbe Kraken2 called. Its own list (mouse, rat, fly, worm,
+zebrafish, _Arabidopsis_) fits the human data its model was trained on, where
+the host is the decoy. Here the decoys are the run's host instead
+(`--host_kmer_taxid`, else `--host_carryover_taxid`), expanded to its
+descendants from the Kraken2 database's `nodes.dmp`, so a mosquito read that
+escaped host removal meets a mosquito rather than landing on a eukaryotic
+microbe. PRISM adds human itself. `--prism_decoy_taxids prism` restores its
+list.
+
+**Memory and time.** PRISM runs its own Kraken2 pass, and against core_nt that
+held about 334 GB per task. PRISM's `kraken2` is therefore called through a
+wrapper that adds `--memory-mapping`, so concurrent tasks share one copy of the
+database in the page cache. Each task still asks for 350 GB, which keeps the
+local executor from stacking several next to the Kraken2 daemon. The full
+BLAST step covers every candidate microbial read, so on a library that is
+mostly microbial (a mock community) it ran 10-13 h, and the task's limit is
+48 h. A `.SD[which.min()]` grouping in PRISM's GenBank step made that step run
+for over 12 h on such libraries; the equivalent `.I[which.min()]` form gives
+the same rows in a fraction of the time, so patch your clone's `functions.R`
+if it still has the former.
 
 Scores are aggregated across the cohort as the **median over the samples that
 saw the taxon**. Not the mean, which one confidently-scored library drags

@@ -254,8 +254,20 @@ workflow HOST_DEPLETION_HISAT2 {
         // apart from "the host reference is wrong".
         //
         if (!skip_qualimap) {
+            // Qualimap stops on a BAM with no mapped reads ("The BAM file is
+            // empty or corrupt"), and a library with no host reads - a pure
+            // culture, reads already depleted, the test profile's SARS-CoV-2
+            // against a human genome - produces exactly that. There is nothing
+            // in it to describe, so such BAMs are left out.
+            def ch_bam_with_reads = ch_bam
+                .join(BAM_SORT_STATS_SAMTOOLS.out.flagstat)
+                .filter { _meta, _bam, flagstat ->
+                    def mapped = flagstat.text.readLines().find { line -> line.contains(' mapped (') }
+                    mapped && (mapped.tokenize(' ')[0] as long) > 0
+                }
+                .map { meta, bam, _flagstat -> [meta, bam] }
             QUALIMAP_BAMQC(
-                ch_bam,
+                ch_bam_with_reads,
                 qualimap_gff ? file(qualimap_gff, checkIfExists: true) : [],
             )
             ch_qualimap = QUALIMAP_BAMQC.out.results

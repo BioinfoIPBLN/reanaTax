@@ -84,7 +84,7 @@ workflow RRNA_REMOVAL_SORTMERNA {
 
     emit:
     reads = ch_filtered // channel: [ val(meta), [ path(fastq) ] ]
-    log = SORTMERNA_READS.out.log // channel: [ val(meta), path(log) ]
+    logs = SORTMERNA_READS.out.log // channel: [ val(meta), path(log) ] - not `log`, which is Nextflow's logger
     index = ch_index // channel: [ val(meta), path(idx) ]
-    multiqc_files = SORTMERNA_READS.out.log.map { _meta, log -> log } // channel: path(log)
+    multiqc_files = SORTMERNA_READS.out.log.map { _meta, logfile -> logfile } // channel: path(log)
 }

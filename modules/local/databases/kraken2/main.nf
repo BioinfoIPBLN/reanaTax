@@ -27,7 +27,10 @@ process DB_KRAKEN2_BUILD {
     path taxonomy, stageAs: 'taxonomy'
 
     output:
-    tuple val(meta), path("db"), emit: db
+    // The database's files and folders, not the `db` directory itself:
+    // publishDir skips everything under a directory output, so the
+    // `db/...` patterns in conf/modules.config would publish nothing.
+    tuple val(meta), path("db/*"), emit: db
     tuple val("${task.process}"), val('kraken2'), eval("kraken2 --version | head -1 | sed 's/Kraken version //'"), emit: versions_kraken2, topic: versions
 
     when:

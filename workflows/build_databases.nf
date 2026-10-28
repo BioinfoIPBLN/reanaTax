@@ -93,7 +93,10 @@ workflow BUILD_DATABASES {
         }
     DB_GENOMEDOWNLOAD(ch_download.meta, ch_download.query, [], 'all')
     def ch_downloaded = DB_GENOMEDOWNLOAD.out.fna.map { row_meta, fna ->
-        def files = fna instanceof List ? fna : [fna]
+        // The module's `*_genomic.fna.gz` also matches the CDS file a MetaPhlAn
+        // build fetches beside the assembly (`*_cds_from_genomic.fna.gz`), and
+        // the RNA one; those are not the genome.
+        def files = (fna instanceof List ? fna : [fna]).findAll { file -> !(file.name ==~ /.*_(cds|rna)_from_genomic\.fna\.gz/) }
         if (files.size() != 1) {
             error("ncbi-genome-download returned ${files.size()} files for '${row_meta.id}'; expected one assembly.")
         }

@@ -26,13 +26,27 @@
 #   * PERMANOVA (vegan::adonis2) on the same distance, for the categorical
 #     variables, since that is what most readers will expect to see quoted.
 #
+# Repeated samples from one subject are not independent, and that paper's
+# cohort was longitudinal. Two options take that into account:
+#
+#   * --strata COLUMN restricts every permutation to within the blocks of that
+#     column (the patient, say), so a variable is judged on how it changes
+#     within subjects. A variable that never changes within any block cannot
+#     be judged that way and is skipped, with a message.
+#   * --condition COLUMNS (comma-separated) partials those columns out of every
+#     test - Condition() in the dbRDA and the stepwise model, leading terms
+#     with marginal tests in PERMANOVA - which is how the paper separated the
+#     type of oxygen support from the antibiotics given with it and from the
+#     patient. Its adjusted R^2 is then the share explained beyond them.
+#
 # Metadata is optional. Without it there is still alpha diversity and an
 # unconstrained ordination; the variance partitioning simply has nothing to
 # partition by and is skipped rather than faked.
 
 .defaults <- list(
   counts = NA, metadata = "", prefix = "diversity",
-  permutations = 999, min_samples = 3, max_levels = 0
+  permutations = 999, min_samples = 3, max_levels = 0,
+  strata = "", condition = ""
 )
 .numeric <- c("permutations", "min_samples", "max_levels")
 
@@ -139,6 +153,23 @@ if (nzchar(opt$metadata) && file.exists(opt$metadata)) {
   rownames(meta) <- as.character(meta[[1]])
   shared <- intersect(rownames(mat), rownames(meta))
 
+  conditionCols <- if (nzchar(opt$condition)) trimws(strsplit(opt$condition, ",")[[1]]) else character(0)
+  strataCol <- opt$strata
+  nuisance <- c(conditionCols, if (nzchar(strataCol)) strataCol)
+  unknown <- setdiff(nuisance, colnames(meta))
+  if (length(unknown)) {
+    stop("--condition/--strata name column(s) not in the metadata: ",
+         paste(unknown, collapse = ", "), ". It has: ", paste(colnames(meta), collapse = ", "))
+  }
+  if (length(nuisance) && length(shared)) {
+    complete <- complete.cases(meta[shared, nuisance, drop = FALSE])
+    if (!all(complete)) {
+      message("[diversity] ", sum(!complete), " sample(s) have no value in ",
+              paste(nuisance, collapse = "/"), " and are left out of the variance partitioning.")
+      shared <- shared[complete]
+    }
+  }
+
   if (length(shared) < opt$min_samples) {
     message("[diversity] only ", length(shared), " sample(s) shared with the metadata; ",
             "variance partitioning needs at least ", opt$min_samples, " and is skipped.")
@@ -146,13 +177,28 @@ if (nzchar(opt$metadata) && file.exists(opt$metadata)) {
     metaShared <- meta[shared, , drop = FALSE]
     distShared <- dist(clr[shared, , drop = FALSE], method = "euclidean")
     n <- length(shared)
+
+    # The nuisance columns enter every model under safe names, so that metadata
+    # headers with spaces or symbols do not break the formulas.
+    nuisanceFrame <- data.frame(row.names = shared)
+    for (i in seq_along(conditionCols)) {
+      value <- metaShared[[conditionCols[i]]]
+      nuisanceFrame[[paste0("cond", i)]] <- if (is.numeric(value)) value else factor(value)
+    }
+    conditionTerm <- if (length(conditionCols)) {
+      paste0(" + Condition(", paste(paste0("cond", seq_along(conditionCols)), collapse = " + "), ")")
+    } else ""
+    blocks <- if (nzchar(strataCol)) factor(metaShared[[strataCol]]) else NULL
+    permutationSpec <- function() {
+      if (is.null(blocks)) opt$permutations else how(nperm = opt$permutations, blocks = blocks)
+    }
     # A variable with as many distinct values as samples saturates the model:
     # it would explain everything and mean nothing. --max-levels 0 sets the
     # cap from the sample count instead of fixing it.
     maxLevels <- if (opt$max_levels > 0) opt$max_levels else max(2, n - 1)
 
     usable <- character(0)
-    for (column in setdiff(colnames(metaShared), colnames(metaShared)[1])) {
+    for (column in setdiff(colnames(metaShared), c(colnames(metaShared)[1], nuisance))) {
       values <- metaShared[[column]]
       if (all(is.na(values))) next
       distinct <- length(unique(values[!is.na(values)]))
@@ -166,6 +212,11 @@ if (nzchar(opt$metadata) && file.exists(opt$metadata)) {
         message("[diversity] '", column, "' has missing values; skipped.")
         next
       }
+      if (!is.null(blocks) && !any(tapply(values, blocks, function(v) length(unique(v)) > 1))) {
+        message("[diversity] '", column, "' never changes within a '", strataCol,
+                "' block, so permutations within blocks cannot test it; skipped.")
+        next
+      }
       usable <- c(usable, column)
     }
 
@@ -174,24 +225,40 @@ if (nzchar(opt$metadata) && file.exists(opt$metadata)) {
     } else {
       rows <- list()
       for (column in usable) {
-        frame <- data.frame(value = metaShared[[column]], row.names = shared)
+        frame <- nuisanceFrame
+        frame$value <- metaShared[[column]]
         if (!is.numeric(frame$value)) frame$value <- factor(frame$value)
-        fit <- try(capscale(distShared ~ value, data = frame), silent = TRUE)
+        fit <- try(capscale(as.formula(paste0("distShared ~ value", conditionTerm)), data = frame),
+                   silent = TRUE)
         if (inherits(fit, "try-error")) {
           message("[diversity] capscale failed for '", column, "'; skipped.")
           next
         }
-        test <- try(anova.cca(fit, permutations = opt$permutations), silent = TRUE)
-        perm <- try(adonis2(distShared ~ value, data = frame,
-                            permutations = opt$permutations), silent = TRUE)
+        if (is.null(fit$CCA) || fit$CCA$rank == 0) {
+          message("[diversity] '", column, "' is fully explained by ",
+                  paste(conditionCols, collapse = "/"), ", so nothing is left to test; skipped.")
+          next
+        }
+        test <- try(anova.cca(fit, permutations = permutationSpec()), silent = TRUE)
+        # Conditioning in PERMANOVA: the nuisance columns go first and each
+        # term is tested given all the others, so the value row is the share
+        # explained beyond them.
+        permanovaTerms <- c(colnames(nuisanceFrame), "value")
+        perm <- try(adonis2(as.formula(paste("distShared ~", paste(permanovaTerms, collapse = " + "))),
+                            data = frame, by = if (length(conditionCols)) "margin" else "terms",
+                            permutations = permutationSpec()), silent = TRUE)
+        permRow <- if (inherits(perm, "try-error")) NULL else perm["value", , drop = FALSE]
+        r2 <- try(RsquareAdj(fit)$adj.r.squared, silent = TRUE)
         rows[[column]] <- data.frame(
           variable = column,
           levels = if (is.factor(frame$value)) nlevels(frame$value) else NA_integer_,
-          r2_adj = RsquareAdj(fit)$adj.r.squared,
+          r2_adj = if (inherits(r2, "try-error") || !length(r2)) NA_real_ else r2,
           F = if (inherits(test, "try-error")) NA_real_ else test$F[1],
           p = if (inherits(test, "try-error")) NA_real_ else test$`Pr(>F)`[1],
-          permanova_r2 = if (inherits(perm, "try-error")) NA_real_ else perm$R2[1],
-          permanova_p = if (inherits(perm, "try-error")) NA_real_ else perm$`Pr(>F)`[1],
+          permanova_r2 = if (is.null(permRow)) NA_real_ else permRow$R2[1],
+          permanova_p = if (is.null(permRow)) NA_real_ else permRow$`Pr(>F)`[1],
+          condition = paste(conditionCols, collapse = ","),
+          strata = strataCol,
           stringsAsFactors = FALSE
         )
       }
@@ -203,20 +270,32 @@ if (nzchar(opt$metadata) && file.exists(opt$metadata)) {
 
         # Stepwise, for the non-redundant share. Only attempted when there are
         # enough samples to fit the full model; ordiR2step on a saturated one
-        # returns the full model and says nothing.
-        if (length(usable) > 1 && n > length(usable) + 1) {
-          frame <- metaShared[, usable, drop = FALSE]
-          for (column in usable) {
-            if (!is.numeric(frame[[column]])) frame[[column]] <- factor(frame[[column]])
+        # returns the full model and says nothing. Only the variables that were
+        # testable above enter it: one aliased with the conditions leaves the
+        # full model's R^2 unadjustable, and ordiR2step then gives up.
+        usable <- intersect(usable, betaRows$variable)
+        if (length(usable) > 1 && n > length(usable) + length(conditionCols) + 1) {
+          frame <- nuisanceFrame
+          safe <- paste0("var", seq_along(usable))
+          for (i in seq_along(usable)) {
+            value <- metaShared[[usable[i]]]
+            frame[[safe[i]]] <- if (is.numeric(value)) value else factor(value)
           }
-          null <- try(capscale(distShared ~ 1, data = frame), silent = TRUE)
-          full <- try(capscale(distShared ~ ., data = frame), silent = TRUE)
+          null <- try(capscale(as.formula(paste0("distShared ~ 1", conditionTerm)), data = frame),
+                      silent = TRUE)
+          full <- try(capscale(as.formula(paste0("distShared ~ ", paste(safe, collapse = " + "),
+                                                 conditionTerm)), data = frame), silent = TRUE)
           if (!inherits(null, "try-error") && !inherits(full, "try-error")) {
+            # With conditions, adjusted R^2 is estimated by permutation and is
+            # noisy enough that one variable's can exceed the full model's;
+            # ordiR2step's R2scope rule then refuses every step. Without the
+            # rule it stops on the permutation test alone.
             step <- try(ordiR2step(null, scope = formula(full), direction = "forward",
-                                  permutations = opt$permutations, trace = FALSE),
+                                  permutations = permutationSpec(), trace = FALSE,
+                                  R2scope = !length(conditionCols)),
                         silent = TRUE)
             if (!inherits(step, "try-error") && !is.null(step$anova)) {
-              chosen <- gsub("^\\+ ", "", rownames(step$anova))
+              chosen <- usable[match(gsub("^\\+ ", "", rownames(step$anova)), safe)]
               cumulative <- step$anova$R2.adj
               hit <- match(betaRows$variable, chosen)
               betaRows$cumulative_r2_adj <- cumulative[hit]

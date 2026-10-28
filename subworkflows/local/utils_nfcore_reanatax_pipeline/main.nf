@@ -498,7 +498,22 @@ def validateInputParameters() {
     }
 
     if (params.remove_rrna && !params.sortmerna_db) {
-        error("--remove_rrna needs rRNA references: give --sortmerna_db (e.g. the smr_*_db.fasta shipped in SortMeRNA's database.tar.gz), or drop --remove_rrna.")
+        error("--remove_rrna needs rRNA references: give --sortmerna_db (e.g. smr_v6.0.2_default_db.fasta from the sortmerna-database releases), or drop --remove_rrna.")
+    }
+
+    if (params.rrna_annotation) {
+        if (params.skip_kraken2) {
+            error("--rrna_annotation joins rRNA reads to Kraken2's per-read calls, so it cannot run with --skip_kraken2.")
+        }
+        if (!params.kraken2_save_readclassifications) {
+            error("--rrna_annotation needs --kraken2_save_readclassifications: the rRNA reads are joined to Kraken2's per-read output.")
+        }
+        if (!params.sortmerna_db) {
+            error("--rrna_annotation needs --sortmerna_db: the rRNA references the reads are flagged against (e.g. smr_v6.0.2_default_db.fasta from the sortmerna-database releases).")
+        }
+        if (params.remove_rrna) {
+            log.warn("--rrna_annotation with --remove_rrna: the rRNA reads are removed before Kraken2 sees them, so every taxon's share will be close to zero.")
+        }
     }
 
     def host_refs = params.host_bundle
@@ -1149,6 +1164,8 @@ def scChemistry() {
         '10xv2': [cb_len: 16, umi_start: 17, umi_len: 10, whitelist: '737K-august-2016.txt'],
         '10xv3': [cb_len: 16, umi_start: 17, umi_len: 12, whitelist: '3M-february-2018.txt'],
         '10xv4': [cb_len: 16, umi_start: 17, umi_len: 12, whitelist: '3M-3pgex-may-2023.txt'],
+        '10x5v2': [cb_len: 16, umi_start: 17, umi_len: 10, whitelist: '737K-august-2016.txt'],
+        '10x5v3': [cb_len: 16, umi_start: 17, umi_len: 12, whitelist: '3M-5pgex-jan-2023.txt'],
     ]
     def preset = presets[params.sc_chemistry] ?: [cb_len: null, umi_start: null, umi_len: null, whitelist: null]
     return [
@@ -1293,6 +1310,7 @@ def validateLongReadParameters() {
         sc_plate_based: 'plate-based single-cell libraries are short-read',
         read2_only: 'a long-read library has no read 2',
         remove_rrna: 'SortMeRNA is run here with short-read settings',
+        rrna_annotation: 'SortMeRNA is run here with short-read settings',
         univec: 'the UniVec pass is a HISAT2 alignment with short-read stringency',
         assembly: 'MEGAHIT and metaSPAdes are short-read assemblers',
         run_prism: "PRISM's host removal and confirmation steps are short-read",
@@ -1721,7 +1739,7 @@ def fileOwner(String path) {
     try {
         return java.nio.file.Files.getOwner(java.nio.file.Paths.get(path)).getName()
     }
-    catch (Exception ignored) {
+    catch (Exception _ignored) {
         return null
     }
 }

@@ -39,7 +39,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from sahmi_stats import (
-    benjamini_hochberg, fisher_exact_greater, hypergeom_sf, ranksums, stouffer,
+    benjamini_hochberg, fisher_exact_greater, hypergeom_cdf, hypergeom_sf, ranksums, stouffer,
 )
 
 
@@ -228,13 +228,19 @@ def main():
                 "yes" if row["p_adj"] <= args.p_threshold else "no",
             ])
 
-    # ---- co-occurrence ----------------------------------------------------
+    # ---- co-occurrence and exclusion -------------------------------------
+    # Both directions. Two taxa can share cells more often than chance (a
+    # polymicrobial cell, or a doublet - see the control below) or less often
+    # (Llorens-Rico et al. found bacteria and SARS-CoV-2 in one cell where
+    # independence predicted eleven). Each sample gives an upper- and a
+    # lower-tail hypergeometric p; each tail is combined across samples by
+    # Stouffer, and the pair's p is twice the smaller of the two.
     pairs = []
     if args.cooccurrence:
         eligible = [t for t in infected if len(infected[t]) >= args.min_cells]
         pair_p = []
         for first, second in itertools.combinations(sorted(eligible), 2):
-            per_sample_p, weights = [], []
+            upper_p, lower_p, weights = [], [], []
             observed_total = expected_total = 0.0
             for sample, members in by_sample.items():
                 n_sample = len(members)
@@ -244,18 +250,24 @@ def main():
                     continue
                 both = len(in_first & in_second)
                 expected = len(in_first) * len(in_second) / n_sample
-                per_sample_p.append(hypergeom_sf(both, n_sample, len(in_first), len(in_second)))
+                upper_p.append(hypergeom_sf(both, n_sample, len(in_first), len(in_second)))
+                lower_p.append(hypergeom_cdf(both, n_sample, len(in_first), len(in_second)))
                 weights.append(expected)
                 observed_total += both
                 expected_total += expected
-            if not per_sample_p or expected_total <= 0:
+            if not upper_p or expected_total <= 0:
                 continue
-            _z, combined = stouffer(per_sample_p, weights)
-            if combined is None:
+            _z, p_together = stouffer(upper_p, weights)
+            _z, p_apart = stouffer(lower_p, weights)
+            if p_together is None or p_apart is None:
                 continue
+            combined = min(1.0, 2.0 * min(p_together, p_apart))
             pairs.append({
                 "a": first, "b": second, "observed": int(observed_total),
-                "expected": expected_total, "p": combined,
+                "expected": expected_total,
+                "log2": math.log2(observed_total / expected_total) if observed_total > 0 else float("-inf"),
+                "direction": "co-occurrence" if observed_total > expected_total else "exclusion",
+                "p_together": p_together, "p_apart": p_apart, "p": combined,
             })
             pair_p.append(combined)
         for pair, qvalue in zip(pairs, benjamini_hochberg(pair_p)):
@@ -264,11 +276,14 @@ def main():
         with open(args.cooccurrence, "w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
             writer.writerow(["taxid_a", "name_a", "taxid_b", "name_b", "observed_cells",
-                             "expected_cells", "p_stouffer", "p_adj", "significant"])
+                             "expected_cells", "log2_ratio", "direction", "p_cooccurrence",
+                             "p_exclusion", "p_two_sided", "p_adj", "significant"])
             for pair in pairs:
                 writer.writerow([
                     pair["a"], names.get(pair["a"], ""), pair["b"], names.get(pair["b"], ""),
                     pair["observed"], f"{pair['expected']:.3f}",
+                    "-Inf" if pair["log2"] == float("-inf") else f"{pair['log2']:.4f}",
+                    pair["direction"], f"{pair['p_together']:.6g}", f"{pair['p_apart']:.6g}",
                     f"{pair['p']:.6g}", f"{pair['p_adj']:.6g}",
                     "yes" if pair["p_adj"] <= args.p_threshold else "no",
                 ])

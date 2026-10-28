@@ -21,7 +21,10 @@ process DB_KRAKENUNIQ_BUILD {
     path taxonomy, stageAs: 'taxonomy'
 
     output:
-    tuple val(meta), path("db"), emit: db
+    // The database's files and folders, not the `db` directory itself:
+    // publishDir skips everything under a directory output, so the
+    // `db/...` patterns in conf/modules.config would publish nothing.
+    tuple val(meta), path("db/*"), emit: db
     tuple val("${task.process}"), val('krakenuniq'), eval("krakenuniq --version 2>&1 | head -1 | sed 's/KrakenUniq version //'"), emit: versions_krakenuniq, topic: versions
 
     when:

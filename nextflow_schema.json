@@ -307,6 +307,12 @@
                     "help_text": "`--index 0`, `--paired-in` and `--out2` are set by the pipeline and should not be repeated here. SortMeRNA 8 spells option names with dashes and still accepts the underscore forms.",
                     "fa_icon": "fas fa-terminal",
                     "hidden": true
+                },
+                "rrna_annotation": {
+                    "type": "boolean",
+                    "description": "Report each taxon's rRNA share beside the minimizer filter's verdict. Removes nothing.",
+                    "help_text": "SortMeRNA flags the rRNA reads among those Kraken2 classified, and rrna_share/reanatax.rrna_share.tsv gives every taxon's reads, rRNA reads and share, rolled up the taxonomy, with the minimizer verdict beside them. A taxon seen mostly through its rRNA looks narrow to the minimizer filter, because its reads pile onto one operon, so this separates such drops from contaminant ones. Needs --sortmerna_db and --kraken2_save_readclassifications; not with --remove_rrna, which leaves no rRNA to count.",
+                    "fa_icon": "fas fa-dna"
                 }
             }
         },
@@ -1093,6 +1099,12 @@
                     "help_text": "PRISM is an R script that shells out to Kraken2, minimap2, STAR, BLAST and SeqKit, and no public image carries that set, so there is no default. Without an image the task runs on the host and finds them on the PATH; -profile conda builds modules/local/prism/run/environment.yml instead.",
                     "fa_icon": "fas fa-box"
                 },
+                "prism_decoy_taxids": {
+                    "type": ["string", "integer"],
+                    "description": "Taxids PRISM treats as decoys besides human. Defaults to the host taxid(s); 'prism' keeps PRISM's own model organisms.",
+                    "help_text": "PRISM adds every nt sequence of these taxa to its per-sample BLAST database, and a read whose best hit is one of them is not counted for the microbe Kraken2 called. PRISM's own list (mouse, rat, fly, worm, zebrafish, Arabidopsis) suits the human data its model was trained on, where the host is the decoy; for a mosquito or plant host the decoy should be that host. The default is --host_kmer_taxid, else --host_carryover_taxid, expanded to its descendants from the Kraken2 database's nodes.dmp. PRISM adds human (9606) itself. Comma-separated.",
+                    "fa_icon": "fas fa-mask"
+                },
                 "prism_bin_dir": {
                     "type": "string",
                     "format": "directory-path",
@@ -1277,6 +1289,18 @@
                     "description": "Permutations for the dbRDA and PERMANOVA tests.",
                     "fa_icon": "fas fa-random"
                 },
+                "diversity_strata": {
+                    "type": "string",
+                    "description": "Metadata column whose blocks every permutation stays within, such as the patient in a longitudinal cohort.",
+                    "help_text": "Repeated samples of one subject are not independent. With this set, each variable is judged by permuting samples only within the blocks of this column, so on how it changes within subjects. A variable that never changes within any block (sex, say, when the blocks are patients) cannot be judged that way and is skipped with a message. The column itself is not tested.",
+                    "fa_icon": "fas fa-layer-group"
+                },
+                "diversity_condition": {
+                    "type": "string",
+                    "description": "Metadata column(s), comma-separated, partialled out of every variance-partitioning test.",
+                    "help_text": "Each variable is then tested given these: Condition() in the distance-based RDA and the stepwise model, leading terms with marginal tests in PERMANOVA. Its adjusted R2 becomes the share it explains beyond them. This is how Llorens-Rico et al. (Nat Commun 2021) separated the type of oxygen support from the antibiotics given with it and from the patient. Samples missing a value in these columns are left out. The columns themselves are not tested.",
+                    "fa_icon": "fas fa-filter"
+                },
                 "trim_low_complexity": {
                     "type": "boolean",
                     "description": "Discard low-complexity reads in fastp.",
@@ -1312,15 +1336,15 @@
                 "sc_chemistry": {
                     "type": "string",
                     "default": "10xv3",
-                    "enum": ["10xv2", "10xv3", "10xv4", "custom"],
+                    "enum": ["10xv2", "10xv3", "10xv4", "10x5v2", "10x5v3", "custom"],
                     "description": "Barcode geometry preset.",
-                    "help_text": "10xv2 = CB 16 / UMI 10; 10xv3 and 10xv4 = CB 16 / UMI 12. `custom` requires --sc_cb_len, --sc_umi_start and --sc_umi_len. Getting the geometry wrong produces a run that completes with almost every barcode unmatched, which is easy to miss.",
+                    "help_text": "3' kits: 10xv2 = CB 16 / UMI 10; 10xv3 and 10xv4 = CB 16 / UMI 12. 5' kits: 10x5v2 (5' v1, v1.1 and v2) = CB 16 / UMI 10; 10x5v3 (GEM-X 5' v3) = CB 16 / UMI 12. The 5' presets also count with --soloStrand Reverse, because their cDNA read is antisense; a 5' library run as 3' finds almost no cells. `custom` requires --sc_cb_len, --sc_umi_start and --sc_umi_len. Getting the geometry wrong produces a run that completes with almost every barcode unmatched, which is easy to miss.",
                     "fa_icon": "fas fa-barcode"
                 },
                 "sc_whitelist": {
                     "type": "string",
                     "description": "Cell barcode whitelist, or 'None' to accept every observed barcode uncorrected.",
-                    "help_text": "The whitelists ship with Cell Ranger, not with STAR, so this has to be supplied: 737K-august-2016.txt for 10xv2, 3M-february-2018.txt for 10xv3, 3M-3pgex-may-2023.txt for 10xv4. Passing 'None' disables correction, which lets a single sequencing error in a barcode manufacture a new cell.",
+                    "help_text": "The whitelists ship with Cell Ranger, not with STAR, so this has to be supplied: 737K-august-2016.txt for 10xv2 and 10x5v2, 3M-february-2018.txt for 10xv3, 3M-3pgex-may-2023.txt for 10xv4, 3M-5pgex-jan-2023.txt for 10x5v3. Passing 'None' disables correction, which lets a single sequencing error in a barcode manufacture a new cell.",
                     "fa_icon": "fas fa-list"
                 },
                 "sc_cb_len": {
@@ -1943,6 +1967,13 @@
                     "description": "Maximum memory a single task may request, e.g. `'128.GB'`.",
                     "help_text": "With `-profile local` this defaults to the machine's total RAM.",
                     "fa_icon": "fas fa-memory"
+                },
+                "detected_memory_gb": {
+                    "type": "integer",
+                    "description": "Set by `-profile local` to the machine's total RAM in GB; not meant to be given.",
+                    "help_text": "conf/local.config reads /proc/meminfo into this key because Nextflow rejects `def` variables mixed with config statements. It is listed here only so that every local run does not warn about an unknown parameter; use --resource_limit_memory to set the limit.",
+                    "fa_icon": "fas fa-memory",
+                    "hidden": true
                 },
                 "resource_limit_time": {
                     "type": "string",

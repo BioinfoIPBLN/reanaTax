@@ -181,7 +181,7 @@ process KRAKEN2_DAEMON {
     // Inputs for the same reason. The reports came out correct without this, so
     // k2 evidently resolves reads client-side, but relying on that distinction
     // is not worth a silently mis-paired classification.
-    def reads_abs = [reads].flatten().collect { "\$PWD/${it}" }.join(' ')
+    def reads_abs = [reads].flatten().collect { fastq -> "\$PWD/${fastq}" }.join(' ')
     // --compression_level. These FASTQs are only written with
     // --kraken2_save_reads, and they are the size of the non-host library.
     def level = task.ext.compression != null ? "-${task.ext.compression} " : ''

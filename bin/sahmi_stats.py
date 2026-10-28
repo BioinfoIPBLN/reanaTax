@@ -189,6 +189,25 @@ def hypergeom_sf(k, population, successes, draws):
     return min(1.0, total)
 
 
+def hypergeom_cdf(k, population, successes, draws):
+    """P(X <= k) for a hypergeometric draw. Lower tail, inclusive of k."""
+    low = max(0, draws - (population - successes))
+    high = min(draws, successes)
+    if k >= high:
+        return 1.0
+    if k < low:
+        return 0.0
+    denominator = _log_choose(population, draws)
+    total = 0.0
+    for value in range(low, int(k) + 1):
+        total += math.exp(
+            _log_choose(successes, value)
+            + _log_choose(population - successes, draws - value)
+            - denominator
+        )
+    return min(1.0, total)
+
+
 def fisher_exact_greater(a, b, c, d):
     """One-sided Fisher exact p for enrichment in row 1 of [[a, b], [c, d]].
 

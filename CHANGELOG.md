@@ -9,6 +9,14 @@ Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-
 
 ### `Changed`
 
+- PRISM's own Kraken2 pass now runs with `--memory-mapping`, through a wrapper the module writes, after reading the database through once. Against core_nt each PRISM task had held a private copy of about 334 GB, so a few at once next to the Kraken2 daemon exhausted a 1 TB node; mapped, the tasks share one copy in the page cache. PRISM_RUN now asks for 350 GB and 48 h (was 96 GB and 24 h), so the local executor no longer stacks them: on the Zymo mocks the full BLAST of a mostly-microbial library took 10-13 h and the tasks were killed at 24 h. Tasks recompute once.
+
+- PRISM's BLAST decoys are the run's host instead of PRISM's model organisms (mouse, rat, fly, worm, zebrafish, Arabidopsis), expanded to the host's descendants from the Kraken2 database's `nodes.dmp`; PRISM still adds human. A read whose best BLAST hit is a decoy is not counted for the microbe Kraken2 called, and for a mosquito or plant host the model organisms let escaped host reads land on eukaryotic microbes instead. `--prism_decoy_taxids` sets the list, and `prism` restores PRISM's own.
+
+- The single-cell co-occurrence test is two-sided: each pair is reported with a `direction`, `co-occurrence` or `exclusion`, its log2 observed/expected, and a p-value per tail. It used to test only the upper tail, so a pair kept apart, as Llorens-Rico et al. (Nat Commun 2021) found for bacteria and SARS-CoV-2, came out non-significant rather than excluded. `cooccurrence.tsv` gains columns and its `p_stouffer` is replaced by `p_cooccurrence`, `p_exclusion` and `p_two_sided`.
+
+- PRISM, GATK PathSeq and Metax moved from the main workflow into the `ADDITIONAL_CLASSIFIERS` subworkflow, to keep the main workflow body under Groovy's method-size limit. Nothing about how they run changes.
+
 - SortMeRNA is 8.0.0 (was 4.3.7). It comes from conda-forge, where SortMeRNA moved after 4.3.7, in a Seqera Containers image built from that package. nf-core's module still pins 4.3.7, so the module now lives in `modules/local/sortmerna`. The index step passes `--task 5`, because since 6.0 `--index 1` means "build if missing, then align". An index built by 4.x or 5.x cannot be read (the format changed in 6.0), so a `--sortmerna_index` from an older version must be rebuilt. 6.0 also replaced the aligner (SSW with Parasail), so rRNA counts may not match runs on 4.3.7. The docs now point at the SILVA 138.2 / Rfam 15.1 reference sets. Not yet run on this pipeline's data.
 
 - `--run_metax` and `--run_prism` no longer stop a run when the tool is missing. The pipeline does not install either: at startup it checks whether each one asked for can be reached - an image, a conda or wave profile, or the commands on the PATH, plus PRISM's prepared directory - and if not, warns with what is missing and how to install it, and runs without that tool. Under docker or singularity a task without an image runs on the host, so tools on the PATH now work there too; `--prism_container` is no longer required.
@@ -40,6 +48,18 @@ Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-
 - Samples now move through the pipeline one at a time instead of in cohort-wide steps. Two `groupTuple` calls without an expected size held every sample back until the whole cohort had reached the same point: the run grouping after download, so trimming waited for the slowest download, and the chunk merge after host alignment, so no merge, second host pass or Kraken2 run could start until every chunk of every sample had aligned. Both now carry the expected count with `groupKey`: runs per sample from the run sheet, and chunks per sample from the chunk files. So a sample is merged, depleted and classified while others are still downloading or aligning. Kraken2 still classifies one sample at a time, since the daemon takes one client, but it starts early. Incomplete groups are still emitted at the end (`remainder: true`). Task inputs are unchanged, so existing caches still resume.
 
 ### `Fixed`
+
+- PRISM found no taxa at all, silently, in paired libraries downloaded from ENA: their FASTQ headers carry the mate number in the comment (`@ERR2935854.1 HWI-...:2249/1`), PRISM tests the whole header line for `/1`, appends mate suffixes the read IDs do not have, and seqkit then extracts no read. PRISM_RUN now keeps only the read ID on each header. Found on the Zymo library ERR2935854, which completed normally from SRA-format headers and returned nothing from ENA ones.
+
+- `--build_databases` published no database files for Kraken2, KrakenUniq or MetaPhlAn, only the side tables: the modules output their `db` directory as one path, and publishDir skips everything under a directory output. They now output the directory's files and folders instead, and the Bracken build stages them back into one directory.
+
+- `--remove_rrna` failed at startup ("No such variable: log"): its subworkflow emitted a channel named `log`, which is Nextflow's logger. The emit is now `logs`. Found by the 2026-10-28 smoke tests; the route had not run on Nextflow 25.10.
+
+- Qualimap stopped the run on a host BAM with no mapped reads ("The BAM file is empty or corrupt"), which a library with no host reads produces - a pure culture, reads already depleted, or the test profile's SARS-CoV-2 reads against the human test genome. Such BAMs are now left out of Qualimap.
+
+- `--build_databases metaphlan` stopped with "ncbi-genome-download returned 2 files ... expected one assembly" for every genome given by accession: the download module's `*_genomic.fna.gz` also matches the CDS file the MetaPhlAn build fetches. The CDS and RNA files are now set aside before the assembly is counted.
+
+- Every run under `-profile local` warned that `--detected_memory_gb` is an invalid input value; conf/local.config sets it, so it is now a hidden schema parameter.
 
 - **The `_frac` columns of a filtered Bracken table depended on which filter last removed a taxon.** A filter that dropped something rescaled the fractions to sum to 1 over the rows in front of it, and one that dropped nothing left them alone. So the PRISM and gene-diversity passes, which run on the already-thresholded table, scaled every fraction up by the mass the abundance thresholds had removed, but only when their own drop list matched something. Likewise, cells zeroed by the negative-control filter left the denominator only if some drop list matched. The denominator is now read back from the table and carried: drop lists and control zeroing remove their reads from it, and the abundance thresholds never do (`fraction_state()`/`rescale_fractions()` in `bin/filter_abundance.py`, also used by `bin/control_filter.py`). docs/output.md says what `_frac` means.
 
@@ -119,6 +139,12 @@ From an independent code audit of 3f8bc51, each finding checked against the code
 - A `--kraken2_db` given as a `.tar.gz` produced a queue channel holding one item, which a process pairs element-by-element against the reads: the cohort would classify its first sample and silently stop. Unpacked-directory databases were unaffected, which is why every benchmark run was correct and the two-sample `test` profile never asserted on it. Now `.first()`, so the database is a value channel available to every task.
 
 ### `Added`
+
+- `--rrna_annotation`: each taxon's rRNA share, beside the minimizer filter's verdict. SortMeRNA flags the rRNA reads among those Kraken2 classified, removing nothing, and `rrna_share/reanatax.rrna_share.tsv` gives per taxon its reads, rRNA reads and share, rolled up the taxonomy, with the minimizer verdict, coverage and duplication. A taxon seen mostly through its rRNA looks narrow to the filter; on GSE152924 two low-abundance Firmicutes dropped for low coverage had 46% and 62% of their reads rRNA, while the bacteria kept had 0-3%. No verdict changes.
+
+- `--diversity_strata` and `--diversity_condition` for `--run_diversity`, for cohorts with repeated samples of one subject. Strata keep every permutation within one subject's samples, so a variable is judged on how it changes within subjects; variables that never change within any block are skipped with a message. Condition partials the named columns out of every test (Condition() in the dbRDA and the stepwise model, leading terms with marginal tests in PERMANOVA). This is the design Llorens-Rico et al. used to separate oxygen support from antibiotics and patient. `beta_variance.tsv` records both in two new columns.
+
+- `--sc_chemistry 10x5v2` (10x 5' v1, v1.1 and v2) and `10x5v3` (GEM-X 5' v3). Besides the barcode and UMI geometry they count with `--soloStrand Reverse`, because the cDNA read of a 5' library is antisense; run as a 3' kit, such a library completes with next to no cells. 3' runs keep exactly the STARsolo command they had.
 
 - `--build_databases` (with `--db_input`): builds the classifiers' databases from your own genomes, as a run of its own instead of an analysis (`workflows/build_databases.nf`). A CSV gives one genome per row - an id, its NCBI taxid, and a FASTA or an assembly accession fetched with ncbi-genome-download.
   - **Headers:** every header is rewritten to carry the taxid (`kraken:taxid|<n>`), so no accession-to-taxid table is needed.

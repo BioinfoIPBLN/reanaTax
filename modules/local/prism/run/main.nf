@@ -67,6 +67,7 @@ process PRISM_RUN {
     val max_sample
     val barcode_only
     val bin_dir
+    val decoy_taxids
 
     output:
     tuple val(meta), path("prism_out/*-counts.csv"), emit: counts
@@ -94,17 +95,61 @@ process PRISM_RUN {
     // itself, so there is nothing to collide with.
     def cdna_only = barcode_only && !meta.single_end
     def paired = (meta.single_end || cdna_only) ? 'FALSE' : 'TRUE'
+    // Headers keep only the read ID. PRISM decides whether its read IDs carry
+    // /1 and /2 by searching the WHOLE header line, so an ENA header with the
+    // mate number in its comment (`@ERR2935854.1 HWI-...:2249/1`) makes it
+    // append suffixes the IDs do not have; seqkit then matches no read, and
+    // PRISM reports no microbial species at all - a silent empty result. A
+    // header like `@ID/1` keeps its suffix, which PRISM handles correctly.
+    def ids_only = "awk 'NR % 4 == 1 { sub(/[ \\t].*/, \"\") } { print }'"
     def decompress = meta.single_end
-        ? "gzip -cdf ${reads} > prism_in/${prefix}_1.fastq"
+        ? "gzip -cdf ${reads} | ${ids_only} > prism_in/${prefix}_1.fastq"
         : cdna_only
-            ? "gzip -cdf ${reads[1]} > prism_in/${prefix}_1.fastq"
-            : "gzip -cdf ${reads[0]} > prism_in/${prefix}_1.fastq\n    gzip -cdf ${reads[1]} > prism_in/${prefix}_2.fastq"
-    def dirs = bin_dir.tokenize(',').collect { it.trim() }.findAll { it }
-    def prepend = dirs ? "export PATH=${dirs.collect { it + '/bin' }.join(':')}:\$PATH" : ''
+            ? "gzip -cdf ${reads[1]} | ${ids_only} > prism_in/${prefix}_1.fastq"
+            : "gzip -cdf ${reads[0]} | ${ids_only} > prism_in/${prefix}_1.fastq\n    gzip -cdf ${reads[1]} | ${ids_only} > prism_in/${prefix}_2.fastq"
+    def dirs = bin_dir.tokenize(',').collect { dir -> dir.trim() }.findAll { dir -> dir }
+    def prepend = dirs ? "export PATH=${dirs.collect { dir -> dir + '/bin' }.join(':')}:\$PATH" : ''
+    // PRISM's model organisms are decoys: a read whose best BLAST hit is one
+    // of them is not counted for the microbe Kraken2 called. Its bundled list
+    // (mouse, rat, fly, worm, zebrafish, Arabidopsis) suits the human data its
+    // model was trained on, where the host itself is the decoy; for any other
+    // host the decoy should be that host. PRISM adds human (9606) itself.
+    // BLAST expands taxids to their descendants only when taxonomy4blast.sqlite3
+    // sits beside the database, so they are expanded here from the Kraken2
+    // database's nodes.dmp, and passed as they are where it has none.
+    def seeds = decoy_taxids.toString().tokenize(',').collect { taxid -> taxid.trim() }.findAll { taxid -> taxid }
+    def decoys = seeds == ['prism']
+        ? "cp ${prism_dir}/model_org_taxids.txt prism_decoys.txt"
+        : """
+    if [ -s ${kraken_db}/nodes.dmp ]; then
+        awk -F '\\t[|]\\t' -v seeds="${seeds.join(',')}" '
+            { kids[\$2] = kids[\$2] " " \$1 }
+            END {
+                n = split(seeds, queue, ",")
+                for (i = 1; i <= n; i++) seen[queue[i]] = 1
+                for (i = 1; i <= n; i++) {
+                    m = split(kids[queue[i]], c, " ")
+                    for (j = 1; j <= m; j++) if (!(c[j] in seen) && c[j] != queue[i]) { seen[c[j]] = 1; queue[++n] = c[j] }
+                }
+                for (t in seen) print t
+            }' ${kraken_db}/nodes.dmp | sort -n > prism_decoys.txt
+    else
+        printf '%s\\n' ${seeds.join(' ')} > prism_decoys.txt
+    fi"""
     """
     ${prepend}
-    mkdir -p prism_in prism_out
+    mkdir -p prism_in prism_out prism_bin
     ${decompress}
+    ${decoys}
+
+    # PRISM's own Kraken2 pass loads the whole database into its process, so
+    # every PRISM task held a private copy (~330 GB for core_nt) and a few at
+    # once exhausted a 1 TB node. With --memory-mapping the tasks share one
+    # copy in the page cache; reading it through once first spares the mapped
+    # pass from faulting it in page by page over a network filesystem.
+    printf '#!/usr/bin/env bash\\nexec %s --memory-mapping "\$@"\\n' "\$(command -v kraken2)" > prism_bin/kraken2
+    chmod +x prism_bin/kraken2
+    cat ${kraken_db}/*.k2d > /dev/null
 
     # PRISM takes PATHS, not names on \$PATH - and they are not all the same
     # kind of path. kraken2, seqkit, STAR and minimap2 are validated with
@@ -119,7 +164,7 @@ process PRISM_RUN {
         --data_path \$PWD/prism_in \\
         --out_path \$PWD/prism_out \\
         --prism_path \$PWD/${prism_dir} \\
-        --kraken_path \$(command -v kraken2) \\
+        --kraken_path \$PWD/prism_bin/kraken2 \\
         --kraken_db_path ${kraken_db} \\
         --seqkit_path \$(command -v seqkit) \\
         --star_path \$(command -v STAR) \\
@@ -128,7 +173,7 @@ process PRISM_RUN {
         --blast_db_path ${blast_db} \\
         --minimap2_path \$(command -v minimap2) \\
         --minimap2_index ${minimap2_index} \\
-        --model_org_taxids ${prism_dir}/model_org_taxids.txt \\
+        --model_org_taxids \$PWD/prism_decoys.txt \\
         --paired ${paired} \\
         --fq1_end _1.fastq \\
         --fq2_end _2.fastq \\

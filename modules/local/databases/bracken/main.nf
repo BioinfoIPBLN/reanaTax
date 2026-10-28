@@ -19,7 +19,7 @@ process DB_BRACKEN_BUILD {
         : 'community.wave.seqera.io/library/kraken2_bracken_coreutils_findutils_pruned:64b27b48dbc9e832'}"
 
     input:
-    tuple val(meta), path(db, stageAs: 'input_db')
+    tuple val(meta), path(db, stageAs: 'input_db/*')
     val read_lengths
 
     output:

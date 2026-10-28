@@ -180,6 +180,9 @@ A sample in which Kraken2 classified nothing (its report holds only the `unclass
 - `minimizer_filter/` (with `--minimizer_filter`)
   - `*.minimizer_evidence.tsv`: every taxon with its reads, distinct minimizers, duplication, coverage, the duplication limit it was held to (it rises with coverage for genome-scale taxa) and verdict. With `--minimizer_correlation` it also carries the three Spearman coefficients and the largest of their BH-adjusted p-values.
   - `*.minimizer_drop.txt`: the taxids that failed.
+- `rrna_share/` (with `--rrna_annotation`)
+  - `reanatax.rrna_share.tsv`: per taxon across the cohort, its reads, how many were rRNA, the share, the largest share in any one sample, and the minimizer verdict, coverage and duplication beside them. Taxa with fewer than 10 reads are left out.
+  - `per_sample/<sample>.rrna_share.tsv`, `logs/<sample>.rrna_annotation.log`: the same per library, and SortMeRNA's log.
 - `host_kmer_filter/` (with `--host_kmer_filter`)
   - `*.host_kmer_evidence.tsv`: per taxon, its reads, how many of them carried host k-mers, and the resulting fraction.
   - `*.host_kmer_drop.txt`: the taxids that failed.
@@ -244,7 +247,7 @@ The first four are all blind to carryover and index hopping, and measurably so: 
 </details>
 
 - `reanatax.cell_type_enrichment.tsv` (with `--sc_cell_metadata`): per taxon and cell type — observed and expected infected cells, log2FC, Stouffer-combined p and BH-adjusted q.
-- `reanatax.cooccurrence.tsv`, `reanatax.doublet_check.tsv`: taxon pairs found together in single cells more often than chance, and the doublet control that says whether to believe it.
+- `reanatax.cooccurrence.tsv`, `reanatax.doublet_check.tsv`: taxon pairs found together in single cells more often than chance (`direction` co-occurrence) or less often (exclusion), and the doublet control that says whether to believe it.
 - `<sample>.cell_taxa_sweep.tsv`: the same matrix at `--sc_min_umis` 1 through 5. Check your conclusion survives the sweep before reporting it.
 
 Join `cell_taxa.tsv` to the Solo matrix **on the barcode** — that is the whole point of the branch, and the two are guaranteed to use the same barcode vocabulary because both come from STARsolo's corrected `CB`.

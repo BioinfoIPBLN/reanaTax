@@ -15,7 +15,10 @@ process DB_METAPHLAN_BUILD {
     tuple val(meta), path(candidates_fna), path(candidates_tsv), path(targets), path(species), path(hits), path(taxonomy)
 
     output:
-    tuple val(meta), path("db"), emit: db
+    // The database's files and folders, not the `db` directory itself:
+    // publishDir skips everything under a directory output, so the
+    // `db/...` patterns in conf/modules.config would publish nothing.
+    tuple val(meta), path("db/*"), emit: db
     tuple val(meta), path("*.mpa_species.tsv"), emit: summary
     tuple val("${task.process}"), val('metaphlan'), eval("metaphlan --version | sed -n 's/.*version //p'"), emit: versions_metaphlan, topic: versions
 
