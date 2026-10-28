@@ -1,0 +1,87 @@
+reanaTax's fixes to PRISM (sjdlabgroup/PRISM), against commit 3cf9e43.
+
+PRISM is © 2020-2022 Rutgers, The State University of New Jersey, and is
+distributed under the PRISM Non-commercial Research License (RU-NCRL), whose
+full text, conditions and disclaimer are in LICENSE.PRISM beside this file.
+This patch modifies PRISM's source and is distributed under that same licence:
+it may be used for noncommercial purposes only, and the copyright notice,
+conditions and disclaimer must be retained. It is not covered by reanaTax's MIT
+licence. What each change does and why: README.md.
+
+Apply with:  git -C <PRISM clone at 3cf9e43> apply <this file>
+
+diff --git a/PRISM.R b/PRISM.R
+index f2d687f..6073390 100644
+--- a/PRISM.R
++++ b/PRISM.R
+@@ -61,6 +61,7 @@ blast_path = opt$blast_path
+ blast_db_path = opt$blast_db_path
+ prism_path = ifelse(str_detect(opt$prism_path, '/$'), opt$prism_path, paste0(opt$prism_path, '/'))
+ model_org_taxids = ifelse(opt$model_org_taxids == 'NA', paste0(prism_path, opt$model_org_taxids), opt$model_org_taxids)
++if (!grepl("^/", model_org_taxids)) model_org_taxids = file.path(getwd(), model_org_taxids)
+ min_read_per = opt$min_read_per
+ min_uniq_frac = opt$min_uniq_frac
+ paired = opt$paired %>% as.logical()
+diff --git a/functions.R b/functions.R
+index 026d0f7..0cc52d2 100644
+--- a/functions.R
++++ b/functions.R
+@@ -189,11 +189,12 @@ prism_kraken <- function(sample,
+   mic_out <- paste0(out_prefix, ".kraken.microbiome.output.txt")
+   taxids_to_remove = c(0,1, setdiff(kr2$V7, kr2$V7[n])) # remove nonmicrobial Kraken reads
+   
+-  # Use awk to drop any line whose taxid is in the “remove” list
++  # Drop reads whose taxid is in the remove list (set membership, not one giant regex)
++  rem_file <- paste0(out_prefix, ".kraken.remove.txt")
++  writeLines(as.character(taxids_to_remove), rem_file)
+   awk_cmd <- sprintf(
+-    "awk -F '\t' '$3 !~ /(%s)/' %s >> %s",
+-    paste0('\\(taxid ', taxids_to_remove, '\\)', collapse='|'),
+-    kraken_out, mic_out
++    "awk -F '\\t' 'NR==FNR{r[$1]=1;next} { s=$3; keep=1; while(match(s,/\\(taxid [0-9]+\\)/)){ tok=substr(s,RSTART,RLENGTH); gsub(/[^0-9]/,\"\",tok); if(tok in r){keep=0;break} s=substr(s,RSTART+RLENGTH) } if(keep) print }' %s %s > %s",
++    rem_file, kraken_out, mic_out
+   )
+   code <- system(awk_cmd)
+   if (code != 0L) stop("awk filtering failed (exit code ", code, ")")
+@@ -216,10 +217,10 @@ prism_kraken <- function(sample,
+   fq_header <- system(paste("head -n 1", shQuote(fq_check)), intern = TRUE)
+   has_suffix <- grepl("/[12]\\b", fq_header)
+   
+-  # If suffix is present, modify id_file in place to include /1 and /2
++  # If suffix is present, strip any trailing /1 or /2 before emitting both /1 and /2 variants
+   if (has_suffix) {
+     tmp_ids <- paste0(id_file, ".tmp")
+-    system(paste0("awk '{print $0\"/1\"; print $0\"/2\"}' ", shQuote(id_file), " > ", shQuote(tmp_ids)))
++    system(paste0("awk '{sub(/\\/[12]$/,\"\"); print $0\"/1\"; print $0\"/2\"}' ", shQuote(id_file), " | sort -u > ", shQuote(tmp_ids)))
+     file.rename(tmp_ids, id_file)
+   }
+   
+@@ -597,6 +598,7 @@ prism_subsample = function(sample,
+         as.numeric() %>%
+         unique()
+       idx = which(lin %in% c(2, 4751, 10239))
++      if(length(idx) == 0) next
+       lin = lin[idx:length(lin)]
+       counter = which(lin == names(micro_headers)[i])
+       while(length(micro_headers[[i]]) < max_sample & counter > 0){
+@@ -700,7 +702,7 @@ prism_custom_blastdb <- function(blast_path, blast_db_path, uit, custom_db_path,
+   
+   # Perform the join: accession (col 1) to accession_map (col 2)
+   join_cmd <- sprintf(
+-    "join -1 1 -2 2 -t $'\\t' %s %s > %s",
++    "join -1 1 -2 2 -t '\t' %s %s > %s",
+     shQuote(sorted_accession_file),
+     shQuote(full_accession_map_path),
+     shQuote(taxid_map_file)
+@@ -1152,7 +1154,7 @@ prism_genbank = function(blast){
+   )
+   
+   res[, interval_width := fifelse(!is.na(start) & !is.na(end), end - start, Inf)]
+-  res_most_specific <- res[, .SD[which.min(interval_width)], by = .(id)]
++  res_most_specific <- res[res[, .I[which.min(interval_width)], by = .(id)]$V1]
+   
+   final <- res_most_specific[ , .(
+     id, read, sacc, staxids, pos, qcovs, pident, bitscore,
+diff --git a/kreport2mpa.py b/kreport2mpa.py
+old mode 100644
+new mode 100755

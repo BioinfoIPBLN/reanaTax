@@ -2066,8 +2066,13 @@ it a fraction that has already had the host taken out and those columns empty,
 which changes what the model is scoring without changing anything that would
 look wrong in the output. The pipeline wires it to `ch_trimmed_reads` for you.
 
-**Preparing `--prism_path` is the work.** A clone of the repository is not
-enough. The directory must also hold:
+**Preparing `--prism_path` is the work.** `assets/prism/prepare_prism.sh`
+does it: it clones PRISM at the commit reanaTax was tested against, applies
+reanaTax's fixes to PRISM (`assets/prism/prism_3cf9e43_reanatax.patch`; what
+each one does is in `assets/prism/README.md`), unpacks the GenBank files and
+builds the accession map. Without those fixes PRISM can report no taxa at all,
+silently. A clone of the repository is not enough. The directory must also
+hold:
 
 - `genbank/genbank_indices.RDS` and `genbank/rds/*.RDS` — the processed GenBank
   annotation, distributed separately by the authors rather than in the repo.
