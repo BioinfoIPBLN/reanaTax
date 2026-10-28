@@ -1,11 +1,17 @@
+// nf-core's SORTMERNA module, kept here to run SortMeRNA 8 rather than nf-core's
+// 4.3.7. Two things changed under it. Since 6.0, `--index 1` means "build the
+// index if it is missing, then align" and index-only is `--task 5`, so that is
+// what switches this module into index mode. And 8.0 spells the paired flag
+// `--paired-in`; the underscore form is only an alias now. Bioconda stopped
+// at 4.3.7, so the image is built from conda-forge's package.
 process SORTMERNA {
     tag "$meta.id"
     label 'process_high'
 
     conda "${moduleDir}/environment.yml"
     container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container ?
-        'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/91/919d9c8f5f2c3221a94efe96b81bde0c953c13ebb0a1eca6b690b90666006cad/data' :
-        'community.wave.seqera.io/library/sortmerna:4.3.7--b730cad73fc42b8e' }"
+        'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/47/47c387ea4cc97404886b95ece4bd7aecc61aa63ddf93b71a31fabf61beb9b6ae/data' :
+        'community.wave.seqera.io/library/sortmerna_gzip:659d4ea003ce0d12' }"
 
     input:
     tuple val(meta), path(reads)
@@ -25,7 +31,7 @@ process SORTMERNA {
     def args          = task.ext.args  ?: ''
     def prefix        = task.ext.prefix ?: "${meta.id}"
 
-    def index_only    = args.contains('--index 1')? true : false
+    def index_only    = args.contains('--task 5')? true : false
     def skip_index    = args.contains('--index 0')? true : false
     def paired_end    = reads instanceof List
     def paired_cmd    = ''
@@ -50,7 +56,7 @@ process SORTMERNA {
             mv non_rRNA_reads_rev.f*q.gz ${prefix}_2.non_rRNA.fastq.gz
             mv rRNA_reads.log ${prefix}.sortmerna.log
             """
-            paired_cmd = "--paired_in"
+            paired_cmd = "--paired-in"
             out2_cmd   = "--out2"
         }
     }
@@ -73,7 +79,7 @@ process SORTMERNA {
     def args          = task.ext.args  ?: ''
     def prefix        = task.ext.prefix ?: "${meta.id}"
 
-    def index_only    = args.contains('--index 1')? true : false
+    def index_only    = args.contains('--task 5')? true : false
     def paired_end    = reads instanceof List
     def mv_cmd        = ''
 

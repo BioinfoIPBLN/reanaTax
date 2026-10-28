@@ -284,27 +284,27 @@
                 "remove_rrna": {
                     "type": "boolean",
                     "description": "Remove ribosomal RNA with SortMeRNA before host depletion.",
-                    "help_text": "For total-RNA/RiboZero libraries, where rRNA is typically 94-99% of the reads. Runs between trimming and host depletion, so HISAT2 and everything after it see a library that is already rRNA-free and the read-accounting denominators stay correct. Pointless on poly(A)-selected or DNA libraries. Requires `--sortmerna_db`.",
+                    "help_text": "Off by default because SortMeRNA's references cover bacteria, archaea and eukaryotes, so it removes the microbes' rRNA along with the host's - in RNA-seq often most of a microbe's reads, and what Kraken2 classifies them by. Turn it on with --run_humann, since rRNA maps to no gene family, or for a library that is mostly rRNA (total RNA not depleted, or depleted with another organism's probes). Runs between trimming and host depletion, so HISAT2 and everything after it see a library that is already rRNA-free and the read-accounting denominators stay correct. Requires `--sortmerna_db`.",
                     "fa_icon": "fas fa-filter"
                 },
                 "sortmerna_db": {
                     "type": "string",
                     "format": "file-path",
                     "description": "rRNA reference FASTA(s) for SortMeRNA, comma-separated.",
-                    "help_text": "The SortMeRNA distribution ships these as a separate `database.tar.gz` download (Silva 138 SSURef NR99 + RFAM 14.1), e.g. `smr_v4.3_sensitive_db.fasta`. Multiple files may be given, comma-separated. Required when `--remove_rrna` is set.",
+                    "help_text": "Not bundled with SortMeRNA: they are released in the sortmerna-database repository (SILVA 138.2 + Rfam 15.1; `default`, `sensitive` and `fast` sets), e.g. `smr_v6.0.2_default_db.fasta` from its archive. Older sets such as `smr_v4.3_sensitive_db.fasta` (SILVA 138 + RFAM 14.1) work too. Multiple files may be given, comma-separated. Required when `--remove_rrna` is set.",
                     "fa_icon": "fas fa-dna"
                 },
                 "sortmerna_index": {
                     "type": "string",
                     "format": "directory-path",
                     "description": "Prebuilt SortMeRNA index directory. Built once per run if omitted.",
-                    "help_text": "SortMeRNA 6.0 replaced CMPH with BBHash in the index format, so an index built by 4.x cannot be read by 6.x/7.x. Point this at an index built with the same version the pipeline runs, or leave it unset and let the run build its own.",
+                    "help_text": "SortMeRNA 6.0 replaced CMPH with BBHash in the index format, so an index built by 4.x or 5.x cannot be read by the SortMeRNA 8.0 the pipeline runs. Point this at an index built by 6.0 or later (`sortmerna --task 5`), or leave it unset and let the run build its own.",
                     "fa_icon": "fas fa-folder-open"
                 },
                 "sortmerna_args": {
                     "type": "string",
                     "description": "Extra arguments passed to SortMeRNA.",
-                    "help_text": "`--index 0`, `--paired_in` and `--out2` are set by the pipeline and should not be repeated here.",
+                    "help_text": "`--index 0`, `--paired-in` and `--out2` are set by the pipeline and should not be repeated here. SortMeRNA 8 spells option names with dashes and still accepts the underscore forms.",
                     "fa_icon": "fas fa-terminal",
                     "hidden": true
                 }

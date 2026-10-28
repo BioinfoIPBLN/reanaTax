@@ -1,0 +1,10 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/modules/environment-schema.json
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  # SortMeRNA left Bioconda after 4.3.7; conda-forge carries the releases since.
+  - conda-forge::sortmerna=8.0.0
+  # The container base has no gzip, which the stub needs.
+  - conda-forge::gzip=1.14

@@ -137,45 +137,77 @@ off everywhere.
 
 ## Removing rRNA (optional)
 
-For a total-RNA / RiboZero library, ribosomal RNA is typically 94-99% of the
-reads. Kraken2 will happily classify it - rRNA is conserved, so it misassigns
-across taxa - and it swamps HUMAnN. `--remove_rrna` runs SortMeRNA to strip it.
+`--remove_rrna` runs SortMeRNA and removes every read that matches its rRNA
+references. It is off by default, because for taxonomy most rRNA is evidence
+rather than noise:
+
+- **Microbial rRNA is signal.** The references are SILVA's small- and
+  large-subunit rRNA of bacteria, archaea and eukaryotes plus RFAM's 5S and
+  5.8S, so the microbes' rRNA goes with the host's: bacterial 16S and 23S, and
+  the 18S and 28S of eukaryotic microbes such as _Plasmodium_, fungi and
+  trypanosomatids. In RNA-seq that is often most of what a microbe contributes.
+  Bacterial mRNA is short-lived and has no poly(A) tail, so a poly(A)-selected
+  library sees bacteria largely through their rRNA.
+- **Kraken2 places rRNA reads soundly.** Reads from conserved stretches stop at
+  the lowest common ancestor, at genus, family or above, rather than landing on
+  a wrong species. Reads from the variable regions classify as finely as any
+  other read.
+- **Host rRNA is removed by host depletion** when the host assembly carries
+  the rDNA. Many assemblies collapse or omit the rDNA arrays, so check the GTF
+  for genes with `gene_biotype "rRNA"`. If there are none, add the host's rDNA
+  unit as an extra `--host` FASTA: that removes host rRNA and leaves the
+  microbes' alone. Host rRNA that escapes is classified to the host or its
+  relatives, where `--drop_host_taxon`, `--drop_host_clade`,
+  `--drop_non_microbial` and `--host_kmer_filter` deal with it.
+
+Turn it on in two cases:
+
+- **With `--run_humann`.** rRNA is not protein-coding, so it maps to no gene
+  family and only inflates the unmapped fraction.
+- **When the library is mostly rRNA**: total RNA that was not depleted, or was
+  depleted with probes designed for another organism, such as a human or mouse
+  kit used on an insect. Removing it first spares host depletion and Kraken2
+  most of their work.
+
+Either way, read abundances in rRNA-rich data with care. They follow rRNA
+operon copy number and ribosome content, which tracks activity rather than cell
+numbers, and Bracken corrects for neither.
 
 ```bash
 nextflow run . -profile local,singularity \
   --input_accessions PRJNA379542 \
-  --remove_rrna --sortmerna_db /data/rrna/smr_v4.3_sensitive_db.fasta \
+  --remove_rrna --sortmerna_db /data/rrna/smr_v6.0.2_default_db.fasta \
   --host GCF_000001405.40 \
   --kraken2_db /data/k2_core_nt \
   --bracken_threshold 10 \
   --outdir results
 ```
 
-Leave it off for poly(A)-selected RNA or for DNA libraries: there is no rRNA to
-remove and the step is pure cost.
-
-The reference FASTAs are not bundled with SortMeRNA. They ship as a separate
-`database.tar.gz` download from the SortMeRNA releases page (Silva 138 SSURef
-NR99 + RFAM 14.1), giving `smr_*_default_db.fasta`, `*_fast_db.fasta` and
-`*_sensitive_db.fasta`. Pass one or several, comma-separated.
+The reference FASTAs are not bundled with SortMeRNA. They are released in the
+[sortmerna-database](https://github.com/sortmerna/sortmerna-database/releases)
+repository: SILVA 138.2 and Rfam 15.1, as `smr_v6.0.2_default_db`
+(recommended), `_sensitive_db` and `_fast_db` archives, each holding the FASTA.
+Pass one or several, comma-separated. Older sets such as
+`smr_v4.3_sensitive_db.fasta` (SILVA 138 and RFAM 14.1) work too, since the
+index is built from whatever FASTA is given.
 
 ### Where it runs, and why
 
 Between trimming and host depletion - **not** on the non-host fraction, which is
 where Sola-Leyva et al. (Hum Reprod 2021) put it. Two reasons:
 
-- **Cost.** Depleting rRNA first shrinks HISAT2's input by up to 20x, instead of
-  making HISAT2 align a library that is almost entirely rRNA.
+- **Cost.** On a library that is mostly rRNA, removing it first shrinks
+  HISAT2's input by up to 20x, instead of making HISAT2 align all of it.
 - **Accounting.** `classified_pct` is derived from the last HISAT2 pass's
   unaligned count, which is exactly Kraken2's input. A filter placed after
   HISAT2 makes that denominator silently too large; placed before, every
   downstream number stays true by construction.
 
 The trade is that host rRNA is removed before host depletion can count it, so
-`host_removed_reads` gets smaller. That is the honest number - an rRNA read is
-neither host transcriptome nor microbial signal.
+`host_removed_reads` gets smaller, and microbial rRNA is removed before Kraken2
+sees it, so `classified_pct` describes the non-rRNA reads only.
 
-Pairs are kept in step with `--paired_in`, which flags **both** mates as rRNA
+Pairs are kept in step with `--paired-in`, which flags **both** mates as rRNA
 when **either** aligns. The surviving output therefore holds only pairs in which
 neither mate is rRNA - the same rule as `--require_both_mates_unmapped` in host
 depletion, and it means no `repair.sh` re-pairing pass is needed.
@@ -183,7 +215,7 @@ depletion, and it means no `repair.sh` re-pairing pass is needed.
 `rrna_removed_reads` and `rrna_pct` are added to the read-accounting table, and
 the SortMeRNA log reaches MultiQC as a `% rRNA` general-statistics column. The
 accounting figure is computed as trimmed reads minus what the first host pass
-received, not read off the log: with `--paired_in` the log's per-read E-value
+received, not read off the log: with `--paired-in` the log's per-read E-value
 counts overstate what actually left the step.
 
 ### Index reuse and versions
@@ -191,20 +223,26 @@ counts overstate what actually left the step.
 The index is built once per run and shared by every sample. Point
 `--sortmerna_index` at a prebuilt one to skip that.
 
-The pipeline pins SortMeRNA **4.3.7**, which is the newest build on Bioconda.
-Versions 5, 6 and 7 are published on conda-forge only. If you want one of those:
+The pipeline runs SortMeRNA **8.0.0**, from conda-forge, in a Seqera Containers
+image built from that package. SortMeRNA left Bioconda after 4.3.7, which is
+still the version nf-core's module pins, so this pipeline keeps its own copy of
+the module. Three changes since 4.3.7 matter here:
 
-```groovy
-process {
-    withName: 'SORTMERNA_INDEX|SORTMERNA_READS' {
-        container = '<your sortmerna 7 image>'
-    }
-}
-```
+- **Index-only is `--task 5`.** Since 6.0, `--index 1` means "build the index if
+  it is missing, then align". The module therefore needs 6.0 or later, and
+  pointing it at an older image fails.
+- **The index format changed in 6.0** (CMPH to BBHash), so an index built by
+  4.x or 5.x cannot be read. Rebuild it with
+  `sortmerna --ref <fasta> --workdir <dir> --task 5`, which writes `<dir>/idx`,
+  or drop `--sortmerna_index`.
+- **The aligner changed in 6.0**, from SSW to Parasail, so per-library rRNA
+  counts are not guaranteed to match a 4.3.7 run. Don't mix the two in one
+  comparison.
 
-The command-line options used here are unchanged across those releases, but
-**SortMeRNA 6.0 changed the index format** (CMPH to BBHash), so an index built
-by 4.x cannot be read by 6.x/7.x. Rebuild it, or drop `--sortmerna_index`.
+The 2026 releases came quickly, and 5.0.0, 6.0.0 and 7.0.0 each shipped a
+regression fixed in a later release (miscounted multi-line FASTA input,
+degenerate alignments from the new aligner, a crash on gzipped reads). 8.0.0
+came out on 24 October 2026 and has not yet been run on this pipeline's data.
 
 ## The host genome
 
@@ -2323,7 +2361,7 @@ ecoli_k12,511145,,GCF_000005845.2,
 | `id`        | names the genome's files (letters, digits, `-`, and single `_`)                                                 |
 | `taxid`     | the NCBI taxid every sequence of the genome is assigned to                                                      |
 | `fasta`     | a FASTA, optionally gzipped                                                                                     |
-| `accession` | or an assembly accession, GCF_* (RefSeq) or GCA_* (GenBank)                                                     |
+| `accession` | or an assembly accession, `GCF_*` (RefSeq) or `GCA_*` (GenBank)                                                 |
 | `cds`       | optional: the genome's coding sequences, nucleotide; the MetaPhlAn build's genes, required there for eukaryotes |
 
 Every header is rewritten to carry its taxid (`kraken:taxid|<n>`), so no

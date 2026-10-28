@@ -4,9 +4,8 @@
 // Placed BETWEEN trimming and host depletion, which is not where Sola-Leyva et
 // al. put it (they run it on the non-host fraction). Two reasons:
 //
-//   1. Cost. rRNA is 94-99% of a total-RNA/RiboZero library, so depleting it
-//      first shrinks HISAT2's input by up to 20x instead of making HISAT2 align
-//      a library that is almost entirely rRNA.
+//   1. Cost. On a library that is mostly rRNA, removing it first shrinks
+//      HISAT2's input by up to 20x instead of making HISAT2 align all of it.
 //   2. Accounting. read_accounting.py derives `classified_pct` from the LAST
 //      HISAT2 pass's unaligned count, which is exactly Kraken2's input. Insert
 //      a filter after HISAT2 and that denominator is silently too large;
@@ -14,10 +13,11 @@
 //      construction.
 //
 // The trade is that host rRNA is removed before host depletion can count it,
-// so `host_removed_reads` gets smaller. That is the honest number: an rRNA read
-// is neither host transcriptome nor microbial signal.
+// so `host_removed_reads` gets smaller. The microbes' rRNA goes too, since the
+// references cover every domain - in RNA-seq often most of a microbe's reads,
+// which is why the step is opt-in.
 //
-// Pairs are held together with `--paired_in`, which flags BOTH mates as rRNA
+// Pairs are held together with `--paired-in`, which flags BOTH mates as rRNA
 // when EITHER aligns - so the surviving output holds only pairs in which
 // neither mate is rRNA. That is the same rule, and the same reasoning, as
 // --require_both_mates_unmapped in host depletion: a uniform, slightly
@@ -26,8 +26,8 @@
 //
 
 include { commaList                   } from '../utils_nfcore_reanatax_pipeline'
-include { SORTMERNA as SORTMERNA_INDEX } from '../../../modules/nf-core/sortmerna/main'
-include { SORTMERNA as SORTMERNA_READS } from '../../../modules/nf-core/sortmerna/main'
+include { SORTMERNA as SORTMERNA_INDEX } from '../../../modules/local/sortmerna/main'
+include { SORTMERNA as SORTMERNA_READS } from '../../../modules/local/sortmerna/main'
 
 workflow RRNA_REMOVAL_SORTMERNA {
 
@@ -49,8 +49,9 @@ workflow RRNA_REMOVAL_SORTMERNA {
     // SortMeRNA indexes its references on every invocation unless handed an
     // `--idx-dir`, which on a cohort would repeat the same minutes of work per
     // sample. Note the index format changed in SortMeRNA 6.0 (CMPH -> BBHash),
-    // so an index built by 4.x cannot be reused by 6.x/7.x - point
-    // --sortmerna_index at one built by the same version, or let this build it.
+    // so an index built by 4.x or 5.x cannot be read by the 8.0 the module
+    // runs - point --sortmerna_index at one built by 6.0 or later, or let this
+    // build it.
     //
     def ch_index = channel.empty()
 
