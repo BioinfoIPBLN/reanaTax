@@ -672,7 +672,9 @@ workflow REANATAX {
             ch_prism_minimap2_index = channel.value(params.prism_minimap2_index)
         }
         else {
-            def prism_host = host_refs.first()
+            def prism_host = params.host_bundle
+                ? [kind: 'fasta', value: params.host_bundle]
+                : hostReferences().find { ref -> ref.kind in ['fasta', 'accession', 'taxid'] }
             PREPARE_HOST_REFERENCE_PRISM(
                 prism_host.kind == 'fasta' ? prism_host.value : null,
                 null,
