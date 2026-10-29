@@ -2079,7 +2079,11 @@ hold:
 - `sorted_accession_map.txt` — the accession→taxid map, built once with
   `blastdbcmd` against your BLAST database.
 
-plus a BLAST `nt` database (and, unless you hand over prebuilt `--prism_star_genome_dir` / `--prism_minimap2_index`, a host reference `--host` / `--host_bundle` for the pipeline to build its STAR and minimap2 indices from). The run stops at validation if any required parameter is missing, rather than failing several hours in.
+plus a BLAST `nt` database with NCBI's `taxonomy4blast.sqlite3` beside it
+(from `taxdb.tar.gz`; the script puts it there). Without that file BLAST
+matches PRISM's taxids exactly, and a species misses every sequence labelled
+with one of its strains or serovars — nine in ten Salmonella entries in
+core_nt. The run warns when it is missing. Unless you hand over prebuilt `--prism_star_genome_dir` / `--prism_minimap2_index`, PRISM also needs a host reference (`--host` / `--host_bundle`) for the pipeline to build its STAR and minimap2 indices from. The run stops at validation if any required parameter is missing, rather than failing several hours in.
 
 **The pipeline does not install PRISM.** PRISM is an R script that shells out
 to Kraken2, minimap2, STAR, BLAST and SeqKit, and no biocontainer carries that

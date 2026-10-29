@@ -23,7 +23,8 @@
 // NOT PACKAGED. --prism_path must point at a prepared clone holding the
 // repository's own files plus two things that are not in it: `genbank/`
 // (the processed GenBank RDS files, distributed separately by the authors) and
-// `sorted_accession_map.txt` (built once with blastdbcmd). See docs/usage.md.
+// `sorted_accession_map.txt` (built once with blastdbcmd). The BLAST database
+// wants NCBI's taxonomy4blast.sqlite3 beside it. See assets/prism/.
 process PRISM_RUN {
     tag "${meta.id}"
     label 'process_high'
@@ -114,9 +115,10 @@ process PRISM_RUN {
     // (mouse, rat, fly, worm, zebrafish, Arabidopsis) suits the human data its
     // model was trained on, where the host itself is the decoy; for any other
     // host the decoy should be that host. PRISM adds human (9606) itself.
-    // BLAST expands taxids to their descendants only when taxonomy4blast.sqlite3
-    // sits beside the database, so they are expanded here from the Kraken2
-    // database's nodes.dmp, and passed as they are where it has none.
+    // BLAST expands taxids to their descendants only when it finds
+    // taxonomy4blast.sqlite3 (see BLASTDB below), so they are expanded here as
+    // well, from the Kraken2 database's nodes.dmp, and passed as they are where
+    // it has none.
     def seeds = decoy_taxids.toString().tokenize(',').collect { taxid -> taxid.trim() }.findAll { taxid -> taxid }
     def decoys = seeds == ['prism']
         ? "cp ${prism_dir}/model_org_taxids.txt prism_decoys.txt"
@@ -136,6 +138,8 @@ process PRISM_RUN {
     else
         printf '%s\\n' ${seeds.join(' ')} > prism_decoys.txt
     fi"""
+    def blast_dir = file(blast_db.toString()).parent
+    def blast_slices = task.ext.blast_slices ?: Math.max(1, task.cpus.intdiv(4))
     """
     ${prepend}
     mkdir -p prism_in prism_out prism_bin
@@ -150,6 +154,30 @@ process PRISM_RUN {
     printf '#!/usr/bin/env bash\\nexec %s --memory-mapping "\$@"\\n' "\$(command -v kraken2)" > prism_bin/kraken2
     chmod +x prism_bin/kraken2
     cat ${kraken_db}/*.k2d > /dev/null
+
+    # PRISM runs STAR without --runThreadN, so on one thread: about 30 min per
+    # 10M read pairs while the rest of the task's cores sat idle.
+    printf '#!/usr/bin/env bash\\nexec %s --runThreadN ${task.cpus} "\$@"\\n' "\$(command -v STAR)" > prism_bin/STAR
+    chmod +x prism_bin/STAR
+
+    # PRISM's blastn runs as ${blast_slices} processes over slices of the reads
+    # (bin/prism_blastn.py, one per four cores unless task.ext.blast_slices
+    # says otherwise): a single megablast keeps about half of its threads busy.
+    # blastdbcmd and makeblastdb are linked as they are.
+    mkdir -p prism_bin/blast
+    ln -s "\$(command -v blastdbcmd)" "\$(command -v makeblastdb)" prism_bin/blast/
+    printf '#!/usr/bin/env bash\\nexec prism_blastn.py %s ${blast_slices} "\$@"\\n' "\$(command -v blastn)" > prism_bin/blast/blastn
+    chmod +x prism_bin/blast/blastn
+
+    # BLAST finds a taxid's descendants only through taxonomy4blast.sqlite3,
+    # which it looks for on BLASTDB - also for the per-sample database PRISM
+    # builds in its own directory. Without it, -taxidlist and -taxids match the
+    # exact taxid and miss every sequence labelled with a strain or serovar.
+    if [ -s ${blast_dir}/taxonomy4blast.sqlite3 ]; then
+        export BLASTDB=${blast_dir}
+    else
+        echo "WARNING: no taxonomy4blast.sqlite3 beside ${blast_db}; BLAST matches PRISM's taxids exactly" >&2
+    fi
 
     # PRISM takes PATHS, not names on \$PATH - and they are not all the same
     # kind of path. kraken2, seqkit, STAR and minimap2 are validated with
@@ -167,9 +195,9 @@ process PRISM_RUN {
         --kraken_path \$PWD/prism_bin/kraken2 \\
         --kraken_db_path ${kraken_db} \\
         --seqkit_path \$(command -v seqkit) \\
-        --star_path \$(command -v STAR) \\
+        --star_path \$PWD/prism_bin/STAR \\
         --star_genome_dir ${star_genome_dir} \\
-        --blast_path \$(dirname \$(command -v blastn)) \\
+        --blast_path \$PWD/prism_bin/blast \\
         --blast_db_path ${blast_db} \\
         --minimap2_path \$(command -v minimap2) \\
         --minimap2_index ${minimap2_index} \\

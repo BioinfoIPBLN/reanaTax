@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Prepare a directory for reanaTax's --prism_path: sjdlabgroup/PRISM at the
 # commit reanaTax's fixes were made against, those fixes applied, the authors'
-# processed GenBank annotation unpacked, and the accession-to-taxid map built
-# from your own BLAST database. See README.md beside this script.
+# processed GenBank annotation unpacked, the accession-to-taxid map built from
+# your own BLAST database, and NCBI's taxonomy4blast.sqlite3 put beside that
+# database. See README.md beside this script.
 #
 # Usage: prepare_prism.sh <target_dir> <blast_db_prefix> <genbank.zip>
 #   target_dir       where the prepared PRISM goes (cloned if it does not exist)
@@ -10,9 +11,9 @@
 #                    e.g. /data/blast/core_nt
 #   genbank.zip      the processed GenBank files, downloaded by hand from the
 #                    link in PRISM's README (Google Drive, ~2 GB)
-# Needs git, unzip, sort, and blastdbcmd on the PATH.
+# Needs git, unzip, sort, curl, tar, and blastdbcmd on the PATH.
 set -euo pipefail
-[[ $# -eq 3 ]] || { sed -n '2,13p' "$0"; exit 1; }
+[[ $# -eq 3 ]] || { sed -n '2,14p' "$0"; exit 1; }
 target=$1
 blast_db=$2
 genbank_zip=$3
@@ -38,6 +39,14 @@ fi
 
 [[ -s ${target}/genbank/genbank_indices.RDS ]] || unzip -q -o "${genbank_zip}" -d "${target}"
 [[ -s ${target}/genbank/genbank_indices.RDS ]] || { echo "No genbank/genbank_indices.RDS after unzipping." >&2; exit 1; }
+
+# BLAST matches a taxid's descendants only with this file where it can find it
+# (PRISM_RUN points BLASTDB at the database's directory); without it, a species
+# taxid misses every sequence labelled with a strain or serovar.
+blast_dir=$(dirname "${blast_db}")
+if [[ ! -s ${blast_dir}/taxonomy4blast.sqlite3 ]]; then
+    curl -fsSL https://ftp.ncbi.nlm.nih.gov/blast/db/taxdb.tar.gz | tar xz -C "${blast_dir}" taxonomy4blast.sqlite3
+fi
 
 # taxid<TAB>accession, sorted by accession: the order PRISM's join reads it in.
 # PRISM's README (`%T %a`, sorted on the taxid) gives a map that join rejects.

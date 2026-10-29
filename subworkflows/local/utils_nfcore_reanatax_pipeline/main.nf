@@ -403,6 +403,9 @@ def validateInputParameters() {
         if (!params.prism_blast_db) {
             error("--run_prism needs --prism_blast_db (a BLAST nt database). PRISM validates every path before it starts, so a missing one fails the task rather than degrading the result.")
         }
+        if (!file(params.prism_blast_db.toString()).parent.resolve('taxonomy4blast.sqlite3').exists()) {
+            log.warn("--prism_blast_db has no taxonomy4blast.sqlite3 beside it, so BLAST matches PRISM's taxids exactly and leaves out every sequence labelled with a strain, serovar or subspecies - nine in ten Salmonella entries in core_nt. It comes in NCBI's taxdb.tar.gz (https://ftp.ncbi.nlm.nih.gov/blast/db/); assets/prism/prepare_prism.sh puts it there.")
+        }
         def prism_prebuilt = params.prism_star_genome_dir && params.prism_minimap2_index
         if (prism_prebuilt != ((params.prism_star_genome_dir ? true : false) || (params.prism_minimap2_index ? true : false))) {
             error("--run_prism needs --prism_star_genome_dir and --prism_minimap2_index together (PRISM does its own host removal with STAR and minimap2). Leave both unset to have them built from the host reference.")
