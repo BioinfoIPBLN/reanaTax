@@ -972,6 +972,8 @@ Both now travel on the same shared drop list, so both reach the combined tables 
 
 The lineage is read from the run's own Kraken2 reports, so the ranks are the ones the database actually uses and there is no external taxonomy to keep in step. The taxa removed are listed in `host_clade/reanatax.host_clade_evidence.tsv`.
 
+The host is `--host_kmer_taxid`, else `--host_carryover_taxid`, and it may be a comma-separated list: for a species complex (`7165,44542` for _An. gambiae_ and _An. coluzzii_) or two hosts, each one's clade is dropped. A host taxid that no report contains does not stop the run. On a host-free mock there is simply nothing to drop. But a host whose genome is thin in the database has its reads assigned to relatives instead, which is the leakage this flag exists for, so its lineage is then read from the Kraken2 database's `nodes.dmp` (core_nt has one) and its clade is dropped wherever it appears. A taxid neither source knows is skipped with a note in the task log.
+
 It also reaches further than `--drop_host_taxon` does. That flag is an argument to the abundance filter, so it never touched the single-cell matrix — which is why _Homo sapiens_ rows outlived it in `cell_taxa`. `--drop_host_clade` travels on the shared drop list, so the cohort tables and the cell matrix agree.
 
 #### What it cannot do, and where the risk is

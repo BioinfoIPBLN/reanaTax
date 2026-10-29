@@ -1017,7 +1017,10 @@ def hostCladeSettings() {
     if (!known.contains(rank)) {
         error("--drop_host_clade: '${params.drop_host_clade}' is not one of ${known.join(', ')}.")
     }
-    def taxid = params.host_kmer_taxid ?: params.host_carryover_taxid
+    // A list, as --host_kmer_taxid takes one (a species complex, or two hosts);
+    // host_clade.py drops the union of their clades.
+    def taxid = (params.host_kmer_taxid ?: params.host_carryover_taxid ?: '').toString()
+        .tokenize(',').collect { part -> part.trim() }.findAll { part -> part }.join(',')
     if (!taxid) {
         error("--drop_host_clade needs a host taxid to expand from: set --host_carryover_taxid (or --host_kmer_taxid) to the taxon that names your host.")
     }

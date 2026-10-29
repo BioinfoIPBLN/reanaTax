@@ -16,7 +16,9 @@
 //
 // The lineage is read from the run's OWN reports rather than from a taxonomy
 // dump, so the ranks are the ones this database uses and there is nothing to
-// keep in step with it.
+// keep in step with it. The database's nodes.dmp, where it has one, serves only
+// a host taxid that no report contains: a host thin in the database has its
+// reads assigned to relatives, and its clade is found through the taxonomy.
 //
 process HOSTCLADE_EXPAND {
     tag "${meta.id}"
@@ -29,6 +31,7 @@ process HOSTCLADE_EXPAND {
 
     input:
     tuple val(meta), path(reports, stageAs: 'reports/*')
+    path kraken2_db, stageAs: 'kraken2_db'
     val taxid
     val rank
 
@@ -45,9 +48,12 @@ process HOSTCLADE_EXPAND {
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
+    nodes=""
+    if [ -s kraken2_db/nodes.dmp ]; then nodes="--nodes kraken2_db/nodes.dmp"; fi
     host_clade.py \\
         --reports reports/* \\
         --taxid ${taxid} \\
+        \${nodes} \\
         --rank ${rank} \\
         --drop-list ${prefix}.host_clade_drop.txt \\
         --evidence ${prefix}.host_clade_evidence.tsv \\

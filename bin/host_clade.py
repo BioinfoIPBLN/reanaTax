@@ -35,10 +35,23 @@ makes, never a default.
 The lineage comes from the run's own Kraken2 reports - two spaces per level in
 the name field - so the ranks are the ones the database actually uses and no
 external taxonomy dump has to be kept in step with it.
+
+SEVERAL HOSTS. --taxid takes a comma-separated list, as --host_kmer_taxid does:
+a species complex (An. gambiae with An. coluzzii), or two hosts. Each listed
+taxid contributes its clade at the rank, and the drop list is their union.
+
+A HOST WITH NO READS OF ITS OWN. A host taxid can be missing from every report,
+and that is not a reason to stop. On a host-free mock there is nothing to drop.
+But a host whose genome is thin in the database - a tick, a sand fly - has its
+reads assigned to relatives instead, which is the very leakage this removes. So
+the host's lineage is then read from the database's nodes.dmp (--nodes), and its
+clade is dropped wherever it does appear in the reports. Only a taxid neither
+source knows is skipped, with a note; if every one is, the lists are empty.
 """
 
 import argparse
 import collections
+import functools
 import os
 import sys
 
@@ -70,64 +83,105 @@ def read_counts(paths):
     return counts
 
 
+@functools.lru_cache(maxsize=None)
+def read_nodes(path):
+    """{taxid: parent}, {taxid: rank} from an NCBI nodes.dmp."""
+    parent, ranks = {}, {}
+    with open_maybe_gzip(path) as handle:
+        for line in handle:
+            fields = [field.strip() for field in line.split("|", 3)]
+            if len(fields) > 2:
+                parent[fields[0]], ranks[fields[0]] = fields[1], fields[2]
+    return parent, ranks
+
+
+def nodes_ancestor(path, taxid, rank):
+    """(known, ancestor): whether nodes.dmp knows taxid, and its ancestor (or itself) at rank."""
+    parent, ranks = read_nodes(path)
+    if taxid not in parent:
+        return False, None
+    node, seen = taxid, set()
+    while node in parent and node not in seen:
+        if ranks[node] == rank:
+            return True, node
+        seen.add(node)
+        node = parent[node]
+    return True, None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reports", nargs="+", required=True, help="per-sample Kraken2 reports")
-    parser.add_argument("--taxid", required=True, help="the host taxon, e.g. 9606")
+    parser.add_argument("--taxid", required=True,
+                        help="the host taxon, or several comma-separated, e.g. 9606 or 7165,44542")
     parser.add_argument("--rank", required=True, choices=sorted(RANK_CODES),
                         help="drop everything under the host's ancestor at this rank")
     parser.add_argument("--drop-list", required=True)
     parser.add_argument("--evidence", required=True)
     parser.add_argument("--mqc")
+    parser.add_argument("--nodes", help="the database's nodes.dmp, for a host taxid no report contains")
     args = parser.parse_args()
 
     nodes = {}
     for path in args.reports:
         nodes.update(parse_kreport(path))
 
-    host = str(args.taxid).strip()
-    if host not in nodes:
-        raise SystemExit(
-            f"host_clade: taxid {host} appears in none of the {len(args.reports)} Kraken2 "
-            "report(s), so its lineage cannot be read from them. Either the host taxid is "
-            "wrong, or host depletion was clean enough that nothing was assigned to it - in "
-            "which case there is no leakage to expand and --drop_host_clade should be unset."
-        )
-
     wanted = RANK_CODES[args.rank]
-    _rank, host_name, lineage = nodes[host]
-    anchor = next((t for t in reversed(lineage) if nodes[t][0] == wanted), None)
-    if anchor is None and nodes[host][0] == wanted:
-        anchor = host
-    if anchor is None:
-        raise SystemExit(
-            f"host_clade: {host_name} ({host}) has no ancestor at rank '{args.rank}' in this "
-            "database's taxonomy. Its lineage is: "
-            + " > ".join(f"{nodes[t][1]} [{nodes[t][0]}]" for t in lineage)
-        )
+    anchors, notes = [], []
+    for host in [part.strip() for part in str(args.taxid).split(",") if part.strip()]:
+        if host in nodes:
+            _rank, host_name, lineage = nodes[host]
+            anchor = next((t for t in reversed(lineage) if nodes[t][0] == wanted), None)
+            if anchor is None and nodes[host][0] == wanted:
+                anchor = host
+            if anchor is None:
+                raise SystemExit(
+                    f"host_clade: {host_name} ({host}) has no ancestor at rank '{args.rank}' in this "
+                    "database's taxonomy. Its lineage is: "
+                    + " > ".join(f"{nodes[t][1]} [{nodes[t][0]}]" for t in lineage)
+                )
+        elif args.nodes:
+            known, anchor = nodes_ancestor(args.nodes, host, args.rank)
+            if not known:
+                notes.append(f"taxid {host} is in no report and not in {args.nodes}; skipped")
+                continue
+            if anchor is None:
+                raise SystemExit(f"host_clade: taxid {host} has no ancestor at rank '{args.rank}' in {args.nodes}.")
+            notes.append(f"taxid {host} is in no report; its {args.rank} ({anchor}) was read from {args.nodes}")
+        else:
+            notes.append(f"taxid {host} is in no report and no --nodes was given; skipped")
+            continue
+        if anchor not in anchors:
+            anchors.append(anchor)
+
+    for note in notes:
+        print(f"[host_clade] {note}", file=sys.stderr)
 
     counts = read_counts(args.reports)
-    members = [
-        taxid
-        for taxid, (_r, _n, ancestors) in nodes.items()
-        if taxid == anchor or anchor in ancestors
-    ]
-    members.sort(key=lambda t: -counts.get(t, 0.0))
+    clade_of = {}
+    for taxid, (_r, _n, ancestors) in nodes.items():
+        anchor = next((a for a in anchors if taxid == a or a in ancestors), None)
+        if anchor is not None:
+            clade_of[taxid] = anchor
+    members = sorted(clade_of, key=lambda t: -counts.get(t, 0.0))
+    label = {a: nodes[a][1] if a in nodes else f"taxid {a}" for a in anchors}
 
     with open(args.drop_list, "w", encoding="utf-8") as handle:
         for taxid in members:
             handle.write(f"{taxid}\n")
 
-    anchor_name = nodes[anchor][1]
     with open(args.evidence, "w", encoding="utf-8") as handle:
         handle.write("taxid\tname\trank\treads\tclade_anchor\tanchor_rank\n")
         for taxid in members:
             rank, name, _a = nodes[taxid]
             handle.write(
-                f"{taxid}\t{name}\t{rank}\t{counts.get(taxid, 0.0):.0f}\t{anchor_name}\t{args.rank}\n"
+                f"{taxid}\t{name}\t{rank}\t{counts.get(taxid, 0.0):.0f}\t{label[clade_of[taxid]]}\t{args.rank}\n"
             )
 
     total = sum(counts.get(t, 0.0) for t in members)
+    if not members:
+        print(f"[host_clade] nothing to drop: no report holds a taxon under the host's {args.rank}.", file=sys.stderr)
+        return
     if args.mqc:
         with open(args.mqc, "w", encoding="utf-8") as handle:
             handle.write(
@@ -146,10 +200,13 @@ def main():
                 "#     ylab: 'Reads'\n"
             )
             handle.write("Sample\tdropped_reads\n")
-            handle.write(f"{anchor_name} ({args.rank})\t{total:.0f}\n")
+            for anchor in anchors:
+                if anchor in clade_of.values():
+                    reads = sum(counts.get(t, 0.0) for t in members if clade_of[t] == anchor)
+                    handle.write(f"{label[anchor]} ({args.rank})\t{reads:.0f}\n")
 
     print(
-        f"[host_clade] {host_name} ({host}) -> {args.rank} {anchor_name} ({anchor}): "
+        f"[host_clade] {args.rank} {', '.join(f'{label[a]} ({a})' for a in anchors if a in clade_of.values())}: "
         f"{len(members)} taxid(s) listed for removal, {total:.0f} read(s).",
         file=sys.stderr,
     )

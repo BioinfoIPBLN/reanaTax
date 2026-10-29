@@ -55,6 +55,8 @@ Initial release of BioinfoIPBLN/reanatax, created with the [nf-core](https://nf-
 
 ### `Fixed`
 
+- `--drop_host_clade` stopped the run on any host given as a list: `hostCladeSettings()` passed `--host_kmer_taxid` to `host_clade.py` as it was, so `7165,44542` (the _An. gambiae_ complex) was looked up as one taxid and found in no report. It also stopped by design when the host had no reads of its own. `host_clade.py` now takes a comma-separated list and drops the union of the hosts' clades, and a host taxid that no report contains no longer stops the run: its lineage is read from the Kraken2 database's `nodes.dmp`, so a host thin in the database (where its reads went to relatives) still has its clade dropped, while a host-free mock has nothing to drop. A taxid neither source knows is skipped with a note.
+
 - PRISM found no taxa at all, silently, in paired libraries downloaded from ENA: their FASTQ headers carry the mate number in the comment (`@ERR2935854.1 HWI-...:2249/1`), PRISM tests the whole header line for `/1`, appends mate suffixes the read IDs do not have, and seqkit then extracts no read. PRISM_RUN now keeps only the read ID on each header. Found on the Zymo library ERR2935854, which completed normally from SRA-format headers and returned nothing from ENA ones.
 
 - `--build_databases` published no database files for Kraken2, KrakenUniq or MetaPhlAn, only the side tables: the modules output their `db` directory as one path, and publishDir skips everything under a directory output. They now output the directory's files and folders instead, and the Bracken build stages them back into one directory.

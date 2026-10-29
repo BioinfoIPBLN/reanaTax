@@ -462,6 +462,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
                 .map { _meta, report -> report }
                 .collect(sort: true)
                 .map { reports -> [[id: 'kraken2_host_clade'], reports] },
+            ch_kraken2_db,
             host_clade.taxid,
             host_clade.rank,
         )
