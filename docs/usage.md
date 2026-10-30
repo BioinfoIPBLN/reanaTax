@@ -2161,8 +2161,11 @@ list.
 **Memory and time.** PRISM runs its own Kraken2 pass, and against core_nt that
 held about 334 GB per task. PRISM's `kraken2` is therefore called through a
 wrapper that adds `--memory-mapping`, so concurrent tasks share one copy of the
-database in the page cache. Each task still asks for 350 GB, which keeps the
-local executor from stacking several next to the Kraken2 daemon. The full
+database in the page cache. Each task asks for 200 GB, doubled on a retry:
+what a task held of its own peaked at 101-143 GB on 9.5-14.3 M read pairs,
+in PRISM's last (FASTA) step. The mapped Kraken2 and BLAST databases take
+another 260-310 GB of page cache, shared by every task on the node, so leave
+room for them once when deciding how many PRISM tasks a node can take. The full
 BLAST step covers every candidate microbial read, so on a library that is
 mostly microbial (a mock community) it ran 10-13 h, and the task's limit is
 48 h. A `.SD[which.min()]` grouping in PRISM's GenBank step made that step run

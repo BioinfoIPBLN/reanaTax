@@ -45,7 +45,7 @@ runs of the same pipeline is not a control.
 
 The library is shuffled in chunks of CHUNK fragments, each with its own random
 stream seeded from (seed, chunk number), on --threads worker processes, and the
-chunks are written back in order as gzip members (level 1). The output depends
+chunks are written back in order as gzip members (level 6). The output depends
 only on the seed and the input, never on the number of threads. A single
 interpreter shuffled about 4,400 reads a second, so a 48 M-pair library did not
 finish in 4 h.
@@ -199,7 +199,7 @@ def shuffle_chunk(job):
             else:
                 sequence = shuffler(upper, rng)
             out.append(f"{name}\n{sequence}\n{plus}\n{quality}\n")
-        members.append(gzip.compress("".join(out).encode("utf-8"), compresslevel=1))
+        members.append(gzip.compress("".join(out).encode("utf-8"), compresslevel=6))
     return members, len(mates[0]) // 4, bases, gc
 
 
@@ -256,7 +256,7 @@ def main():
                     keep(pending.popleft().get())
         if written == 0:
             for handle in outputs:
-                handle.write(gzip.compress(b"", compresslevel=1))
+                handle.write(gzip.compress(b"", compresslevel=6))
     finally:
         for handle in outputs:
             handle.close()
