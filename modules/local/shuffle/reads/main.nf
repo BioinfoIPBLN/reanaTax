@@ -43,6 +43,7 @@ process SHUFFLE_READS {
         --method ${method} \\
         --seed ${seed} \\
         --max-reads ${max_reads} \\
+        --threads ${task.cpus} \\
         --stats ${prefix}.shuffle_stats.tsv
     """
 

@@ -42,36 +42,59 @@ so the record stays internally consistent for anything downstream that does.
 
 A fixed seed is required, not optional. A control whose result changes between
 runs of the same pipeline is not a control.
+
+The library is shuffled in chunks of CHUNK fragments, each with its own random
+stream seeded from (seed, chunk number), on --threads worker processes, and the
+chunks are written back in order as gzip members (level 1). The output depends
+only on the seed and the input, never on the number of threads. A single
+interpreter shuffled about 4,400 reads a second, so a 48 M-pair library did not
+finish in 4 h.
 """
 import argparse
+import collections
 import gzip
+import itertools
+import multiprocessing
 import random
 import sys
 
+CHUNK = 100_000
 
-def open_maybe_gzip(path, mode="rt"):
+
+def open_maybe_gzip(path):
     if path.endswith(".gz"):
-        return gzip.open(path, mode, errors="replace") if "t" in mode else gzip.open(path, mode)
-    return open(path, mode, encoding="utf-8", errors="replace")
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    return open(path, encoding="utf-8", errors="replace")
 
 
-def fastq_records(path):
-    """Yield (name, sequence, plus, quality). Raises on a truncated record."""
-    with open_maybe_gzip(path) as handle:
-        while True:
-            name = handle.readline()
-            if not name:
+def read_chunks(paths, max_reads):
+    """Yield (index, [lines of each mate]) for CHUNK fragments at a time."""
+    handles = [open_maybe_gzip(path) for path in paths]
+    try:
+        taken = 0
+        for index in itertools.count():
+            want = CHUNK if not max_reads else min(CHUNK, max_reads - taken)
+            if want <= 0:
                 return
-            sequence = handle.readline()
-            plus = handle.readline()
-            quality = handle.readline()
-            if not quality:
-                raise SystemExit(
-                    f"[shuffle_reads] '{path}' ends mid-record. A truncated FASTQ would make the "
-                    "control disagree with the real classification for reasons that have nothing "
-                    "to do with composition."
-                )
-            yield name.rstrip("\n"), sequence.rstrip("\n"), plus.rstrip("\n"), quality.rstrip("\n")
+            mates = [list(itertools.islice(handle, 4 * want)) for handle in handles]
+            for path, lines in zip(paths, mates):
+                if len(lines) % 4:
+                    raise SystemExit(
+                        f"[shuffle_reads] '{path}' ends mid-record. A truncated FASTQ would make the "
+                        "control disagree with the real classification for reasons that have nothing "
+                        "to do with composition."
+                    )
+            if len({len(lines) for lines in mates}) > 1:
+                raise SystemExit("[shuffle_reads] the mate files hold different numbers of reads.")
+            if not mates[0]:
+                return
+            taken += len(mates[0]) // 4
+            yield index, mates
+            if len(mates[0]) < 4 * want:
+                return
+    finally:
+        for handle in handles:
+            handle.close()
 
 
 def mono_shuffle(sequence, rng):
@@ -157,6 +180,29 @@ def _reaches(tree_edge, vertices, last):
     return True
 
 
+def shuffle_chunk(job):
+    """(gzip member per mate, fragments, bases, GC) for one chunk, from its own seeded stream."""
+    index, mates, method, seed = job
+    rng = random.Random(f"{seed}:{index}")
+    shuffler = {"mono": mono_shuffle, "dinuc": dinuc_shuffle}.get(method)
+    bases = gc = 0
+    members = []
+    for lines in mates:
+        out = []
+        for start in range(0, len(lines), 4):
+            name, sequence, plus, quality = (line.rstrip("\n") for line in lines[start:start + 4])
+            upper = sequence.upper()
+            bases += len(upper)
+            gc += upper.count("G") + upper.count("C")
+            if method == "reverse":
+                sequence, quality = sequence[::-1], quality[::-1]
+            else:
+                sequence = shuffler(upper, rng)
+            out.append(f"{name}\n{sequence}\n{plus}\n{quality}\n")
+        members.append(gzip.compress("".join(out).encode("utf-8"), compresslevel=1))
+    return members, len(mates[0]) // 4, bases, gc
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--reads", nargs="+", required=True, help="one or two FASTQ files")
@@ -169,52 +215,50 @@ def main():
         default=0,
         help="shuffle only the first N reads (pairs); 0 takes the whole library",
     )
+    parser.add_argument("--threads", type=int, default=1, help="worker processes; the output does not depend on it")
     parser.add_argument("--stats", default=None, help="write a one-line accounting TSV here")
     args = parser.parse_args()
 
     if len(args.reads) > 2:
         sys.exit(f"[shuffle_reads] expected one or two FASTQ files, got {len(args.reads)}.")
 
-    rng = random.Random(args.seed)
-    shuffler = {"mono": mono_shuffle, "dinuc": dinuc_shuffle}.get(args.method)
+    # Mates are read in lockstep so that truncation by --max-reads keeps the
+    # pairing: Kraken2 reads a pair as one fragment and a half-truncated file
+    # would silently change what the control is counting.
+    jobs = ((index, mates, args.method, args.seed) for index, mates in read_chunks(args.reads, args.max_reads))
+    suffixes = ["_1", "_2"] if len(args.reads) == 2 else [""]
+    outputs = [open(f"{args.prefix}_shuffled{suffix}.fastq.gz", "wb") for suffix in suffixes]
+    written = bases = gc = 0
 
-    written = 0
-    bases = 0
-    gc = 0
-    handles = []
+    def keep(result):
+        nonlocal written, bases, gc
+        members, fragments, chunk_bases, chunk_gc = result
+        for handle, member in zip(outputs, members):
+            handle.write(member)
+        written += fragments
+        bases += chunk_bases
+        gc += chunk_gc
+
     try:
-        for index, _path in enumerate(args.reads, start=1):
-            suffix = f"_{index}" if len(args.reads) == 2 else ""
-            handles.append(gzip.open(f"{args.prefix}_shuffled{suffix}.fastq.gz", "wt"))
-
-        # Mates are stepped together so that truncation by --max-reads keeps the
-        # pairing: Kraken2 reads a pair as one fragment and a half-truncated
-        # file would silently change what the control is counting.
-        streams = [fastq_records(path) for path in args.reads]
-        while True:
-            records = []
-            for stream in streams:
-                records.append(next(stream, None))
-            if records[0] is None:
-                break
-            if any(record is None for record in records):
-                sys.exit("[shuffle_reads] the mate files hold different numbers of reads.")
-            if args.max_reads and written >= args.max_reads:
-                break
-            for handle, (name, sequence, plus, quality) in zip(handles, records):
-                upper = sequence.upper()
-                bases += len(upper)
-                gc += upper.count("G") + upper.count("C")
-                if args.method == "reverse":
-                    new_sequence = sequence[::-1]
-                    new_quality = quality[::-1]
-                else:
-                    new_sequence = shuffler(upper, rng)
-                    new_quality = quality
-                handle.write(f"{name}\n{new_sequence}\n{plus}\n{new_quality}\n")
-            written += 1
+        if args.threads <= 1:
+            for job in jobs:
+                keep(shuffle_chunk(job))
+        else:
+            # At most two chunks per worker in flight, so memory stays bounded
+            # whatever the library size; results are taken back in chunk order.
+            with multiprocessing.Pool(args.threads) as pool:
+                pending = collections.deque()
+                for job in jobs:
+                    pending.append(pool.apply_async(shuffle_chunk, (job,)))
+                    if len(pending) >= 2 * args.threads:
+                        keep(pending.popleft().get())
+                while pending:
+                    keep(pending.popleft().get())
+        if written == 0:
+            for handle in outputs:
+                handle.write(gzip.compress(b"", compresslevel=1))
     finally:
-        for handle in handles:
+        for handle in outputs:
             handle.close()
 
     if args.stats:
@@ -227,7 +271,7 @@ def main():
 
     print(
         f"[shuffle_reads] {args.prefix}: {written} fragment(s) shuffled by '{args.method}' "
-        f"(seed {args.seed}), GC {100 * gc / bases if bases else 0:.2f}%.",
+        f"(seed {args.seed}, {args.threads} thread(s)), GC {100 * gc / bases if bases else 0:.2f}%.",
         file=sys.stderr,
     )
 

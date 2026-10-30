@@ -885,6 +885,12 @@ below `scale / --shuffle_max_ratio` real reads could be flagged. That floor is
 computed, printed, and taxa under it are reported as `untested_below_floor`
 rather than `clean` — an untested taxon has not passed anything.
 
+The shuffle runs on 8 cpus, in chunks of 100,000 fragments that each draw from
+their own random stream, seeded from `--shuffle_seed` and the chunk's position.
+The shuffled library therefore depends on the seed and the reads alone, not on
+how many cpus did the work; a 47.8 M-pair library takes minutes, where one
+interpreter ran past 4 h.
+
 The second Kraken2 pass runs with **exactly** the same arguments as the first.
 A control run at a different `--kraken2_confidence` would be measuring a
 different classifier.
