@@ -53,7 +53,7 @@ index f2d687f..b108d72 100644
  blast = out$micro; unmapped = out$unmapped
  
 diff --git a/functions.R b/functions.R
-index 026d0f7..9d55627 100644
+index 026d0f7..0549068 100644
 --- a/functions.R
 +++ b/functions.R
 @@ -189,11 +189,12 @@ prism_kraken <- function(sample,
@@ -193,6 +193,24 @@ index 026d0f7..9d55627 100644
    
    final <- res_most_specific[ , .(
      id, read, sacc, staxids, pos, qcovs, pident, bitscore,
+@@ -1511,7 +1550,16 @@ prism_profile = function(out_path, sample, kr_report, blast, prod){
+   
+   # load xgboost contamination model and predict
+   xg = readRDS(file = paste0(prism_path, 'prismxg.RDS'))
+-  pred = suppressMessages(predict(xg, feature_mat %>% dplyr::select(xg$feature_names) %>% mutate_all(~ replace(., is.infinite(.), NA)) %>% as.matrix()))
++
++  # A near-empty library (a blank) can leave one of the feature tables empty,
++  # so its columns never join in; the model scores those features as missing
++  missing = setdiff(xg$feature_names, colnames(feature_mat))
++  if (length(missing) > 0) {
++    log_message("PRISM profiling:", length(missing), "model feature(s) have no values; scored as missing")
++    feature_mat[missing] = NA_real_
++  }
++  pred = if (nrow(feature_mat) == 0) numeric(0) else
++    suppressMessages(predict(xg, feature_mat %>% dplyr::select(xg$feature_names) %>% mutate_all(~ replace(., is.infinite(.), NA)) %>% as.matrix()))
+   
+   # make species counts file 
+   counts = prod %>% 
 diff --git a/kreport2mpa.py b/kreport2mpa.py
 old mode 100644
 new mode 100755
