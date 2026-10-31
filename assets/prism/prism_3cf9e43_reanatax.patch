@@ -11,10 +11,20 @@ licence. What each change does and why: README.md.
 Apply with:  git -C <PRISM clone at 3cf9e43> apply <this file>
 
 diff --git a/PRISM.R b/PRISM.R
-index f2d687f..37bebd1 100644
+index f2d687f..9a7f78c 100644
 --- a/PRISM.R
 +++ b/PRISM.R
-@@ -61,6 +61,7 @@ blast_path = opt$blast_path
+@@ -31,7 +31,8 @@ option_list = list(
+   make_option(c("--out_path"), action="store", default = NULL, help = "output directory"),
+   make_option(c("--use_custom_db"), action="store", default = TRUE, help = "Create temporary subsetted BLAST database"),
+   make_option(c("--custom_db_path"), action="store", default = NULL, help = "temporary subsetted BLAST database directory"),
+-  make_option(c("--fasta_size_threshold_custom_db"), action="store", default = 5, help = "Minimum query FASTA file size in megabytes for which to create a temporary subsetted BLAST database")
++  make_option(c("--fasta_size_threshold_custom_db"), action="store", default = 5, help = "Minimum query FASTA file size in megabytes for which to create a temporary subsetted BLAST database"),
++  make_option(c("--write_fasta"), action="store", default = FALSE, help = "write the reads with microbial hits as FASTA, labelled with their best hit (T/F)")
+ )
+ opt = parse_args(OptionParser(option_list = option_list))
+ 
+@@ -61,6 +62,7 @@ blast_path = opt$blast_path
  blast_db_path = opt$blast_db_path
  prism_path = ifelse(str_detect(opt$prism_path, '/$'), opt$prism_path, paste0(opt$prism_path, '/'))
  model_org_taxids = ifelse(opt$model_org_taxids == 'NA', paste0(prism_path, opt$model_org_taxids), opt$model_org_taxids)
@@ -22,7 +32,15 @@ index f2d687f..37bebd1 100644
  min_read_per = opt$min_read_per
  min_uniq_frac = opt$min_uniq_frac
  paired = opt$paired %>% as.logical()
-@@ -94,6 +95,18 @@ log_file <- file(log_file_path, open = "wt")
+@@ -73,6 +75,7 @@ min_qcovs = opt$min_qcovs
+ use_custom_db = as.logical(opt$use_custom_db)
+ custom_db_path = opt$custom_db_path
+ fasta_size_threshold_custom_db = opt$fasta_size_threshold_custom_db
++write_fasta = as.logical(opt$write_fasta)
+ if(is.null(opt$out_path)){
+   out_path = paste0(ifelse(str_detect(data_path, '/$'), data_path, paste0(data_path, '/')), sample, '_prism/data/')
+   out_path_final = paste0(ifelse(str_detect(data_path, '/$'), data_path, paste0(data_path, '/')), sample, '_prism/')
+@@ -94,6 +97,18 @@ log_file <- file(log_file_path, open = "wt")
  on.exit({ close(log_file) }, add = TRUE)
  log_message("Starting PRISM pipeline")
  
@@ -41,7 +59,7 @@ index f2d687f..37bebd1 100644
  
  # ------- Step 1 ------- 
  # ------- Initial Kraken2 host depletion, microbial surveillance, and putative microbial read extraction
-@@ -140,6 +153,7 @@ if (!file.exists(file.path(out_path, paste0('star/', sample, "_Aligned.out.sam")
+@@ -140,6 +155,7 @@ if (!file.exists(file.path(out_path, paste0('star/', sample, "_Aligned.out.sam")
  
  # ------- Step 4 ------- 
  # ------- Sub-sample microbial reads by species taxids
@@ -49,7 +67,7 @@ index f2d687f..37bebd1 100644
  if (!file.exists(file.path(out_path, paste0(sample, "_sub_fa1")))) {
    id_df <- run_step("Sub-sampling by taxid", quote(
      prism_subsample(sample, out_path, fa1, fa2, sp_taxid, mpa, max_sample, paired)
-@@ -151,6 +165,7 @@ if (!file.exists(file.path(out_path, paste0(sample, "_sub_fa1")))) {
+@@ -151,6 +167,7 @@ if (!file.exists(file.path(out_path, paste0(sample, "_sub_fa1")))) {
    tax = ids %>% str_remove('.*taxid\\|') %>% as.numeric()
    id_df = data.frame(taxid = tax, id = ids %>% str_remove('\\s.*'))
  }
@@ -57,7 +75,7 @@ index f2d687f..37bebd1 100644
  
  # ------- Step 5 ------- 
  # ------- BLAST on sub-sampled putative microbial reads
-@@ -171,17 +186,10 @@ if (!file.exists(file.path(out_path, paste0(sample, "-final-blast1.csv")))) {
+@@ -171,17 +188,10 @@ if (!file.exists(file.path(out_path, paste0(sample, "-final-blast1.csv")))) {
    if((paired == T & !file.exists(file.path(out_path, paste0(sample, "-final-blast2.csv")))) | paired == F){
      uit <- run_step("Multimapping analysis", quote(
        prism_multimapping(out_path, sample, kr_report, mpa, paired, 
@@ -77,7 +95,7 @@ index f2d687f..37bebd1 100644
    }
  }
  
-@@ -203,7 +211,7 @@ if (!file.exists(file.path(out_path, paste0(sample, "-final-blast1.csv")))) {
+@@ -203,7 +213,7 @@ if (!file.exists(file.path(out_path, paste0(sample, "-final-blast1.csv")))) {
  # ------- Step 8 ------- 
  # ------- Filter non-microbial reads 
  out <- run_step("Filtering non-microbial reads", quote(
@@ -86,8 +104,24 @@ index f2d687f..37bebd1 100644
  ))
  blast = out$micro; unmapped = out$unmapped
  
+@@ -232,7 +242,12 @@ run_step("Saving outputs", quote({
+ 
+ # ------- Step 12 ------- 
+ # ------- Make PRISM FASTA files
+-run_step("Generating FASTA", quote(
+-  prism_FASTA(fa1, fa2, blast, out_path, out_path_final, sample, paired)
+-))
++if (write_fasta) {
++  run_step("Generating FASTA", quote(
++    prism_FASTA(fa1, fa2, blast, out_path, out_path_final, sample, paired)
++  ))
++} else {
++  log_message("Skipping FASTA output (--write_fasta FALSE).")
++  unlink(file.path(out_path, paste0(sample, c("_1.fa", "_2.fa"))))
++}
+ log_message("PRISM pipeline completed successfully.")
 diff --git a/functions.R b/functions.R
-index 026d0f7..f1147b8 100644
+index 026d0f7..99d536f 100644
 --- a/functions.R
 +++ b/functions.R
 @@ -189,11 +189,12 @@ prism_kraken <- function(sample,
@@ -273,6 +307,87 @@ index 026d0f7..f1147b8 100644
    
    # make species counts file 
    counts = prod %>% 
+@@ -1548,64 +1593,22 @@ prism_profile = function(out_path, sample, kr_report, blast, prod){
+ #' @param paired Logical. `TRUE` if paired-end reads are provided and should be processed.
+ 
+ prism_FASTA = function(fa1, fa2, blast, out_path, out_path_final, sample, paired){
+-  
+-  # make PRISM microbiome fasta file(s)
+-  
+-  #--- read in FASTA #1 and extract headers ---
+-  headers = ShortRead::id(fa1) %>% as.character()
+-  
+-  #--- parse taxids from headers (in 1k‐read chunks if large) ---
+-  if(length(headers) > 1000){
+-    header_ids = list()
+-    i1 = seq(0, length(headers), by = 1000)[-1] 
+-    i2 = i1 - 999  
+-    if(max(i1) < length(fa1)){i2 = c(i2, max(i1)+1); i1=c(i1, length(fa1))}
+-    for(i in 1:length(i2)){
+-      # print(i)
+-      header_ids[[i]] = str_remove(headers[i2[i]:i1[i]], '\\s.*')
+-    }
+-    header_ids = unlist(header_ids)
+-  } else {header_ids = str_remove(headers, '\\s.*')}
+-  
+-  fa1_new = subset(fa1, header_ids %in% blast$id) # subset for reads that were blasted
+-  ShortRead::writeFasta(fa1_new, file = paste0(out_path, sample, '-new_1.fa'))
+-  headers = subset(headers, header_ids %in% blast$id)
+-  header_ids = subset(header_ids, header_ids %in% blast$id)
+-  df = data.frame(header = headers, id = header_ids) %>% left_join(blast %>% select(id, staxids, sacc, pos), by = 'id')
+-  new_headers = paste0(">", df$header, ' | PRISM | staxids:', df$staxids, ' sacc:', df$sacc)
+-  write(new_headers, file = paste0(out_path_final, 'new_headers.txt'))
+-  str = paste0("awk 'NR==FNR { h[++i] = $0; next } /^>/ { print h[++j]; next } { print }' ", out_path_final, 'new_headers.txt ', 
+-               out_path, sample, '-new_1.fa > ', out_path_final, sample, '_1.fa')
+-  system(str)
+-  str = paste0('rm ', out_path, sample, '_1.fa ', out_path, sample, '-new_1.fa ', out_path_final, 'new_headers.txt')
+-  system(str)
+-  
+-  if(paired == T){
+-    headers2 = ShortRead::id(fa2) %>% as.character()
+-    #--- parse taxids from headers (in 1k‐read chunks if large) ---
+-    if(length(headers2) > 1000){
+-      header_ids2 = list()
+-      i1 = seq(0, length(headers2), by = 1000)[-1] 
+-      i2 = i1 - 999  
+-      if(max(i1) < length(fa2)){i2 = c(i2, max(i1)+1); i1=c(i1, length(fa2))}
+-      for(i in 1:length(i2)){
+-        # print(i)
+-        header_ids2[[i]] = str_remove(headers2[i2[i]:i1[i]], '\\s.*')
+-      }
+-      header_ids2 = unlist(header_ids2)
+-    } else {header_ids2 = str_remove(headers2, '\\s.*')}
+-    
+-    fa2_new = subset(fa2, header_ids2 %in% blast$id) # subset for reads that were blasted
+-    ShortRead::writeFasta(fa2_new, file = paste0(out_path, sample, '-new_2.fa'))
+-    df = data.frame(header = headers2, id = header_ids2) %>% left_join(blast %>% select(id, staxids, sacc, pos), by = 'id')
+-    new_headers = paste0(">", df$header, ' | PRISM | staxids:', df$staxids, ' sacc:', df$sacc)
+-    write(new_headers, file = paste0(out_path_final, 'new_headers.txt'))
+-    str = paste0("awk 'NR==FNR { h[++i] = $0; next } /^>/ { print h[++j]; next } { print }' ", out_path_final, 'new_headers.txt ', 
+-                 out_path, sample, '-new_2.fa > ', out_path_final, sample, '_2.fa')
+-    system(str)
+-    str = paste0('rm ', out_path, sample, '_2.fa ', out_path, sample, '-new_2.fa ', out_path_final, 'new_headers.txt')
+-    system(str)
++
++  # One record per read with a microbial hit, labelled with the read's best hit
++  best = unique(as.data.table(blast)[order(id, -bitscore)], by = 'id')
++
++  write_mate = function(fa, mate){
++    headers = ShortRead::id(fa) %>% as.character()
++    idx = match(str_remove(headers, '\\s.*'), best$id)
++    keep = !is.na(idx)
++    hit = best[idx[keep]]
++    labels = paste0(headers[keep], ' | PRISM | staxids:', hit$staxids, ' sacc:', hit$sacc)
++    reads = ShortRead::ShortRead(sread = ShortRead::sread(fa)[keep], id = Biostrings::BStringSet(labels))
++    ShortRead::writeFasta(reads, file = file.path(out_path_final, paste0(sample, '_', mate, '.fa')))
++    unlink(file.path(out_path, paste0(sample, '_', mate, '.fa')))
+   }
+-  
++
++  write_mate(fa1, 1)
++  if(paired == T){write_mate(fa2, 2)}
+ }
+ 
 diff --git a/kreport2mpa.py b/kreport2mpa.py
 old mode 100644
 new mode 100755

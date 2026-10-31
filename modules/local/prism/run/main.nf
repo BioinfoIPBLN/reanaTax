@@ -150,10 +150,14 @@ process PRISM_RUN {
     # every PRISM task held a private copy (~330 GB for core_nt) and a few at
     # once exhausted a 1 TB node. With --memory-mapping the tasks share one
     # copy in the page cache; reading it through once first spares the mapped
-    # pass from faulting it in page by page over a network filesystem.
+    # pass from faulting it in page by page over a network filesystem. A file
+    # fincore finds wholly in the page cache already is not read again.
     printf '#!/usr/bin/env bash\\nexec %s --memory-mapping "\$@"\\n' "\$(command -v kraken2)" > prism_bin/kraken2
     chmod +x prism_bin/kraken2
-    cat ${kraken_db}/*.k2d > /dev/null
+    for k2d in ${kraken_db}/*.k2d; do
+        fincore --bytes --noheadings --output RES,SIZE "\$k2d" 2>/dev/null | awk '\$1 >= \$2 { found = 1 } END { exit !found }' \\
+            || cat "\$k2d" > /dev/null
+    done
 
     # PRISM runs STAR without --runThreadN, so on one thread: about 30 min per
     # 10M read pairs while the rest of the task's cores sat idle.

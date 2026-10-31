@@ -211,6 +211,13 @@
                     "description": "Publish the downloaded genome and the HISAT2 index so later runs can reuse them.",
                     "fa_icon": "fas fa-save"
                 },
+                "reference_cache": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "A directory where host genomes and indexes are kept between runs, so each is built once.",
+                    "help_text": "The first run that needs a genome or index for a host builds it and stores it here; later runs with the same host, `--host_mask`, `--gtf` and build settings take it from here instead of building it. It covers the host genome as downloaded, unpacked or masked, the HISAT2, Bowtie2 and STAR indexes and the minimap2 index of each preset, including those PRISM uses. Created when first needed. It must be readable by every task, so on a cluster it has to be on a shared filesystem. Tool versions are not part of the key: clear the cache when you change the version of an aligner. See `docs/usage.md`.",
+                    "fa_icon": "fas fa-archive"
+                },
                 "univec": {
                     "type": "boolean",
                     "description": "Deplete against UniVec (vector, adapter, linker and primer sequence) as a final pass",
@@ -1156,6 +1163,12 @@
                     "description": "PRISM's maximum reads to sample",
                     "fa_icon": "fas fa-filter"
                 },
+                "prism_fasta": {
+                    "type": "boolean",
+                    "description": "Also write PRISM's FASTA of the reads with microbial hits, each labelled with its best hit",
+                    "help_text": "PRISM's last step. Off by default: it runs about an hour on one core per library, holds the task's memory peak, and nothing in the pipeline reads it. The files land in `prism/<sample>/prism_out/` as `<sample>_1.fa` and `<sample>_2.fa`. The patch in `assets/prism/` fixes this step, which as distributed labelled most reads with another read's name and hit.",
+                    "fa_icon": "fas fa-file-alt"
+                },
                 "prism_barcode_only": {
                     "type": "boolean",
                     "description": "Read 1 is barcode+UMI: drop it before PRISM sees the library",
@@ -2013,6 +2026,12 @@
                     "description": "Format for the sorted host alignments: BAM, or CRAM at roughly 40-60% of the size.",
                     "help_text": "CRAM stores differences from the reference instead of the sequence, so it needs `--host` and the run stops without it. It is also refused alongside Qualimap (`qualimap bamqc` takes `-bam` and cannot open a CRAM) and alongside `--quantify_host` (featureCounts reads SAM/BAM only); both are checked at startup rather than allowed to fail per sample at the end of a run. samtools stats, flagstat and idxstats all read CRAM and still run. The reference is indexed once per pass rather than rebuilt inside every task. Targeted alignments stay BAM regardless.",
                     "fa_icon": "fas fa-compress-alt"
+                },
+                "strict_tools": {
+                    "type": "boolean",
+                    "description": "Stop at startup when a tool asked for with --run_prism or --run_metax cannot run, instead of going on without it.",
+                    "help_text": "Without it, a requested PRISM or Metax that cannot be reached is a startup warning and the run finishes without that tool, as does a BLAST database without `taxonomy4blast.sqlite3`. With it, each of those stops the run before any task starts. Use it for runs that would have to be repeated anyway if the tool were missing. A database that is not there at all is an error either way.",
+                    "fa_icon": "fas fa-hand-paper"
                 },
                 "cleanup_intermediates": {
                     "type": "boolean",

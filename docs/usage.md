@@ -258,14 +258,30 @@ came out on 24 October 2026 and has not yet been run on this pipeline's data.
 ```bash
 --host GCF_000001405.40                    # download it
 --host /data/genomes/GRCh38.fa             # build from a local genome
---host results_smoke/reference/hisat2      # reuse an index built earlier
+--host results_smoke/reference/hisat2/GCF_000001405.40  # reuse an index built earlier
 ```
 
 `--fasta`, `--hisat2_index`, `--host_accession` and `--host_taxid` still work, but they are grouped by kind rather than kept in the order you wrote them, so a mixed set is always ordered index, FASTA, accession, taxid. `--host` preserves its own order, which is what makes the primary reference yours to choose.
 
 `GCF_` accessions come from RefSeq and `GCA_` from GenBank; the right section is chosen for you. Set `--ncbi_group` to the organism's group (`vertebrate_mammalian`, `bacteria`, `fungi`, `plant`, `viral`, …) — the default `all` works but downloads every group's assembly summary first and is noticeably slower.
 
-`--save_reference` (on by default) publishes the genome and the index under `<outdir>/reference/`, so subsequent runs can skip the build with `--host <outdir>/reference/hisat2`.
+`--save_reference` (on by default) publishes the genome and the index under `<outdir>/reference/`, one directory per host reference, so subsequent runs can skip the build with `--host <outdir>/reference/hisat2/<genome>`. The other indexes a run builds can be given back the same way; the [output documentation](output.md#reference) lists which parameter takes each.
+
+**A cache of genomes and indexes (`--reference_cache`).** Instead of handing indexes back by hand, point every run at one directory:
+
+```bash
+--reference_cache /scratch/reanatax_cache --save_reference false
+```
+
+The first run that needs a host's genome or index builds it and stores it there; every later run with the same host finds it and builds nothing. It keeps the genome as downloaded, unpacked or masked, the HISAT2, Bowtie2 and STAR indexes, and the minimap2 index of each preset, PRISM's included. An entry is `<cache>/<kind>/<genome>-<hash>`, and its `key.txt` lists what the hash covers:
+
+- the host as given: an accession, a taxid with `--ncbi_group`, or each FASTA's path, size and modification time, so a FASTA replaced in place is built again;
+- `--host_mask`'s genomes and k-mer settings, so a masked and an unmasked genome are different entries;
+- `--gtf` for the HISAT2 and STAR indexes, `--hisat2_build_memory` for HISAT2, the preset and `--minimap2_args` for minimap2, and `--ncbi_args` for downloads.
+
+Tool versions are not in it: when you change the version of an aligner, clear the cache, or give the run a new one. A taxid is kept as the genome it first resolved to, even after NCBI names a newer reference assembly. A prebuilt index given with `--host`, `--bowtie2_index` or `--star_index` is used as given and never cached.
+
+What a run builds it copies into the cache before using it, and from then on it reads the cache's copy. That way a run resumed with `-resume`, which now finds the entry, gives its tasks the same inputs, and they are not run again. Entries are written whole, by a rename, so a run never sees half of one. Two runs that need the same missing index at the same time both build it, and the second copy is discarded. The cache has to be readable by every task, so on a cluster it must sit on a shared filesystem. When an index comes from the cache, `--host_mask`'s record of what was masked is in the entry's `genome/` directory rather than in the run's `reference/mask/`. With `--save_reference false` nothing is also published under `<outdir>/reference/`.
 
 **Splice-aware indexing.** Pass `--gtf` if the input is RNA-seq and you want splice-aware host capture. Building such an index for a vertebrate genome needs roughly 200 GB of RAM (`--hisat2_build_memory`); below that threshold hisat2-build silently falls back to a genome-only index.
 
@@ -362,7 +378,7 @@ Set `--require_both_mates_unmapped false` to get the `--un-conc-gz` behaviour ba
 
 ```bash
 --host /data/genomes/GRCh38.fa,GCA_009914755.4        # local genome, then download T2T-CHM13
---host results_smoke/reference/hisat2,GCF_009914755.1 # reuse an index, then download T2T-CHM13
+--host results_smoke/reference/hisat2/GCF_000001405.40,GCF_009914755.1 # reuse an index, then download T2T-CHM13
 --host GCF_000005575.2,GCF_000001405.40,/refs/UniVec.fa  # mosquito, then its blood meal, then vector
 ```
 
@@ -2161,14 +2177,37 @@ list.
 **Memory and time.** PRISM runs its own Kraken2 pass, and against core_nt that
 held about 334 GB per task. PRISM's `kraken2` is therefore called through a
 wrapper that adds `--memory-mapping`, so concurrent tasks share one copy of the
-database in the page cache. Each task asks for 200 GB, doubled on a retry:
-what a task held of its own peaked at 101-143 GB on 9.5-14.3 M read pairs,
-in PRISM's last (FASTA) step. The mapped Kraken2 and BLAST databases take
-another 260-310 GB of page cache, shared by every task on the node, so leave
-room for them once when deciding how many PRISM tasks a node can take. The full
-BLAST step covers every candidate microbial read, so on a library that is
-mostly microbial (a mock community) it ran 10-13 h, and the task's limit is
-48 h. A `.SD[which.min()]` grouping in PRISM's GenBank step made that step run
+database in the page cache. The task reads the database through once before
+PRISM starts, unless `fincore` finds it already cached: from network storage
+that read took 43 min for core_nt. Each task asks for 200 GB, doubled on a
+retry: what a task held of its own peaked at 101-143 GB on 9.5-14.3 M read
+pairs, in PRISM's FASTA step, which runs only with `--prism_fasta`. The step
+after it in size, GenBank annotation, held 78 GB on 9.5 M pairs. The mapped
+Kraken2 and BLAST databases take another 260-310 GB of page cache, shared by
+every task on the node, so leave room for them once when deciding how many
+PRISM tasks a node can take. Nextflow's `peak_rss` counts those mapped pages in
+every task, so it reads 300-450 GB per task and says nothing about what a task
+needs. The full BLAST step covers every candidate microbial read, so on a
+library that is mostly microbial (a mock community) it ran 10-13 h, and the
+task's limit is 48 h.
+
+**Cores.** blastn runs in slices of four threads each (`bin/prism_blastn.py`),
+and on 64 cores the full BLAST of the Zymo mock libraries kept about 50 of them
+busy. Several of PRISM's steps run on one core, though: building the
+per-sample BLAST database (10-25 min, part of the subsample BLAST step),
+filtering the hits (about 1 h per mock library), GenBank annotation and
+profiling. A single task with all of a node's cores leaves the others idle for
+those hours. Two tasks with half the cores each finish a cohort sooner, as long
+as the node has memory for both: on a 1.1 TB node, two tasks of 200 GB fit
+beside the shared databases. `PRISM_RUN` asks for 16 cores by default, so give
+it the cores you want each task to have (`withName: 'PRISM_RUN' { cpus = 32 }`)
+rather than capping how many run at once.
+
+**FASTA output.** PRISM's last step writes every read with a microbial hit as
+FASTA. It takes an hour or more on one core per library and nothing in the
+pipeline reads it, so it runs only with `--prism_fasta`. As distributed, it
+labelled most reads with another read's name and hit, and wrote the files
+outside the directory the pipeline publishes; the patch fixes both. A `.SD[which.min()]` grouping in PRISM's GenBank step made that step run
 for over 12 h on such libraries; the equivalent `.I[which.min()]` form gives
 the same rows in a fraction of the time, so patch your clone's `functions.R`
 if it still has the former.

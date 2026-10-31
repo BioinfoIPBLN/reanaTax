@@ -45,10 +45,16 @@ Disable with `--save_download_metadata false`. The FASTQ files themselves are no
 - `reference/genome/`
   - `*_genomic.fna.gz`: the genome as downloaded from NCBI (only when `--host_accession`/`--host_taxid` was used).
   - `*.fna` / `*.fasta`: the decompressed genome that was indexed.
-- `reference/hisat2/`
-  - `*.ht2`: the HISAT2 index.
-- `reference/minimap2/` (with `--long_reads`)
-  - `<genome>.<preset>.mmi`: a minimap2 index, one per preset in use.
+- `reference/hisat2/<genome>/`
+  - `*.ht2`: the HISAT2 index, one directory per host reference.
+- `reference/bowtie2/<genome>/` (DNA libraries)
+  - `*.bt2`: the Bowtie2 index.
+- `reference/star/<genome>/` (with `--single_cell`)
+  - STAR's index.
+- `reference/prism/star/<genome>/` (with `--run_prism`)
+  - STAR's index for PRISM's own host removal.
+- `reference/minimap2/` (with `--long_reads` or `--run_prism`)
+  - `<genome>.<preset>.mmi`: a minimap2 index, one per preset in use. PRISM's is the `sr` one.
 - `reference/metaphlan/` (with `--long_reads --run_metaphlan`)
   - `<index>_xasm20_B3_O3_12.mmi`: MetaPhlAn's minimap2 index of its markers, named after `--metaphlan_minimap2_ps`. Pass it back with `--metaphlan_mm2_index`.
 - `reference/mask/` (with `--host_mask`)
@@ -59,7 +65,17 @@ Disable with `--save_download_metadata false`. The FASTQ files themselves are no
 
 </details>
 
-Published by default so later runs can skip the build with `--hisat2_index <outdir>/reference/hisat2`. Disable with `--save_reference false`.
+Published by default (`--save_reference`), so later runs can skip the builds by giving the indexes back:
+
+| Index                     | Given back with                                                                                                                           |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| HISAT2                    | `--host <outdir>/reference/hisat2/<genome>`, one entry per host reference, in the order of the run that built them                        |
+| Bowtie2                   | `--bowtie2_index <outdir>/reference/bowtie2/<genome>`, comma-separated in the same order                                                  |
+| STAR (`--single_cell`)    | `--star_index <outdir>/reference/star/<genome>`                                                                                           |
+| PRISM's STAR and minimap2 | `--prism_star_genome_dir <outdir>/reference/prism/star/<genome>` and `--prism_minimap2_index <outdir>/reference/minimap2/<genome>.sr.mmi` |
+| SortMeRNA                 | `--sortmerna_index <outdir>/reference/sortmerna/idx`                                                                                      |
+
+With `--reference_cache` the genomes and indexes are kept in that directory and can stay out of `reference/` (`--save_reference false`); see `docs/usage.md`. An index given back is used as it is. One built with `--host_mask` stays masked, and `--host_mask` itself is refused alongside a prebuilt index, so leave it out of the run that reuses them. With `--save_reference false`, that run publishes no copies.
 
 ### FastQC
 

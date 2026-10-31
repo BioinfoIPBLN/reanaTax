@@ -9,6 +9,7 @@
 
 include { PREPARE_HOST_REFERENCE as PREPARE_HOST_REFERENCE_PRISM } from '../prepare_host_reference'
 include { MINIMAP2_INDEX                     } from '../../../modules/local/minimap2/index/main'
+include { REFERENCE_CACHE_STORE as CACHE_STORE_PRISM_MINIMAP2 } from '../../../modules/local/reference_cache/store/main'
 include { PRISM_RUN                          } from '../../../modules/local/prism/run/main'
 include { PRISM_COMBINE                      } from '../../../modules/local/prism/combine/main'
 include { ABUNDANCE_FILTER as FILTER_PRISM   } from '../../../modules/local/abundance/filter/main'
@@ -16,6 +17,8 @@ include { TAXONOMY_PATHSEQ                   } from '../taxonomy_pathseq'
 include { TAXONOMY_METAX                     } from '../taxonomy_metax'
 include { externalToolProblem                } from '../utils_nfcore_reanatax_pipeline'
 include { hostReferences                     } from '../utils_nfcore_reanatax_pipeline'
+include { referenceCache                     } from '../utils_nfcore_reanatax_pipeline'
+include { minimap2CacheEntry                 } from '../utils_nfcore_reanatax_pipeline'
 
 workflow ADDITIONAL_CLASSIFIERS {
 
@@ -86,14 +89,37 @@ workflow ADDITIONAL_CLASSIFIERS {
                 .map { _meta, index -> index.toString() }
                 .first()
             // PREPARE with aligner 'star' builds no minimap2 index, so build one
-            // for PRISM's short-read host pass (-x sr) from the same host FASTA.
-            MINIMAP2_INDEX(
-                PREPARE_HOST_REFERENCE_PRISM.out.fasta
-                    .map { meta, genome -> [meta + [preset: 'sr'], genome] }
+            // for PRISM's short-read host pass (-x sr) from the same host FASTA,
+            // or take it from --reference_cache like the indexes PREPARE makes.
+            def prism_cache = referenceCache(
+                prism_host.kind == 'fasta' ? prism_host.value : null,
+                prism_host.kind == 'accession' ? prism_host.value : null,
+                prism_host.kind == 'taxid' ? prism_host.value : null,
+                params.ncbi_group,
+                null,
+                'star',
+                null,
             )
-            ch_prism_minimap2_index = MINIMAP2_INDEX.out.index
-                .map { _meta, index -> index.toString() }
-                .first()
+            def prism_minimap2_entry = prism_cache ? minimap2CacheEntry(prism_cache, 'sr') : null
+            if (prism_minimap2_entry && file(prism_minimap2_entry.path).exists()) {
+                ch_prism_minimap2_index = channel.value(files("${prism_minimap2_entry.path}/minimap2/*.mmi").first().toString())
+            }
+            else {
+                MINIMAP2_INDEX(
+                    PREPARE_HOST_REFERENCE_PRISM.out.fasta
+                        .map { meta, genome -> [meta + [preset: 'sr'], genome] }
+                )
+                def ch_minimap2_built = MINIMAP2_INDEX.out.index
+                if (prism_minimap2_entry) {
+                    CACHE_STORE_PRISM_MINIMAP2(
+                        ch_minimap2_built.map { meta, mmi -> [meta, mmi, prism_minimap2_entry.path, 'minimap2', prism_minimap2_entry.key] }
+                    )
+                    ch_minimap2_built = CACHE_STORE_PRISM_MINIMAP2.out.entry.map { meta, entry -> [meta, files("${entry}/minimap2/*.mmi").first()] }
+                }
+                ch_prism_minimap2_index = ch_minimap2_built
+                    .map { _meta, index -> index.toString() }
+                    .first()
+            }
         }
         PRISM_RUN(
             ch_trimmed_reads,

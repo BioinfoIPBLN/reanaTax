@@ -237,6 +237,18 @@ def validateBuildParameters() {
 }
 
 //
+// A tool the run asked for that cannot run, or a database it needs that is not
+// there: a warning and the run goes on without it, or with --strict_tools an
+// error before any task starts.
+//
+def toolUnavailable(String problem, String consequence, String advice) {
+    if (params.strict_tools) {
+        error("${problem} (--strict_tools). ${advice}")
+    }
+    log.warn("${problem}, so ${consequence}. ${advice}")
+}
+
+//
 // Metax and PRISM are not on bioconda, so the pipeline does not provide them:
 // whoever asks for one installs it. This names what is missing, or returns null
 // when the tool can be reached - through its image, through a profile that
@@ -397,18 +409,36 @@ def validateInputParameters() {
 
     def prism_problem = params.run_prism ? externalToolProblem('prism') : null
     if (prism_problem) {
-        log.warn("--run_prism is set but PRISM cannot be reached (${prism_problem}), so this run goes on without it. Clone https://github.com/sjdlabgroup/PRISM, add the authors' processed GenBank files as `genbank/` and a `sorted_accession_map.txt` built with blastdbcmd, and point --prism_path at it. Its tools - Rscript with xgboost 1.7, kraken2, seqkit, STAR, minimap2 and blastn - go on the PATH, on --prism_bin_dir, or come from --prism_container or -profile conda. See docs/usage.md.")
+        toolUnavailable(
+            "--run_prism is set but PRISM cannot be reached (${prism_problem})",
+            'this run goes on without it',
+            "Clone https://github.com/sjdlabgroup/PRISM, add the authors' processed GenBank files as `genbank/` and a `sorted_accession_map.txt` built with blastdbcmd, and point --prism_path at it. Its tools - Rscript with xgboost 1.7, kraken2, seqkit, STAR, minimap2 and blastn - go on the PATH, on --prism_bin_dir, or come from --prism_container or -profile conda. See docs/usage.md.",
+        )
     }
     else if (params.run_prism) {
         if (!params.prism_blast_db) {
             error("--run_prism needs --prism_blast_db (a BLAST nt database). PRISM validates every path before it starts, so a missing one fails the task rather than degrading the result.")
         }
-        if (!file(params.prism_blast_db.toString()).parent.resolve('taxonomy4blast.sqlite3').exists()) {
-            log.warn("--prism_blast_db has no taxonomy4blast.sqlite3 beside it, so BLAST matches PRISM's taxids exactly and leaves out every sequence labelled with a strain, serovar or subspecies - nine in ten Salmonella entries in core_nt. It comes in NCBI's taxdb.tar.gz (https://ftp.ncbi.nlm.nih.gov/blast/db/); assets/prism/prepare_prism.sh puts it there.")
+        def blast_db = file(params.prism_blast_db.toString())
+        if (!files("${blast_db}.*")) {
+            error("--prism_blast_db ${params.prism_blast_db} names no BLAST database: nothing in ${blast_db.parent} starts with ${blast_db.name}. Give the database's path and name without an extension, e.g. /dbs/nt_blast/core_nt.")
+        }
+        if (!blast_db.parent.resolve('taxonomy4blast.sqlite3').exists()) {
+            toolUnavailable(
+                '--prism_blast_db has no taxonomy4blast.sqlite3 beside it',
+                "BLAST matches PRISM's taxids exactly and leaves out every sequence labelled with a strain, serovar or subspecies - nine in ten Salmonella entries in core_nt",
+                "It comes in NCBI's taxdb.tar.gz (https://ftp.ncbi.nlm.nih.gov/blast/db/); assets/prism/prepare_prism.sh puts it there.",
+            )
         }
         def prism_prebuilt = params.prism_star_genome_dir && params.prism_minimap2_index
         if (prism_prebuilt != ((params.prism_star_genome_dir ? true : false) || (params.prism_minimap2_index ? true : false))) {
             error("--run_prism needs --prism_star_genome_dir and --prism_minimap2_index together (PRISM does its own host removal with STAR and minimap2). Leave both unset to have them built from the host reference.")
+        }
+        if (prism_prebuilt && !file(params.prism_star_genome_dir.toString()).resolve('SA').exists()) {
+            error("--prism_star_genome_dir ${params.prism_star_genome_dir} is not a STAR index: it has no SA file.")
+        }
+        if (prism_prebuilt && !file(params.prism_minimap2_index.toString()).isFile()) {
+            error("--prism_minimap2_index ${params.prism_minimap2_index} does not exist. It is a minimap2 .mmi file built with -x sr.")
         }
         if (!prism_prebuilt) {
             // The host indices are built from the genome FASTA the run's host
@@ -423,6 +453,9 @@ def validateInputParameters() {
         }
         if (!(params.prism_kraken_db ?: params.kraken2_db)) {
             error("--run_prism needs a Kraken2 database: give --prism_kraken_db, or --kraken2_db, which it falls back to.")
+        }
+        if (!file((params.prism_kraken_db ?: params.kraken2_db).toString()).resolve('hash.k2d').exists()) {
+            error("PRISM's Kraken2 database ${params.prism_kraken_db ?: params.kraken2_db} has no hash.k2d. PRISM needs it unpacked: a directory, not an archive.")
         }
         if (params.single_cell && !params.prism_barcode_only) {
             error("--run_prism with --single_cell needs --prism_barcode_only. On 10x chemistry read 1 is barcode plus UMI with no biological sequence in it, so without that flag PRISM classifies and BLASTs it as if it were cDNA. Setting it drops the barcode read before PRISM sees anything, so Kraken2, STAR, minimap2 and BLAST all work on the cDNA read alone.")
@@ -666,7 +699,11 @@ def validateInputParameters() {
 
     def metax_problem = params.run_metax ? externalToolProblem('metax') : null
     if (metax_problem) {
-        log.warn("--run_metax is set but Metax cannot be reached (${metax_problem}), so this run goes on without it. Metax is not on bioconda: install it from its author's channel (`conda create -n metax -c zldeng -c bioconda metax ma=1.1.4`) and put `metax` and `maCMD` on the PATH or on --metax_bin_dir, or give --metax_container an image providing both, or run with -profile conda or wave, which build the module's environment.")
+        toolUnavailable(
+            "--run_metax is set but Metax cannot be reached (${metax_problem})",
+            'this run goes on without it',
+            "Metax is not on bioconda: install it from its author's channel (`conda create -n metax -c zldeng -c bioconda metax ma=1.1.4`) and put `metax` and `maCMD` on the PATH or on --metax_bin_dir, or give --metax_container an image providing both, or run with -profile conda or wave, which build the module's environment.",
+        )
     }
 
     if (params.skip_kraken2 && !params.krakenuniq_db && !params.run_metaphlan && !params.run_sylph && !(params.run_metax && !metax_problem) && !params.run_emu && !params.pathseq_microbe_bwa_image && !(params.run_prism && !prism_problem)) {
@@ -689,6 +726,12 @@ def validateInputParameters() {
 
     if (params.run_metax && !metax_problem && (!params.metax_db || !params.metax_dmp_dir)) {
         error("--run_metax needs --metax_db (a Metax database's metax_db.json, or the directory holding it) and --metax_dmp_dir (an NCBI taxonomy dump: nodes.dmp, names.dmp, merged.dmp). Pre-built databases are listed at https://github.com/hzi-bifo/Metax")
+    }
+    if (params.run_metax && !metax_problem && !file(params.metax_db.toString()).exists()) {
+        error("--metax_db ${params.metax_db} does not exist.")
+    }
+    if (params.run_metax && !metax_problem && !file(params.metax_dmp_dir.toString()).resolve('nodes.dmp').exists()) {
+        error("--metax_dmp_dir ${params.metax_dmp_dir} has no nodes.dmp.")
     }
 
     if (params.run_taxpasta && (params.taxpasta_args ?: '') ==~ /.*--add-(name|rank|lineage|id-lineage|rank-lineage).*/ && !params.taxpasta_taxonomy_dir) {
@@ -1379,6 +1422,66 @@ def hostMaskSettings() {
         length: params.host_mask_kmer_length as int,
         step: params.host_mask_kmer_step as int,
     ]
+}
+
+//
+// --reference_cache: where a host reference's genome and indexes are kept
+// between runs, or null when there is no cache or nothing to key it on (a
+// prebuilt index). An entry is <cache>/<kind>/<genome>-<hash>, the hash taken
+// over everything that decides what the build makes; key.txt in the entry
+// lists it. Tool versions are not part of it. `genome_file` is the genome the
+// indexes are built from when nothing has to be made first (the user's own
+// unmasked FASTA, or a cached genome), else null.
+//
+def referenceCache(fasta, accession, taxid, ncbi_group, gtf, aligner, mask) {
+    if (!params.reference_cache || !(fasta || accession || taxid)) {
+        return null
+    }
+    def entries = commaList(fasta)
+    def id = (entries.size() > 1 ? 'host_bundle' : entries ? file(entries.first()).baseName : (accession ?: taxid).toString())
+        .replaceAll(/[^A-Za-z0-9._-]/, '_')
+    def source = entries
+        ? entries.collect { entry -> "fasta ${cacheFileIdentity(entry)}" }
+        : [accession ? "accession ${accession}" : "taxid ${taxid} ncbi_group ${ncbi_group}", "ncbi_args ${params.ncbi_args ?: ''}"]
+    if (mask) {
+        source += mask.targets.collect { target -> "mask ${cacheFileIdentity(target)}" }
+        source << "mask kmer ${mask.length} step ${mask.step}"
+    }
+    def plain = entries.size() == 1 && !entries.first().endsWith('.gz') && !mask
+    def genome = plain ? null : cacheEntry('genome', id, source)
+    def index_settings = ["gtf ${gtf ? cacheFileIdentity(gtf) : 'none'}"]
+    if (aligner == 'hisat2') {
+        index_settings << "hisat2_build_memory ${params.hisat2_build_memory}"
+    }
+    return [
+        id: id,
+        source: source,
+        genome: genome,
+        genome_file: plain ? file(entries.first(), checkIfExists: true) : file(genome.path).exists() ? cachedGenomeFile(genome.path) : null,
+        index: cacheEntry(aligner, id, source + index_settings),
+        bowtie2: cacheEntry('bowtie2', id, source),
+    ]
+}
+
+def minimap2CacheEntry(cache, preset) {
+    return cacheEntry('minimap2', cache.id, cache.source + ["preset ${preset}", "minimap2_args ${params.minimap2_args ?: ''}"])
+}
+
+def cacheEntry(String kind, String id, List parts) {
+    def key = ([kind] + parts).join('\n')
+    def hash = java.security.MessageDigest.getInstance('MD5').digest(key.getBytes('UTF-8')).encodeHex().toString().take(12)
+    return [path: "${file(params.reference_cache.toString())}/${kind}/${id}-${hash}", key: key]
+}
+
+// A file as a cache key sees it: where it is, how big, and when it changed
+def cacheFileIdentity(value) {
+    def name = value.toString()
+    def path = name.contains('://') ? null : file(name)
+    return path && path.exists() ? "${path.toRealPath()} ${path.size()} ${path.lastModified()}" : name
+}
+
+def cachedGenomeFile(entry) {
+    return files("${entry}/genome/*").find { genome -> !(genome.name.endsWith('.bed') || genome.name.endsWith('.tsv')) }
 }
 
 //

@@ -22,6 +22,13 @@
 // genomes also hold, before any index is built (HOST_MASK), so every aligner
 // depletes against the same masked genome.
 //
+// --reference_cache keeps the genome and every index built here between runs.
+// What an earlier run stored for the same host, mask and settings is used as
+// it is; what this run builds is stored, and the run then reads the stored
+// copy rather than its own, so a resumed run, which finds the entry, sees the
+// same inputs and its cached tasks still match. An index is taken from the
+// cache only together with its genome.
+//
 
 include { NCBIGENOMEDOWNLOAD } from '../../../modules/nf-core/ncbigenomedownload/main'
 include { GUNZIP             } from '../../../modules/nf-core/gunzip/main'
@@ -35,8 +42,15 @@ include { UNTAR as UNTAR_BOWTIE2    } from '../../../modules/nf-core/untar/main'
 include { HOST_MASK                 } from '../../../modules/local/hostmask/main'
 include { MINIMAP2_INDEX            } from '../../../modules/local/minimap2/index/main'
 include { FASTA_CONCAT_RMDUP        } from '../../../modules/local/fasta_concat_rmdup/main'
+include { REFERENCE_CACHE_STORE as CACHE_STORE_GENOME   } from '../../../modules/local/reference_cache/store/main'
+include { REFERENCE_CACHE_STORE as CACHE_STORE_INDEX    } from '../../../modules/local/reference_cache/store/main'
+include { REFERENCE_CACHE_STORE as CACHE_STORE_BOWTIE2  } from '../../../modules/local/reference_cache/store/main'
+include { REFERENCE_CACHE_STORE as CACHE_STORE_MINIMAP2 } from '../../../modules/local/reference_cache/store/main'
 include { commaList                 } from '../utils_nfcore_reanatax_pipeline'
 include { isIndexArchive            } from '../utils_nfcore_reanatax_pipeline'
+include { referenceCache            } from '../utils_nfcore_reanatax_pipeline'
+include { minimap2CacheEntry        } from '../utils_nfcore_reanatax_pipeline'
+include { cachedGenomeFile          } from '../utils_nfcore_reanatax_pipeline'
 
 workflow PREPARE_HOST_REFERENCE {
 
@@ -62,10 +76,18 @@ workflow PREPARE_HOST_REFERENCE {
         ? channel.value([[id: file(gtf).baseName], file(gtf, checkIfExists: true)])
         : channel.value([[:], []])
 
+    def cache = prebuilt ? null : referenceCache(fasta, host_accession, host_taxid, ncbi_group, gtf, aligner, mask)
+    def cached_genome = cache ? cache.genome_file : null
+    def cached_index = cached_genome && file(cache.index.path).exists() ? file("${cache.index.path}/${aligner}") : null
+
     def ch_index = channel.empty()
     def ch_fasta = channel.empty()
 
-    if (prebuilt) {
+    if (cached_index) {
+        ch_index = channel.value([[id: cache.id], cached_index])
+        ch_fasta = channel.value([[id: cache.id], cached_genome])
+    }
+    else if (prebuilt) {
         //
         // A prebuilt index short-circuits everything else.
         //
@@ -81,74 +103,87 @@ workflow PREPARE_HOST_REFERENCE {
             : channel.value([[:], []])
     }
     else {
-        //
-        // Otherwise obtain a FASTA, either locally or from NCBI.
-        //
-        def ch_fasta_maybe_gz = channel.empty()
-
-        // --host_bundle hands a comma-separated list of genomes, concatenated
-        // and collapsed into one reference before any index is built.
-        def fasta_entries = fasta ? commaList(fasta) : []
-        def is_bundle = fasta_entries.size() > 1
-
-        if (fasta) {
-            if (is_bundle) {
-                FASTA_CONCAT_RMDUP(
-                    channel.value([[id: 'host_bundle'], fasta_entries.collect { entry -> file(entry, checkIfExists: true) }])
-                )
-                ch_fasta_maybe_gz = FASTA_CONCAT_RMDUP.out.fasta
-            }
-            else {
-                ch_fasta_maybe_gz = channel.value([[id: file(fasta_entries.first()).baseName], file(fasta_entries.first(), checkIfExists: true)])
-            }
+        if (cached_genome) {
+            ch_fasta = channel.value([[id: cache.id], cached_genome])
         }
         else {
-            // ncbi-genome-download reads its accessions/taxids from files, so
-            // materialise the single value the user gave us into one.
-            def query = host_accession ?: host_taxid
-            def is_accession = host_accession as boolean
-            def ch_query_file = channel
-                .of(query.toString())
-                .collectFile(name: is_accession ? 'accessions.txt' : 'taxids.txt', newLine: true)
+            //
+            // Otherwise obtain a FASTA, either locally or from NCBI.
+            //
+            def ch_fasta_maybe_gz = channel.empty()
 
-            // GCA_* assemblies live in GenBank, GCF_* in RefSeq. Getting this
-            // wrong is the single most common ncbi-genome-download failure.
-            def section = is_accession && host_accession.toString().startsWith('GCA_') ? 'genbank' : 'refseq'
-            def meta = [id: query.toString().replaceAll(/[^A-Za-z0-9._-]/, '_'), section: section]
+            // --host_bundle hands a comma-separated list of genomes, concatenated
+            // and collapsed into one reference before any index is built.
+            def fasta_entries = fasta ? commaList(fasta) : []
+            def is_bundle = fasta_entries.size() > 1
 
-            NCBIGENOMEDOWNLOAD(
-                channel.value(meta),
-                is_accession ? ch_query_file : channel.value([]),
-                is_accession ? channel.value([]) : ch_query_file,
-                ncbi_group,
-            )
-
-            ch_fasta_maybe_gz = NCBIGENOMEDOWNLOAD.out.fna.map { meta_fna, fna ->
-                def files = fna instanceof List ? fna : [fna]
-                if (files.size() > 1) {
-                    error("ncbi-genome-download returned ${files.size()} genomes for '${query}' (${files*.name.join(', ')}). Narrow the query with --host_accession, or pass --fasta directly.")
+            if (fasta) {
+                if (is_bundle) {
+                    FASTA_CONCAT_RMDUP(
+                        channel.value([[id: 'host_bundle'], fasta_entries.collect { entry -> file(entry, checkIfExists: true) }])
+                    )
+                    ch_fasta_maybe_gz = FASTA_CONCAT_RMDUP.out.fasta
                 }
-                [meta_fna, files.first()]
+                else {
+                    ch_fasta_maybe_gz = channel.value([[id: file(fasta_entries.first()).baseName], file(fasta_entries.first(), checkIfExists: true)])
+                }
             }
-        }
+            else {
+                // ncbi-genome-download reads its accessions/taxids from files, so
+                // materialise the single value the user gave us into one.
+                def query = host_accession ?: host_taxid
+                def is_accession = host_accession as boolean
+                def ch_query_file = channel
+                    .of(query.toString())
+                    .collectFile(name: is_accession ? 'accessions.txt' : 'taxids.txt', newLine: true)
 
-        def ch_branched = ch_fasta_maybe_gz.branch { _meta, genome ->
-            gz: genome.name.endsWith('.gz')
-            plain: true
-        }
+                // GCA_* assemblies live in GenBank, GCF_* in RefSeq. Getting this
+                // wrong is the single most common ncbi-genome-download failure.
+                def section = is_accession && host_accession.toString().startsWith('GCA_') ? 'genbank' : 'refseq'
+                def meta = [id: query.toString().replaceAll(/[^A-Za-z0-9._-]/, '_'), section: section]
 
-        // hisat2-build cannot read gzipped FASTA.
-        GUNZIP(ch_branched.gz)
-        ch_fasta = ch_branched.plain.mix(GUNZIP.out.gunzip)
+                NCBIGENOMEDOWNLOAD(
+                    channel.value(meta),
+                    is_accession ? ch_query_file : channel.value([]),
+                    is_accession ? channel.value([]) : ch_query_file,
+                    ncbi_group,
+                )
 
-        if (mask) {
-            HOST_MASK(
-                ch_fasta,
-                mask.targets.collect { target -> file(target, checkIfExists: true) },
-                mask.length,
-                mask.step,
-            )
-            ch_fasta = HOST_MASK.out.fasta
+                ch_fasta_maybe_gz = NCBIGENOMEDOWNLOAD.out.fna.map { meta_fna, fna ->
+                    def files = fna instanceof List ? fna : [fna]
+                    if (files.size() > 1) {
+                        error("ncbi-genome-download returned ${files.size()} genomes for '${query}' (${files*.name.join(', ')}). Narrow the query with --host_accession, or pass --fasta directly.")
+                    }
+                    [meta_fna, files.first()]
+                }
+            }
+
+            def ch_branched = ch_fasta_maybe_gz.branch { _meta, genome ->
+                gz: genome.name.endsWith('.gz')
+                plain: true
+            }
+
+            // hisat2-build cannot read gzipped FASTA.
+            GUNZIP(ch_branched.gz)
+            ch_fasta = ch_branched.plain.mix(GUNZIP.out.gunzip)
+
+            if (mask) {
+                HOST_MASK(
+                    ch_fasta,
+                    mask.targets.collect { target -> file(target, checkIfExists: true) },
+                    mask.length,
+                    mask.step,
+                )
+                ch_fasta = HOST_MASK.out.fasta
+            }
+
+            if (cache) {
+                def ch_genome_items = mask
+                    ? HOST_MASK.out.fasta.join(HOST_MASK.out.bed).join(HOST_MASK.out.summary).map { _meta, genome, bed, summary -> [genome, bed, summary] }
+                    : ch_fasta.map { _meta, genome -> [genome] }
+                CACHE_STORE_GENOME(ch_genome_items.map { items -> [[id: cache.id], items, cache.genome.path, 'genome', cache.genome.key] })
+                ch_fasta = CACHE_STORE_GENOME.out.entry.map { meta, entry -> [meta, cachedGenomeFile(entry)] }
+            }
         }
 
         if (aligner == 'star') {
@@ -176,6 +211,11 @@ workflow PREPARE_HOST_REFERENCE {
             )
             ch_index = HISAT2_BUILD.out.index
         }
+
+        if (cache) {
+            CACHE_STORE_INDEX(ch_index.map { meta, index -> [meta, index, cache.index.path, '', cache.index.key] })
+            ch_index = CACHE_STORE_INDEX.out.entry.map { meta, entry -> [meta, file("${entry}/${aligner}")] }
+        }
     }
 
     //
@@ -188,8 +228,18 @@ workflow PREPARE_HOST_REFERENCE {
     def ch_bowtie2_index = channel.empty()
     def ch_minimap2_index = channel.empty()
     if (aligner != 'star') {
-        def ch_need_bowtie2 = bowtie2_index ? channel.empty() : ch_aligners.filter { name -> name == 'bowtie2' }
+        def cached_bowtie2 = cache && !bowtie2_index && file(cache.bowtie2.path).exists() ? file("${cache.bowtie2.path}/bowtie2") : null
+        def ch_need_bowtie2 = bowtie2_index || cached_bowtie2 ? channel.empty() : ch_aligners.filter { name -> name == 'bowtie2' }
         def ch_presets = ch_minimap2_presets.unique()
+        def ch_minimap2_cached = channel.empty()
+        if (cache) {
+            def ch_preset_cache = ch_presets.branch { preset ->
+                cached: file(minimap2CacheEntry(cache, preset).path).exists()
+                build: true
+            }
+            ch_minimap2_cached = ch_preset_cache.cached.map { preset -> [[id: cache.id, preset: preset], files("${minimap2CacheEntry(cache, preset).path}/minimap2/*.mmi").first()] }
+            ch_presets = ch_preset_cache.build
+        }
 
         def ch_sequence_source = ch_fasta
             .combine(ch_need_bowtie2.mix(ch_presets).first())
@@ -212,13 +262,28 @@ workflow PREPARE_HOST_REFERENCE {
                 ch_bowtie2_index = channel.value([[id: 'bowtie2_index'], file(bowtie2_index, checkIfExists: true)])
             }
         }
+        else if (cached_bowtie2) {
+            ch_bowtie2_index = channel.value([[id: cache.id], cached_bowtie2])
+        }
         else {
             BOWTIE2_BUILD(ch_sequence.combine(ch_need_bowtie2.first()).map { meta, genome, _name -> [meta, genome] })
             ch_bowtie2_index = BOWTIE2_BUILD.out.index
+            if (cache) {
+                CACHE_STORE_BOWTIE2(ch_bowtie2_index.map { meta, index -> [meta, index, cache.bowtie2.path, '', cache.bowtie2.key] })
+                ch_bowtie2_index = CACHE_STORE_BOWTIE2.out.entry.map { meta, entry -> [meta, file("${entry}/bowtie2")] }
+            }
         }
 
         MINIMAP2_INDEX(ch_sequence.combine(ch_presets).map { meta, genome, preset -> [meta + [preset: preset], genome] })
         ch_minimap2_index = MINIMAP2_INDEX.out.index
+        if (cache) {
+            CACHE_STORE_MINIMAP2(
+                ch_minimap2_index.map { meta, mmi -> [meta, mmi, minimap2CacheEntry(cache, meta.preset).path, 'minimap2', minimap2CacheEntry(cache, meta.preset).key] }
+            )
+            ch_minimap2_index = CACHE_STORE_MINIMAP2.out.entry
+                .map { meta, entry -> [meta, files("${entry}/minimap2/*.mmi").first()] }
+                .mix(ch_minimap2_cached)
+        }
     }
 
     emit:
