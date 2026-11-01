@@ -2358,6 +2358,7 @@ the index once into a background process that outlives the task; every later
 sample skips the load entirely.
 
 ```bash
+export NXF_SINGULARITY_NEW_PID_NAMESPACE=false   # NXF_APPTAINER_... under Apptainer
 nextflow run . -profile local,singularity \
   --input_accessions SRX8592588,SRX8592589 \
   --host GCF_943734735.2 \
@@ -2367,6 +2368,21 @@ nextflow run . -profile local,singularity \
   --kraken2_confidence 0.1 \
   --outdir results
 ```
+
+**The variable is required.** Nextflow runs every Singularity or Apptainer task
+in a PID namespace of its own. The daemon then writes a PID that means nothing
+outside that namespace, and dies with it when the task ends, so every sample
+loads the whole index again: 277 tasks, 277 loads, on the CSI plate cohort.
+Since Nextflow 25.10 the only way to share the host's PID namespace is that
+variable, set where Nextflow starts. The `singularity.newPidNamespace` setting,
+which the `k2daemon` profile used to make, is ignored, and the profile now does
+nothing. The run stops at startup when the variable is missing.
+
+**With `--run_prism`, prefer `--kraken2_memory_mapping`.** PRISM's own Kraken2
+pass maps the database into the page cache, so the daemon would make a second
+copy. Next to PRISM's BLAST database, two copies of core_nt leave a 1 TB node
+short of page cache, and PRISM's Kraken2 step then took 71-73 min per task
+instead of 2. Mapped, every Kraken2 run shares one copy.
 
 Four consequences worth understanding before switching it on.
 

@@ -332,6 +332,15 @@ def validateInputParameters() {
         if (workflow.containerEngine == 'docker') {
             error("--kraken2_use_daemon cannot work under Docker: every task gets its own PID namespace and its own /tmp, so the daemon and the FIFOs it is addressed through do not survive the task that started them. Use -profile singularity/apptainer, or drop the flag.")
         }
+        // Since Nextflow 25.10 the PID namespace comes only from this variable;
+        // singularity.newPidNamespace, which the k2daemon profile set, is ignored.
+        def pid_namespace = "NXF_${workflow.containerEngine.toString().toUpperCase()}_NEW_PID_NAMESPACE"
+        if (workflow.containerEngine in ['singularity', 'apptainer'] && System.getenv(pid_namespace) != 'false') {
+            error("--kraken2_use_daemon under ${workflow.containerEngine} needs ${pid_namespace}=false in the environment Nextflow starts from. Without it every task runs in a PID namespace of its own, the daemon dies with the task that started it, and the whole index is loaded again for every sample. Nextflow 25.10 and later ignore the singularity.newPidNamespace setting the k2daemon profile used to make. Run `export ${pid_namespace}=false` before `nextflow run`, or drop --kraken2_use_daemon.")
+        }
+        if (params.run_prism && (params.prism_kraken_db ?: params.kraken2_db) == params.kraken2_db) {
+            log.warn("--kraken2_use_daemon with --run_prism holds the Kraken2 database twice on the node: in the daemon, and in the page cache, where PRISM's tasks map it. With PRISM's BLAST database as well, a node with less than about three times the Kraken2 database in RAM runs short of page cache, and PRISM then reads its copy back from disk for every task: 71-73 min of Kraken2 per PRISM task on core_nt, against 2 min. --kraken2_memory_mapping in place of the daemon makes every Kraken2 run share PRISM's one copy.")
+        }
         log.warn("--kraken2_use_daemon leaves a background process holding the index after this run finishes. Stop it with 'k2 clean --stop-daemon' on the execution node when you are done.")
         // The end-of-run cleanup (stopKraken2Daemon) runs where Nextflow runs.
         // Under SLURM that is the submit host, and the daemons are on whichever
