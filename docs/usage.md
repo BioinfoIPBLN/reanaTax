@@ -49,6 +49,8 @@ Each accession is first resolved to its list of runs, and every run is then down
 - `sample` — everything sequenced from the same BioSample is concatenated.
 - `run` — every run stays its own sample. Use this when a study mixes single- and paired-end runs under one experiment.
 
+**When ENA cannot serve a run.** ENA occasionally lists a file it cannot deliver: on PRJEB29504, `ERR2935855_2.fastq.gz` broke at the same byte on every try, over HTTPS and FTP. A download task has four attempts; the first two go to ENA and, with `--fastqdl_sra_fallback` (on by default), the last two go to SRA, with a warning naming the run. SRA names reads differently from ENA and may serve simplified quality scores (SRA Lite), so quality trimming does less on such a run. `--fastqdl_sra_runs` sends named runs to SRA from the first attempt; `--fastqdl_sra_fallback false` keeps every download at ENA, and a run ENA cannot serve then stops the run.
+
 **Being a good archive client.** `--max_download_forks` (default `4`) caps concurrent transfers. ENA and SRA throttle aggressive clients, so raise it gradually. On clusters whose compute nodes have no outbound internet, add `--download_local` to run just the download tasks on the submission host.
 
 ### 2. A folder of FASTQ files (`--input_dir`)

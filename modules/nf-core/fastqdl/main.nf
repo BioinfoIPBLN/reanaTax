@@ -14,6 +14,7 @@ process FASTQDL {
     tuple val(meta), path("*.fastq.gz")       , emit: fastq
     tuple val(meta), path("*-run-info.tsv")   , emit: runinfo
     tuple val(meta), path("*-run-mergers.tsv"), emit: runmergers, optional: true
+    tuple val(meta), path("*.sra_fallback.txt"), emit: sra_fallback, optional: true
     tuple val("${task.process}"), val('fastq-dl'), eval('fastq-dl --version |& sed "s/.* //"'), emit: versions_fastqdl, topic: versions
 
 
@@ -57,6 +58,7 @@ process FASTQDL {
         echo "ERROR: ${accession}: fastq-dl produced no FASTQ at all." >&2
         exit 1
     fi
+    ${task.ext.sra_fallback ? "echo '${accession}: fetched from SRA on attempt ${task.attempt}, after ENA failed' > ${prefix}.sra_fallback.txt" : ''}
     """
 
     stub:

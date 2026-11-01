@@ -97,6 +97,13 @@
                     "help_text": "For runs whose ENA copy is broken: the index and FTP listing report the file, but every fetch fails. Naming the run here changes only that task's command, so the rest of the cohort keeps its cache entries.",
                     "fa_icon": "fas fa-life-ring"
                 },
+                "fastqdl_sra_fallback": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Fetch a run from SRA when ENA has failed it twice.",
+                    "help_text": "A download task gets four attempts. With this on and `--fastqdl_provider ena`, the third and fourth fetch the run from SRA, and the run warns, naming it. ENA sometimes lists a file it cannot serve, which fails the same way on every try; this saves noticing that and rerunning with `--fastqdl_sra_runs`. Only the retried task's command changes, so no cached task is lost. SRA names reads differently from ENA and may serve simplified quality scores (SRA Lite). Set it to false to keep every download at ENA.",
+                    "fa_icon": "fas fa-exchange-alt"
+                },
                 "group_runs_by": {
                     "type": "string",
                     "default": "experiment",

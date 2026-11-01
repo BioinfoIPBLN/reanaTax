@@ -71,6 +71,9 @@ workflow FASTQ_DOWNLOAD_FASTQDL {
     // MODULE: Download one run per task
     //
     FASTQDL(ch_runs_validated)
+    FASTQDL.out.sra_fallback.subscribe { meta, _marker ->
+        log.warn("${meta.run_accession ?: meta.id} failed twice at ENA and was fetched from SRA (--fastqdl_sra_fallback). SRA names its reads differently from ENA and may serve simplified quality scores (SRA Lite); add it to --fastqdl_sra_runs to keep that choice, or set --fastqdl_sra_fallback false to stop the run instead.")
+    }
 
     //
     // Trust the files on disk over the archive's `library_layout` field: runs

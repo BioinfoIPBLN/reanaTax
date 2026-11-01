@@ -64,6 +64,17 @@ output:
           pattern: "*-run-mergers.tsv"
           ontologies:
             - edam: http://edamontology.org/format_3475
+  sra_fallback:
+    - - meta:
+          type: map
+          description: |
+            Groovy Map containing sample information
+            e.g. `[ id:'sample1' ]`
+      - "*.sra_fallback.txt":
+          type: file
+          description: Written when the run was fetched from SRA after ENA
+            failed it (task.ext.sra_fallback)
+          pattern: "*.sra_fallback.txt"
   versions_fastqdl:
     - - ${task.process}:
           type: string
