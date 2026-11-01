@@ -841,6 +841,9 @@ def validateInputParameters() {
     if (params.drop_non_microbial && params.skip_kraken2) {
         error("--drop_non_microbial has nothing to read the lineages from with --skip_kraken2: they come from the Kraken2 reports.")
     }
+    if (params.drop_environmental && params.skip_kraken2) {
+        error("--drop_environmental has nothing to read the lineages from with --skip_kraken2: they come from the Kraken2 reports.")
+    }
     if (params.drop_host_clade && params.drop_host_clade.toString().toLowerCase() == 'genus') {
         log.warn("--drop_host_clade genus removes very little for most hosts: a database usually holds one species per host genus, so the clade is the host taxon itself. Measured on a human host it was 0.1% of the microbial reads, against 58-66% at family. Use family or wider unless you know the genus is populated.")
     }

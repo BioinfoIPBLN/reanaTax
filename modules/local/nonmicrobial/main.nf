@@ -11,7 +11,9 @@
 // Like HOSTCLADE_EXPAND it removes nothing itself: the taxids join the shared
 // drop list, so ABUNDANCE_FILTER owns every removal and the single-cell matrix
 // loses the same rows. The anchors (Metazoa, Viridiplantae, other and
-// unclassified sequences) are read from the run's own reports.
+// unclassified sequences) are read from the run's own reports. Aliased with
+// `--environmental` (task.ext.kind 'environmental') it lists uncultured,
+// unidentified and environmental-sample taxa instead.
 //
 process NONMICROBIAL_EXPAND {
     tag "${meta.id}"
@@ -26,8 +28,8 @@ process NONMICROBIAL_EXPAND {
     tuple val(meta), path(reports, stageAs: 'reports/*')
 
     output:
-    tuple val(meta), path("*.non_microbial_drop.txt")    , emit: drop_list
-    tuple val(meta), path("*.non_microbial_evidence.tsv"), emit: evidence
+    tuple val(meta), path("*_drop.txt")    , emit: drop_list
+    tuple val(meta), path("*_evidence.tsv"), emit: evidence
     tuple val(meta), path("*_mqc.tsv")                   , emit: mqc, optional: true
     tuple val("${task.process}"), val('python'), eval('python3 --version | sed "s/Python //"'), emit: versions_python, topic: versions
 
@@ -37,18 +39,20 @@ process NONMICROBIAL_EXPAND {
     script:
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
+    def kind = task.ext.kind ?: 'non_microbial'
     """
     non_microbial.py \\
         --reports reports/* \\
-        --drop-list ${prefix}.non_microbial_drop.txt \\
-        --evidence ${prefix}.non_microbial_evidence.tsv \\
-        --mqc ${prefix}.non_microbial_mqc.tsv \\
+        --drop-list ${prefix}.${kind}_drop.txt \\
+        --evidence ${prefix}.${kind}_evidence.tsv \\
+        --mqc ${prefix}.${kind}_mqc.tsv \\
         ${args}
     """
 
     stub:
     def prefix = task.ext.prefix ?: "${meta.id}"
+    def kind = task.ext.kind ?: 'non_microbial'
     """
-    touch ${prefix}.non_microbial_drop.txt ${prefix}.non_microbial_evidence.tsv
+    touch ${prefix}.${kind}_drop.txt ${prefix}.${kind}_evidence.tsv
     """
 }

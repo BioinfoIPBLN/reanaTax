@@ -364,6 +364,7 @@ workflow REANATAX {
             assemblySettings(),
             hostCladeSettings(),
             params.drop_non_microbial,
+            params.drop_environmental,
             params.drop_host_taxon,
             params.host_carryover_taxid,
             params.kraken2_use_daemon,

@@ -26,6 +26,14 @@ WHAT IT COSTS. Helminths are Metazoa: a parasitic worm goes with the moths. So
 does a second animal that is the point of the experiment - a blood meal, a
 xenograft's mouse cells, a co-culture. That is why it is opt-in.
 
+--environmental selects by name instead: taxa called "uncultured ..." or
+"unidentified ...", and everything under an NCBI "environmental samples" node.
+They name a sequence, not an organism. In nt they are mostly 16S amplicons, so
+on total-RNA libraries they collect rRNA reads of real members: "uncultured
+bacterium" (77133) held about 12% of the species-level reads of the
+PRJNA819997 RNA mocks. Listed apart rather than kept in the tables
+(--drop_environmental).
+
 The lineage comes from the reports - two spaces per level in the name field -
 as in host_clade.py, so the anchors are the ones this database uses.
 """
@@ -40,6 +48,16 @@ from contig_evidence import parse_kreport
 from host_clade import read_counts
 
 DEFAULT_ANCHORS = ["33208", "33090", "28384", "12908"]
+ENVIRONMENTAL_NODE = "environmental samples"
+ENVIRONMENTAL_PREFIXES = ("uncultured ", "unidentified ")
+
+
+def environmental(taxid, nodes):
+    """The node that makes a taxon environmental (itself or an ancestor), or None."""
+    _rank, name, ancestors = nodes[taxid]
+    if name.lower().startswith(ENVIRONMENTAL_PREFIXES) or name.lower() == ENVIRONMENTAL_NODE:
+        return taxid
+    return next((a for a in ancestors if a in nodes and nodes[a][1].lower() == ENVIRONMENTAL_NODE), None)
 
 
 def main():
@@ -48,6 +66,8 @@ def main():
     parser.add_argument("--anchors", nargs="+", default=DEFAULT_ANCHORS,
                         help="drop everything under these taxids (default: Metazoa, Viridiplantae, "
                              "other sequences, unclassified sequences)")
+    parser.add_argument("--environmental", action="store_true",
+                        help="select uncultured, unidentified and environmental-sample taxa instead of anchors")
     parser.add_argument("--drop-list", required=True)
     parser.add_argument("--evidence", required=True)
     parser.add_argument("--mqc")
@@ -58,10 +78,13 @@ def main():
         nodes.update(parse_kreport(path))
     counts = read_counts(args.reports)
 
-    anchors = [a for a in args.anchors if a in nodes]
+    anchors = [] if args.environmental else [a for a in args.anchors if a in nodes]
     members = {}
     for taxid, (_rank, _name, ancestors) in nodes.items():
-        hit = next((a for a in anchors if taxid == a or a in ancestors), None)
+        if args.environmental:
+            hit = environmental(taxid, nodes)
+        else:
+            hit = next((a for a in anchors if taxid == a or a in ancestors), None)
         if hit is not None:
             members[taxid] = hit
     ordered = sorted(members, key=lambda t: -counts.get(t, 0.0))
@@ -79,7 +102,23 @@ def main():
     per_anchor = collections.Counter()
     for taxid, anchor in members.items():
         per_anchor[nodes[anchor][1]] += counts.get(taxid, 0.0)
-    if args.mqc:
+    if args.mqc and args.environmental:
+        with open(args.mqc, "w", encoding="utf-8") as handle:
+            handle.write(
+                "# id: 'reanatax_environmental'\n"
+                "# section_name: 'Environmental taxa'\n"
+                "# description: 'Reads on uncultured, unidentified and environmental-sample\n"
+                "#     taxa, listed apart from the final tables by --drop_environmental.\n"
+                "#     They name a sequence, mostly a 16S amplicon, not an organism.'\n"
+                "# plot_type: 'bargraph'\n"
+                "# pconfig:\n"
+                "#     id: 'reanatax_environmental_plot'\n"
+                "#     title: 'reanaTax: environmental taxa set aside'\n"
+                "#     ylab: 'Reads'\n"
+            )
+            handle.write("Sample\tdropped_reads\n")
+            handle.write(f"environmental\t{sum(per_anchor.values()):.0f}\n")
+    elif args.mqc:
         with open(args.mqc, "w", encoding="utf-8") as handle:
             handle.write(
                 "# id: 'reanatax_non_microbial'\n"
@@ -98,10 +137,14 @@ def main():
             for name, total in sorted(per_anchor.items()):
                 handle.write(f"{name}\t{total:.0f}\n")
 
+    selection = (
+        "uncultured, unidentified or under 'environmental samples'"
+        if args.environmental
+        else "under " + ", ".join(f"{nodes[a][1]} ({a})" for a in anchors)
+    )
     print(
-        f"[non_microbial] {len(members)} taxid(s) under "
-        + ", ".join(f"{nodes[a][1]} ({a})" for a in anchors)
-        + f" listed for removal, {sum(per_anchor.values()):.0f} read(s).",
+        f"[non_microbial] {len(members)} taxid(s) {selection} listed for removal, "
+        f"{sum(per_anchor.values()):.0f} read(s).",
         file=sys.stderr,
     )
 

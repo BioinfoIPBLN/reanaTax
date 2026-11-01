@@ -1046,6 +1046,20 @@ It is off by default, because some animals belong in the results:
 For a bacterial, viral or fungal question on host tissue, set it with
 `--drop_host_clade phylum`.
 
+### Sequences, not organisms (`--drop_environmental`)
+
+nt holds many entries that name a sequence rather than an organism: taxa called
+"uncultured ..." or "unidentified ...", and everything NCBI files under an
+"environmental samples" node. Most are 16S amplicons from environmental
+surveys, so on total-RNA libraries they collect the rRNA reads of real members.
+On the PRJNA819997 RNA mocks, "uncultured bacterium" (77133) held 586-752 reads
+per library, about 12% of the species-level reads, all of them rRNA.
+
+`--drop_environmental` takes those taxa out of the final tables, on the shared
+drop list like `--drop_non_microbial`, and lists them with their reads in
+`environmental/reanatax.environmental_evidence.tsv`. The names and lineages come
+from the run's own Kraken2 reports. Off by default.
+
 ### De novo assembly of the non-host fraction (`--assembly`)
 
 Every filter above judges a taxon by counting things about its reads — how many, how many distinct minimizers, how they behave under shuffling, how they compare to a blank. Not one of them ever produces a longer sequence. That is the gap this fills: a 1 kb contig that classifies to a taxon is categorically stronger evidence than fifty 100 bp reads that do, because reads placed by index hopping, or piled on one conserved locus, do not assemble into anything.
@@ -2290,7 +2304,7 @@ instead of being averaged away by the format. Four matrices come out — `score`
 `score_normalized`, `reads` and `unambiguous` — and `unambiguous` is the one to
 set beside a Kraken2 species count.
 
-The taxonomy verdicts of the Kraken2 route - `--drop_host_clade`, `--drop_non_microbial` and `--drop_host_taxon` - are applied to this route's cohort tables too, so the classifiers can be compared on the same footing. The lists come from the Kraken2 reports, so they name the taxa Kraken2 saw: a host relative only this classifier reports is not on them. Without Kraken2 (`--skip_kraken2`) there are no lists.
+The taxonomy verdicts of the Kraken2 route - `--drop_host_clade`, `--drop_non_microbial`, `--drop_environmental` and `--drop_host_taxon` - are applied to this route's cohort tables too, so the classifiers can be compared on the same footing. The lists come from the Kraken2 reports, so they name the taxa Kraken2 saw: a host relative only this classifier reports is not on them. Without Kraken2 (`--skip_kraken2`) there are no lists.
 
 ### KrakenUniq (`--krakenuniq_db`)
 
@@ -2349,7 +2363,7 @@ So reach for KrakenUniq when you need confident calls at low abundance, where
 the minimizer count gets too thin to discriminate; the minimizer columns cover
 the rest at no extra cost.
 
-The taxonomy verdicts of the Kraken2 route - `--drop_host_clade`, `--drop_non_microbial` and `--drop_host_taxon` - are applied to this route's cohort tables too, so the classifiers can be compared on the same footing. The lists come from the Kraken2 reports, so they name the taxa Kraken2 saw: a host relative only this classifier reports is not on them. Without Kraken2 (`--skip_kraken2`) there are no lists.
+The taxonomy verdicts of the Kraken2 route - `--drop_host_clade`, `--drop_non_microbial`, `--drop_environmental` and `--drop_host_taxon` - are applied to this route's cohort tables too, so the classifiers can be compared on the same footing. The lists come from the Kraken2 reports, so they name the taxa Kraken2 saw: a host relative only this classifier reports is not on them. Without Kraken2 (`--skip_kraken2`) there are no lists.
 
 ### Keeping the database in memory (`--kraken2_use_daemon`)
 
@@ -2954,13 +2968,16 @@ Like sylph it is additive: leave Kraken2 on to compare the two on the same reads
 Read these before relying on it:
 
 - **Not installed by the pipeline.** Metax is published on its author's conda channel (`zldeng`), not on bioconda, and that package ships the `metax` binary without the `maCMD` aligner it calls. Install both yourself (`conda create -n metax -c zldeng -c bioconda metax ma=1.1.4`) and put them on the PATH, or point `--metax_bin_dir` at a comma-separated list of installations (e.g. conda env prefixes) whose `bin/` directories together hold them — each `<dir>/bin` is prepended to the PATH in order, and the startup check looks there, so a run is not at the mercy of whichever tool happens to be first on the PATH. Alternatively the module's conda environment supplies both, so `-profile conda` or `mamba` works and `-profile wave` builds an image from it, or `--metax_container` names an image you built. At startup the pipeline checks for `metax` and `maCMD` on the PATH (or under `--metax_bin_dir`) unless an image or one of those profiles provides them; if they are missing it warns and runs without Metax. The PATH it checks is the one Nextflow runs with, so on a cluster the compute nodes need the same. Note the version must match the database: Metax 2.0.x reads a `metax_db.tsv.gz`, while older 0.9.x databases are a small JSON — a `bin_dir` with the wrong metax still fails at the database read, it just fails the task rather than silently skipping it.
-- **Coverage-based filtering and RNA.** Metax's authors say plainly that true taxa can be over-filtered where genome-wide coverage is not expected, "such as in RNA-derived data". A transcriptome covers what is expressed, so on RNA a missing Metax call is weak evidence of absence. RNA viruses are the exception worth knowing: there the transcript is the genome.
+- **Coverage-based filtering and RNA.** Metax's authors say plainly that true taxa can be over-filtered where genome-wide coverage is not expected, "such as in RNA-derived data". A transcriptome covers what is expressed, so on RNA a missing Metax call is no evidence of absence. RNA viruses are the exception worth knowing: there the transcript is the genome.
+
+  Measured on the three total-RNA libraries of the Zymo D6310 mock (PRJNA819997, metax 0.9.23-beta), Metax's alignments held 1,300-1,800 _Listeria monocytogenes_ and 4,300-6,200 _Saccharomyces cerevisiae_ reads per library, and its profiles reported neither; one kept _Pseudomonas aeruginosa_, the others no member at all. Both of its coverage probabilities were near 0 for those members, because their reads sit on rRNA operons rather than across the genome. Turning the breadth filters off (`--min-oebr 0 --min-coebr 0 --min-breadth 0`) brought back only _Bacillus_ and, in one library, _Pseudomonas_. `--mode recall` changed nothing, and `--min-reads 10` left _Listeria_ and _Saccharomyces_ at genus with 16-20 reads. No option of 0.9.23 sets the probability cutoff. The DNA libraries of the same study were profiled well. The run warns when Metax meets libraries the archive or samplesheet marks as RNA.
+
 - **Memory.** Alignment against a full database is the heavy part — about 55 GB peak for the 33,000-genome RefSeq databases in the paper. A fractional index (`metax index -f 0.05`) takes that to about 5 GB at a modest cost in recall, and Metax then skips the per-read output.
 - **The database is used as a directory.** `maCMD` finds the index files through `metax_db.json`, so `--metax_db` may name the JSON or the directory holding it; either way the whole directory is staged.
 
 Databases: pre-built cross-domain databases from NCBI RefSeq (the 2025 one holds 33,533 genomes) and instructions for custom ones are in the [Metax repository](https://github.com/hzi-bifo/Metax). `--metax_dmp_dir` is an unpacked NCBI [taxdump](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz). `--metax_args` passes anything else to `metax profile`, for example `--mode recall` or `--mode precision`.
 
-The taxonomy verdicts of the Kraken2 route - `--drop_host_clade`, `--drop_non_microbial` and `--drop_host_taxon` - are applied to the merged abundance and read tables too (the long per-sample table keeps every row), so the classifiers can be compared on the same footing. The lists come from the Kraken2 reports, so they name the taxa Kraken2 saw: a host relative only this classifier reports is not on them. Without Kraken2 (`--skip_kraken2`) there are no lists.
+The taxonomy verdicts of the Kraken2 route - `--drop_host_clade`, `--drop_non_microbial`, `--drop_environmental` and `--drop_host_taxon` - are applied to the merged abundance and read tables too (the long per-sample table keeps every row), so the classifiers can be compared on the same footing. The lists come from the Kraken2 reports, so they name the taxa Kraken2 saw: a host relative only this classifier reports is not on them. Without Kraken2 (`--skip_kraken2`) there are no lists.
 
 Per-sample profiles and cohort tables land in `metax/`.
 

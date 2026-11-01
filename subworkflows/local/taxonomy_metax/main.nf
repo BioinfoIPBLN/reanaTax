@@ -36,6 +36,17 @@ workflow TAXONOMY_METAX {
         bin_dir,
     )
 
+    // Metax drops a taxon whose reads cluster instead of spreading over its
+    // genome, and on RNA that is any member whose reads are mostly rRNA. No
+    // setting of metax 0.9.23 keeps them, so the run says so once.
+    ch_reads
+        .filter { meta, _reads -> meta.molecule == 'rna' }
+        .map { meta, _reads -> meta.id }
+        .collect()
+        .subscribe { ids ->
+            log.warn("Metax ran on ${ids.size()} RNA librar${ids.size() == 1 ? 'y' : 'ies'} (${ids.take(5).join(', ')}${ids.size() > 5 ? ', ...' : ''}). It drops a taxon whose reads cluster instead of spreading over its genome, which on RNA is any member whose reads are mostly rRNA: on the PRJNA819997 total-RNA mocks it found 1,300-1,800 Listeria and 4,300-6,200 Saccharomyces reads per library and reported neither. Read a missing Metax call on these libraries as no evidence either way. See docs/usage.md.")
+        }
+
     // Sorted so the column order of the cohort tables is reproducible.
     METAX_MERGE(
         METAX_PROFILE.out.profile

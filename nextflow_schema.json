@@ -803,6 +803,12 @@
                     "help_text": "Host reads that escape depletion land on whatever eukaryote they match, not only on the host's relatives: with a human or mouse host and --drop_host_clade order, the final tables held mouse, zebrafish and turkey in human cell lines, and human, moths, sea urchins and grasses in mouse brain - on a mouse single-cell cohort 590 such calls per library against 65 microbial. --drop_host_clade phylum removes the chordates only. This drops every taxon under Metazoa, Viridiplantae, other sequences (synthetic constructs, vectors) and unclassified sequences (metagenome placeholders), read from the run's own Kraken2 reports; bacteria, archaea, viruses, fungi and protists stay. Off by default: helminths are animals, and so is a blood meal or a xenograft's mouse cells. Evidence in <outdir>/non_microbial/.",
                     "fa_icon": "fas fa-bacterium"
                 },
+                "drop_environmental": {
+                    "type": "boolean",
+                    "description": "Set aside uncultured, unidentified and environmental-sample taxa: out of the final tables, into a table of their own.",
+                    "help_text": "Taxa named \"uncultured ...\" or \"unidentified ...\", and everything under an NCBI \"environmental samples\" node, name a sequence rather than an organism; in nt they are mostly 16S amplicons. On total-RNA libraries they collect the rRNA reads of real members: \"uncultured bacterium\" (77133) held about 12% of the species-level reads of the PRJNA819997 RNA mocks. They are removed with every other verdict and listed, with their reads, in <outdir>/environmental/. The lineage and names come from the run's own Kraken2 reports. Off by default.",
+                    "fa_icon": "fas fa-water"
+                },
                 "exploremetatax_bundle": {
                     "type": "boolean",
                     "description": "Write a tar.gz of the taxonomic tables for the exploreMetaTax Shiny app.",

@@ -35,6 +35,7 @@ include { KRAKEN2_DAEMON as KRAKEN2_DAEMON_CONTIGS } from '../../../modules/loca
 include { CONTIG_EVIDENCE                   } from '../../../modules/local/contig/evidence/main'
 include { HOSTCLADE_EXPAND                  } from '../../../modules/local/hostclade/main'
 include { NONMICROBIAL_EXPAND               } from '../../../modules/local/nonmicrobial/main'
+include { NONMICROBIAL_EXPAND as ENVIRONMENTAL_EXPAND } from '../../../modules/local/nonmicrobial/main'
 
 workflow TAXONOMY_KRAKEN2_BRACKEN {
 
@@ -57,6 +58,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     assembly_settings // map: assembler, pool, groups, min_reads, min_length, min_contigs, filter - or null
     host_clade // map: taxid, rank - or null
     drop_non_microbial // boolean: drop animals, plants and synthetic/unclassified sequences
+    drop_environmental // boolean: set aside uncultured, unidentified and environmental-sample taxa
     drop_host_taxon // boolean: remove the host taxon from both the tables and the matrix
     host_taxon // the taxid that names the host
     use_daemon // boolean: classify through `k2 classify --use-daemon`
@@ -488,6 +490,23 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         ch_multiqc_files = ch_multiqc_files.mix(NONMICROBIAL_EXPAND.out.mqc.map { _meta, mqc -> mqc })
     }
 
+    //
+    // MODULE: what names a sequence rather than an organism - uncultured,
+    // unidentified and environmental-sample taxa - listed apart from the tables.
+    //
+    def ch_environmental_drop = channel.empty()
+
+    if (drop_environmental) {
+        ENVIRONMENTAL_EXPAND(
+            ch_report_classified
+                .map { _meta, report -> report }
+                .collect(sort: true)
+                .map { reports -> [[id: 'kraken2_environmental'], reports] }
+        )
+        ch_environmental_drop = ENVIRONMENTAL_EXPAND.out.drop_list.map { _meta, list -> list }
+        ch_multiqc_files = ch_multiqc_files.mix(ENVIRONMENTAL_EXPAND.out.mqc.map { _meta, mqc -> mqc })
+    }
+
     def ch_contig_drop = channel.empty()
     def ch_contig_evidence = channel.empty()
     def ch_contigs = channel.empty()
@@ -635,8 +654,8 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     // Union of every list: each condemns a taxon for its own reason, and
     // surviving one is no argument against the others. `collect` gives the
     // filter a single list, and emits an empty one when no filter ran.
-    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || control_settings || host_clade || drop_non_microbial || drop_host_taxon || (assembly_settings && assembly_settings.filter) || (decontam_settings && !skip_bracken)
-        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).mix(ch_contig_drop).mix(ch_hostclade_drop).mix(ch_nonmicrobial_drop).mix(ch_host_taxon_drop).collect(sort: true)
+    def ch_drop_list = minimizer_filter || host_kmer_filter || shuffle_settings || control_settings || host_clade || drop_non_microbial || drop_environmental || drop_host_taxon || (assembly_settings && assembly_settings.filter) || (decontam_settings && !skip_bracken)
+        ? ch_minimizer_drop.mix(ch_hostkmer_drop).mix(ch_decontam_drop).mix(ch_shuffle_drop).mix(ch_control_drop).mix(ch_contig_drop).mix(ch_hostclade_drop).mix(ch_nonmicrobial_drop).mix(ch_environmental_drop).mix(ch_host_taxon_drop).collect(sort: true)
         : channel.value([])
 
     //
@@ -741,7 +760,7 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     contig_evidence = ch_contig_evidence // channel: [ val(meta), path(tsv) ]
     host_clade_evidence = ch_hostclade_evidence // channel: [ val(meta), path(tsv) ]
     drop_list = ch_drop_list // channel: [ path(txt) ] - every filter's verdict, for consumers outside this subworkflow
-    taxonomy_drop = ch_hostclade_drop.mix(ch_nonmicrobial_drop).mix(ch_host_taxon_drop) // channel: path(txt) - the verdicts that rest on taxonomy alone, for the other classifiers
+    taxonomy_drop = ch_hostclade_drop.mix(ch_nonmicrobial_drop).mix(ch_environmental_drop).mix(ch_host_taxon_drop) // channel: path(txt) - the verdicts that rest on taxonomy alone, for the other classifiers
     minimizer_evidence = minimizer_filter ? ABUNDANCE_MINIMIZER.out.evidence : channel.empty() // channel: [ val(meta), path(tsv) ]
     host_kmer_evidence = ch_hostkmer_evidence // channel: [ val(meta), path(tsv) ]
     decontam_evidence = ch_decontam_evidence // channel: [ val(meta), path(tsv) ]
