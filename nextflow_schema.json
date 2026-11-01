@@ -268,8 +268,8 @@
                 "trim_known_adapters": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Without --adapter_fasta, also trim the Illumina adapter and flow-cell sequences in assets/illumina_adapters.fa.",
-                    "help_text": "fastp detects adapters from the reads themselves, and in a small library it finds none: on a 640-pair blank of PRJNA819997 it reported no adapter, and 159 adapter-dimer pairs went on to be classified as SARS-CoV-2, whose nt records carry adapter sequence. With the bundled list (TruSeq read 1 and read 2, Nextera, TruSeq small RNA, P5 and P7) 154 of the 159 were removed, against 8 of 817,619 pairs (0.055% of bases) on a mock of the same study. Not applied with --long_reads or --single_cell, whose read 1 is a barcode.",
+                    "description": "Without --adapter_fasta, also trim the adapter and primer sequences in assets/adapters.fa.",
+                    "help_text": "fastp detects adapters from the reads themselves, and in a small library it finds none: on a 640-pair blank of PRJNA819997 it reported no adapter, and 159 adapter-dimer pairs went on to be classified as SARS-CoV-2, whose nt records carry adapter sequence. The bundled list holds 34 sequences: the set FGCZ trims with in production (TruSeq2 and TruSeq3, Nextera transposase, PCR primers, flow-cell sequences, small RNA RT primer, SMART oligos), MGI DNBSEQ read 1 and read 2, the 3' forms from FGCZ's FastQC list (small RNA 5' adapter, SOLiD small RNA, Ion P1B), QIAseq miRNA, Ion Torrent A, the 10x/SMARTer TSO reverse complement, P5 and P7. On that blank it removed 155 of the 159 pairs; on a mock of the same study it cost 299 of 817,619 pairs and 0.19% of bases. Not applied with --long_reads or --single_cell, whose read 1 is a barcode.",
                     "fa_icon": "fas fa-cut"
                 },
                 "fastp_args": {

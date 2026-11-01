@@ -135,7 +135,7 @@ workflow REANATAX {
         ch_raw_reads,
         params.adapter_fasta
             ? file(params.adapter_fasta, checkIfExists: true)
-            : params.trim_known_adapters && !params.long_reads && !params.single_cell ? file("${projectDir}/assets/illumina_adapters.fa", checkIfExists: true) : [],
+            : params.trim_known_adapters && !params.long_reads && !params.single_cell ? file("${projectDir}/assets/adapters.fa", checkIfExists: true) : [],
         params.skip_fastqc,
         params.skip_trimming,
         params.save_trimmed_fail,

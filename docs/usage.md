@@ -98,10 +98,25 @@ appended to whatever it holds.
 themselves, and in a small library it finds none. On a 640-pair blank of
 PRJNA819997 it reported no adapter, and 159 adapter-dimer pairs went on to be
 classified as SARS-CoV-2, whose nt records carry adapter sequence. By default
-(`--trim_known_adapters`) fastp therefore also trims the sequences in
-`assets/illumina_adapters.fa`: TruSeq read 1 and read 2, Nextera, TruSeq small
-RNA, and the P5 and P7 flow-cell sequences. That removed 154 of the 159 pairs,
-and cost 8 of 817,619 pairs (0.055% of bases) on a mock of the same study.
+(`--trim_known_adapters`) fastp therefore also trims the 34 sequences in
+`assets/adapters.fa`, each named after where it comes from:
+
+- `FGCZ_trimming_*`: the set FGCZ trims with in production
+  (`allIllumina-forTrimmomatic-20160202.fa`): TruSeq2 and TruSeq3 adapters,
+  Nextera transposase, the PCR primers, the flow-cell sequences, the small RNA
+  RT primer and the SMART oligos;
+- `vectors_v2_*`: MGI DNBSEQ read 1 and read 2, which the others lack;
+- `FGCZ_FastQC_*`: from FGCZ's FastQC list, the sequences that sit at a read's
+  3' end (small RNA 5' adapter as read 2 sees it, SOLiD small RNA, Ion P1B);
+- QIAseq miRNA, Ion Torrent A, the 10x/SMARTer TSO reverse complement, P5 and
+  P7.
+
+fastp cuts a read from wherever a listed sequence starts, so sequences that sit
+at the 5' end of a read, such as a template-switch oligo as written, are left
+out: they would remove the whole read. Poly-X is left to `--trim_poly_x`. On
+the blank the list removed 155 of the 159 pairs; on a mock of the same study
+(817,619 pairs) it cost 299 pairs and 0.19% of bases, mostly a few bases at the
+end of reads whose last bases happen to match the start of an adapter.
 `--adapter_fasta` replaces the list. It is not applied with `--long_reads` or
 `--single_cell`, whose read 1 is a barcode.
 
