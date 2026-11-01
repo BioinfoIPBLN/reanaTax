@@ -262,8 +262,15 @@
                     "format": "file-path",
                     "exists": true,
                     "description": "FASTA of adapter sequences to pass to fastp.",
-                    "help_text": "Only needed when fastp's automatic adapter detection is not enough.",
+                    "help_text": "Replaces the bundled list (`--trim_known_adapters`) when given.",
                     "fa_icon": "far fa-file-code"
+                },
+                "trim_known_adapters": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Without --adapter_fasta, also trim the Illumina adapter and flow-cell sequences in assets/illumina_adapters.fa.",
+                    "help_text": "fastp detects adapters from the reads themselves, and in a small library it finds none: on a 640-pair blank of PRJNA819997 it reported no adapter, and 159 adapter-dimer pairs went on to be classified as SARS-CoV-2, whose nt records carry adapter sequence. With the bundled list (TruSeq read 1 and read 2, Nextera, TruSeq small RNA, P5 and P7) 154 of the 159 were removed, against 8 of 817,619 pairs (0.055% of bases) on a mock of the same study. Not applied with --long_reads or --single_cell, whose read 1 is a barcode.",
+                    "fa_icon": "fas fa-cut"
                 },
                 "fastp_args": {
                     "type": "string",

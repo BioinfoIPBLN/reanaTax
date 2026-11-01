@@ -94,6 +94,17 @@ of 10 bases or more is cut from the 3' end of each read. `--fastp_args`
 replaces the first part; `--trim_poly_x` and `--trim_low_complexity` are
 appended to whatever it holds.
 
+**Known adapters, on top of detection.** fastp detects adapters from the reads
+themselves, and in a small library it finds none. On a 640-pair blank of
+PRJNA819997 it reported no adapter, and 159 adapter-dimer pairs went on to be
+classified as SARS-CoV-2, whose nt records carry adapter sequence. By default
+(`--trim_known_adapters`) fastp therefore also trims the sequences in
+`assets/illumina_adapters.fa`: TruSeq read 1 and read 2, Nextera, TruSeq small
+RNA, and the P5 and P7 flow-cell sequences. That removed 154 of the 159 pairs,
+and cost 8 of 817,619 pairs (0.055% of bases) on a mock of the same study.
+`--adapter_fasta` replaces the list. It is not applied with `--long_reads` or
+`--single_cell`, whose read 1 is a barcode.
+
 **Libraries that read into the 3' end need it.** Their reads run from the last
 stretch of a transcript into its poly(A) tail:
 
