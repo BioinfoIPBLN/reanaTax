@@ -53,6 +53,24 @@ splitList <- function(x) {
   trimws(strsplit(x, ",", fixed = TRUE)[[1]])
 }
 
+# What the data leave untestable is a result, not an error: an empty results
+# table, a MultiQC row that says why, and exit 0, so a run does not stop on it.
+notTested <- function(reason) {
+  method <- tolower(gsub("[^A-Za-z0-9]", "", opt$method))
+  message("[differential_abundance] not tested: ", reason)
+  writeLines(paste(c("taxon", "lfc", "pvalue", "qvalue", "significant", "comparison"), collapse = "\t"),
+             sprintf("%s.%s.results.tsv", opt$prefix, method))
+  writeLines(c(
+    sprintf("# id: 'reanatax_da_%s'", method),
+    sprintf("# section_name: 'Differential abundance (%s)'", toupper(method)),
+    sprintf("# description: '%s over %s was not tested: %s'", opt$sample_group, opt$ref_group, gsub("'", "", reason)),
+    "# plot_type: 'table'",
+    paste(c("Taxon", "log2FC", "p", "adj.p"), collapse = "\t"),
+    paste(c("not tested", "", "", ""), collapse = "\t")
+  ), sprintf("%s.%s_mqc.tsv", opt$prefix, method))
+  quit(save = "no", status = 0)
+}
+
 ## ---- counts -------------------------------------------------------------
 tab <- read.delim(opt$counts, check.names = FALSE, stringsAsFactors = FALSE)
 numCols <- grep("_num$", colnames(tab), value = TRUE)
@@ -118,13 +136,16 @@ keepTaxa <- prevalence >= opt$prevalence_min & pooled >= opt$relabund_min
 message(sprintf("[differential_abundance] %d/%d taxa pass prevalence >= %.2f and pooled abundance >= %.2f%%.",
                 sum(keepTaxa), length(keepTaxa), opt$prevalence_min, opt$relabund_min))
 counts <- counts[keepTaxa, , drop = FALSE]
-if (nrow(counts) < 2) stop("Fewer than 2 taxa survive the filters; loosen --da_prevalence_min / --da_relabund_min.")
+if (nrow(counts) < 2) notTested("fewer than 2 taxa survive the filters; loosen --da_prevalence_min / --da_relabund_min")
 
 method <- tolower(gsub("[^A-Za-z0-9]", "", opt$method))
 
 ## ---- test ---------------------------------------------------------------
 if (method %in% c("aldex2", "aldex")) {
   suppressPackageStartupMessages(library(ALDEx2))
+  # aldex.clr draws its Monte-Carlo instances from R's generator, so without a
+  # seed every rerun gave different numbers; 123 as DiffShot seeds ANCOM-BC2.
+  set.seed(123)
   covFormula <- length(covariates) > 0
   if (covFormula) {
     mm <- model.matrix(as.formula(paste("~", paste(c(opt$grouping, covariates), collapse = " + "))), data = meta)
@@ -168,6 +189,16 @@ if (method %in% c("aldex2", "aldex")) {
   # accepts a plain count matrix with tax_level = "none" + a metadata data.frame
   # whose first column is the sample id and whose rownames are the sample ids -
   # exactly what `meta` already is, so no TSE object is needed.
+  # ancombc2 drops the samples under lib_cut from this same table before it
+  # builds the model; a side left with fewer than 2 cannot be tested, and one
+  # left with none made the model matrix fail on a one-level factor.
+  passLib <- colSums(counts) >= opt$lib_cut
+  nSample <- sum(passLib & meta[[opt$grouping]] == opt$sample_group)
+  nRef <- sum(passLib & meta[[opt$grouping]] == opt$ref_group)
+  if (nSample < 2 || nRef < 2) {
+    notTested(sprintf("%d %s and %d %s sample(s) have at least %g reads on the filtered taxa (--da_lib_cut); each side needs 2",
+                      nSample, opt$sample_group, nRef, opt$ref_group, opt$lib_cut))
+  }
   fix <- paste(c(opt$grouping, covariates), collapse = " + ")
   out <- ancombc2(data = counts, tax_level = "none", fix_formula = fix,
                   p_adj_method = "BH", prv_cut = 0, lib_cut = opt$lib_cut,

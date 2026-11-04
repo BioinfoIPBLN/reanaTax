@@ -2924,16 +2924,18 @@ It is a separate file rather than a samplesheet column because the `--input_acce
 --da_method ancombc,aldex2 --da_covariates Sex
 ```
 
-| Method    | What it does                                                                                                                                          |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ancombc` | ANCOM-BC2: bias-corrected log-ratios, estimates a per-sample sampling fraction, handles structural zeros. The default.                                |
-| `aldex2`  | ALDEx2: centred log-ratio space, Monte-Carlo instances from a Dirichlet posterior. `--da_covariates` switches it from the t-test path to `aldex.glm`. |
+| Method    | What it does                                                                                                                                                                                                           |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ancombc` | ANCOM-BC2: bias-corrected log-ratios, estimates a per-sample sampling fraction, handles structural zeros. The default.                                                                                                 |
+| `aldex2`  | ALDEx2: centred log-ratio space, Monte-Carlo instances from a Dirichlet posterior, drawn with a fixed seed (123) so a rerun gives the same numbers. `--da_covariates` switches it from the t-test path to `aldex.glm`. |
 
 Each has its own container — no biocontainer carries both — so naming both runs two processes over the same table. They disagree in informative ways; treat a taxon only one of them calls with suspicion.
 
 **Both need integer counts**, which is why they read the combined Bracken table and why MetaPhlAn relative abundances are rejected rather than silently rescaled. They run on a combined table that has had every drop applied - the host taxon and clade, the evidence filters, negative controls - but none of the abundance thresholds: each method applies its own `--da_prevalence_min` / `--da_relabund_min`, and passing a table already thinned by `--min_rel_abundance` would filter twice under two different rules. It is published as `bracken/bracken_combined_<level>.verdicts.filtered.tsv`.
 
 Outputs land in `differential_abundance/`: a results TSV per method (`taxon`, `lfc`, `pvalue`, `qvalue`, `significant`), a volcano plot, and a top-25 table that appears as a MultiQC section.
+
+**When the data cannot be tested.** ANCOM-BC2 drops every sample with fewer than `--da_lib_cut` reads (default 1000) on the filtered taxa before it fits its model. On a host-dominated table that can leave a side of the contrast with too few samples, or none, which made the model fail on a one-level factor (PRJNA1189655, ticks). A side left with fewer than 2 samples, or fewer than 2 taxa surviving the filters, is now reported as not tested: an empty results table, a MultiQC row that gives the reason, and the task succeeds. Any other failure of a differential-abundance task is retried once if it was killed for resources and then ignored, so it cannot stop classification or PRISM for the rest of the run; Nextflow still reports it as failed and ignored.
 
 ## MetaPhlAn
 
