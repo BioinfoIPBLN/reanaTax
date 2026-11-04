@@ -121,7 +121,7 @@ index f2d687f..9a7f78c 100644
 +}
  log_message("PRISM pipeline completed successfully.")
 diff --git a/functions.R b/functions.R
-index 026d0f7..99d536f 100644
+index 026d0f7..6920105 100644
 --- a/functions.R
 +++ b/functions.R
 @@ -189,11 +189,12 @@ prism_kraken <- function(sample,
@@ -289,7 +289,55 @@ index 026d0f7..99d536f 100644
    
    final <- res_most_specific[ , .(
      id, read, sacc, staxids, pos, qcovs, pident, bitscore,
-@@ -1511,7 +1547,16 @@ prism_profile = function(out_path, sample, kr_report, blast, prod){
+@@ -1287,10 +1323,14 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
+   out = list.files(out_path, full.names = T) %>% str_subset('output.txt')
+   
+   # Construct awk command to extract lines matching the relevant taxids from the output file
+-  str = paste0("awk -F '\t' '$3 ~ /", paste0('\\(taxid ', tx, '\\)', collapse = '|'), "/' ", out, ' >> ', out_path, sample, '.tempout.txt')
++  str = paste0("awk -F '\t' '$3 ~ /", paste0('\\(taxid ', tx, '\\)', collapse = '|'), "/' ", out, ' > ', out_path, sample, '.tempout.txt')
+   system(str)  # Run the awk command
+   
+   # Read the filtered output file into R
++  # (no read assigned to any of the taxa leaves it empty, which read.delim rejects)
++  if (file.size(paste0(out_path, sample, '.tempout.txt')) == 0) {
++    microbiome_output_file = tibble(id = character(), name = character(), taxid = numeric(), V4 = character(), V5 = character())
++  } else {
+   out = read.delim(paste0(out_path, sample, '.tempout.txt'), header = F)
+   
+   # Clean and reformat output for further analysis
+@@ -1300,6 +1340,7 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
+     mutate(taxid = str_remove(taxid, '\\)') %>% trimws() %>% as.numeric(), name = trimws(name)) %>% 
+     dplyr::rename(id = V2) %>%
+     tibble()
++  }
+   
+   # Initialize empty lists to store outputs
+   li = list()
+@@ -1363,6 +1404,10 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
+     # Limit rows for performance reasons
+     if(nrow(out) > 1000){out = out[1:1000, ]}
+     
++    # No read of this lineage in the Kraken2 output: no k-mer profile, so its
++    # k-mer features stay missing (NA) rather than 0 after the join
++    if(nrow(out) == 0){next}
++
+     # Initialize temporary list to store sample-level summaries
+     df.list = list()
+     
+@@ -1424,8 +1469,12 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
+   system(paste0('rm ',  out_path, sample, '.tempout.txt'))
+   
+   # Combine all summaries into final outputs
++  if (length(li) == 0) {
++    li = tibble(staxids = character())
++  } else {
+   li = bind_rows(li) %>% arrange(taxid) %>% mutate(taxid = as.character(taxid)) %>% rename(staxids = taxid)
+   li = li %>% pivot_longer(-c(staxids)) %>% group_by(staxids) %>% mutate(value = value/sum(value)) %>% pivot_wider(id_cols = c(staxids), names_from = name, values_from = value) %>% ungroup()      
++  }
+   
+   misclass = bind_rows(misclass) %>% pivot_longer(-c(taxid, rank)) %>% group_by(taxid, name) %>% 
+     mutate(value = value/value[rank == 'k']) %>% subset(rank != 'k') %>% 
+@@ -1511,7 +1560,16 @@ prism_profile = function(out_path, sample, kr_report, blast, prod){
    
    # load xgboost contamination model and predict
    xg = readRDS(file = paste0(prism_path, 'prismxg.RDS'))
@@ -307,7 +355,7 @@ index 026d0f7..99d536f 100644
    
    # make species counts file 
    counts = prod %>% 
-@@ -1548,64 +1593,22 @@ prism_profile = function(out_path, sample, kr_report, blast, prod){
+@@ -1548,64 +1606,22 @@ prism_profile = function(out_path, sample, kr_report, blast, prod){
  #' @param paired Logical. `TRUE` if paired-end reads are provided and should be processed.
  
  prism_FASTA = function(fa1, fa2, blast, out_path, out_path_final, sample, paired){
