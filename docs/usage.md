@@ -267,10 +267,22 @@ the module. Three changes since 4.3.7 matter here:
   counts are not guaranteed to match a 4.3.7 run. Don't mix the two in one
   comparison.
 
+- **The index keeps more positions per seed.** `--max-pos`, the number of
+  reference positions the index stores for each L-mer, went from 1000
+  to 10000. The alignment step scans every stored position of every seed a
+  read shares with each candidate reference, so on a library whose seeds are
+  frequent in the rRNA database (a mosquito-cell total-RNA library in our
+  hands) 10000 made every read 10-60x more expensive for the same reads
+  flagged: 2,000 pairs took 85 s of alignment at 10000, 6.5 s at 1000 and
+  1.4 s at 250, and whole libraries ran for 16 h without finishing. The
+  pipeline builds its index with `--sortmerna_max_pos` (default 1000, the
+  4.3.7 value). A prebuilt `--sortmerna_index` carries whatever value it was
+  built with.
+
 The 2026 releases came quickly, and 5.0.0, 6.0.0 and 7.0.0 each shipped a
 regression fixed in a later release (miscounted multi-line FASTA input,
 degenerate alignments from the new aligner, a crash on gzipped reads). 8.0.0
-came out on 24 October 2026 and has not yet been run on this pipeline's data.
+came out on 24 October 2026.
 
 ## The host genome
 
@@ -435,6 +447,11 @@ duplicate sequences removed, case-insensitively, with `seqkit rmdup
 ```bash
 --host_bundle /data/hg38.fa,/data/chm13.fa.gz
 ```
+
+Every entry needs its own file name: the genomes are staged side by side
+under their names, so two `genome.fna.gz` from different directories stop the
+run at validation. Rename or symlink them first (`aedes.genome.fna.gz`,
+`wolbachia.genome.fna.gz`).
 
 The bundle is depleted against once, as one genome, and is the primary
 reference: `--gtf` may describe it. It is also the genome PRISM removes the
@@ -2832,6 +2849,8 @@ CPU and memory ceilings are detected from the machine, and Nextflow then schedul
 ### SLURM execution
 
 ```bash
+Every task gets the same time limit, `--resource_limit_time` (default 240 h), in place of the per-step limits used under SLURM. Nothing queues behind a local task, and with Nextflow before 26.10.0 a task the local executor kills at its limit aborts the whole run instead of failing on its own ([nextflow-io/nextflow#7569](https://github.com/nextflow-io/nextflow/issues/7569)); `-resume` picks the run up again, but every task that was in flight starts over. If you lower the ceiling, HISAT2 on a large library can take 15–30 h at 12 threads with the default `--hisat2_args`.
+
 -profile slurm,singularity --slurm_queue <partition>
 ```
 

@@ -319,8 +319,16 @@
                     "type": "string",
                     "format": "directory-path",
                     "description": "Prebuilt SortMeRNA index directory. Built once per run if omitted.",
-                    "help_text": "SortMeRNA 6.0 replaced CMPH with BBHash in the index format, so an index built by 4.x or 5.x cannot be read by the SortMeRNA 8.0 the pipeline runs. Point this at an index built by 6.0 or later (`sortmerna --task 5`), or leave it unset and let the run build its own.",
+                    "help_text": "SortMeRNA 6.0 replaced CMPH with BBHash in the index format, so an index built by 4.x or 5.x cannot be read by the SortMeRNA 8.0 the pipeline runs. Point this at an index built by 6.0 or later (`sortmerna --task 5`), or leave it unset and let the run build its own. A prebuilt index carries its own `--max-pos`; see `--sortmerna_max_pos`.",
                     "fa_icon": "fas fa-folder-open"
+                },
+                "sortmerna_max_pos": {
+                    "type": "integer",
+                    "default": 1000,
+                    "minimum": 0,
+                    "description": "Positions the SortMeRNA index keeps per L-mer (`--max-pos` at index build; 0 keeps all).",
+                    "help_text": "SortMeRNA 8 builds its index with 10000 by default, up from 4.3.7's 1000. The alignment step scans every stored position of every seed a read shares with each candidate reference, so a library whose seeds are frequent in the rRNA database costs 10-60x more per read at 10000: 2,000 pairs of a mosquito-cell total-RNA library took 85 s of alignment at 10000, 6.5 s at 1000 and 1.4 s at 250, with the same reads flagged as rRNA each time. Only used when the run builds the index; `--sortmerna_index` carries its own.",
+                    "fa_icon": "fas fa-sort-numeric-down"
                 },
                 "sortmerna_args": {
                     "type": "string",
@@ -819,7 +827,7 @@
                 "exploremetatax_bundle": {
                     "type": "boolean",
                     "description": "Write a tar.gz of the taxonomic tables for the exploreMetaTax Shiny app.",
-                    "help_text": "Produces `exploremetatax/reanatax.exploreMetaTax.tar.gz`. The app (https://shiny-public.fgcz.uzh.ch/app/exploreMetaTax) has no archive upload: extract the tarball, tick 'Browse a folder' on its Upload tab, pick the extracted folder and choose the input format. The bundle is a flat directory whose filenames are rewritten to match the app's per-format filters - a plain tar of `--outdir` would skip the Bracken tables entirely and load two other files under the wrong format. Includes whichever of Kraken2, Bracken, MetaPhlAn and HUMAnN actually ran, plus `--da_metadata` if given.",
+                    "help_text": "Produces `exploremetatax/reanatax.exploreMetaTax.tar.gz`. Upload the archive itself to the app (https://shiny-public.fgcz.uzh.ch/app/exploreMetaTax): it unpacks it, loads the files of the chosen input format as samples, and loads the metadata and the differential-abundance tables by itself. The bundle is a flat directory whose filenames are rewritten to match the app's per-format filters - a plain tar of `--outdir` would skip the Bracken tables entirely and load two other files under the wrong format. Includes whichever of Kraken2, Bracken, MetaPhlAn, Emu (the deepest-rank cohort table) and HUMAnN actually ran, the ANCOM-BC2 / ALDEx2 result tables, plus `--da_metadata` if given.",
                     "fa_icon": "fas fa-file-archive"
                 },
                 "krakenuniq_db": {

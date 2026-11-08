@@ -569,6 +569,12 @@ def validateInputParameters() {
         log.warn("--host_bundle and --host were both given; the bundle is the single combined host reference and the --host entries are ignored. Use --host_bundle alone for a combined genome, or --host alone for separate depletion passes.")
     }
 
+    // The bundle's genomes are staged side by side under their own file names.
+    def bundle_clashes = commaList(params.host_bundle).groupBy { entry -> file(entry).name }.findAll { _name, entries -> entries.size() > 1 }
+    if (bundle_clashes) {
+        error("--host_bundle entries must have distinct file names, but these share one: ${bundle_clashes.collect { name, entries -> name + ' (' + entries.join(', ') + ')' }.join('; ')}. Rename or symlink them, e.g. <species>.genome.fna.gz.")
+    }
+
     if (!params.skip_host_removal && host_refs.isEmpty()) {
         error("Host depletion is enabled but no host genome was given. Provide one of --fasta, --hisat2_index, --host_accession or --host_taxid, or disable the step with --skip_host_removal.")
     }
