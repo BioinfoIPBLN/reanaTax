@@ -546,6 +546,16 @@ def validateInputParameters() {
         error("--remove_rrna needs rRNA references: give --sortmerna_db (e.g. smr_v6.0.2_default_db.fasta from the sortmerna-database releases), or drop --remove_rrna.")
     }
 
+    // The index records the --max-pos it was built with; a 10000 index makes
+    // some libraries 10-60x more expensive per read (docs/usage.md).
+    if (params.sortmerna_index && file(params.sortmerna_index).isDirectory()) {
+        def stats = file(params.sortmerna_index).listFiles().find { entry -> entry.name.endsWith('.idx_stats.yaml') }
+        def recorded = stats ? (stats.text =~ /max_positions:\s*(\d+)/) : null
+        if (recorded && recorded.find() && recorded.group(1).toInteger() > params.sortmerna_max_pos) {
+            log.warn("--sortmerna_index was built with --max-pos ${recorded.group(1)} (${stats.name}), above the ${params.sortmerna_max_pos} the pipeline builds its own with. On libraries whose seeds are frequent in the rRNA database every read costs 10-60x more for the same reads flagged; rebuild the index with `sortmerna --ref <fasta> --workdir <dir> --task 5 --max-pos ${params.sortmerna_max_pos}` or drop --sortmerna_index.")
+        }
+    }
+
     if (params.rrna_annotation) {
         if (params.skip_kraken2) {
             error("--rrna_annotation joins rRNA reads to Kraken2's per-read calls, so it cannot run with --skip_kraken2.")

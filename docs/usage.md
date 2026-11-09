@@ -274,10 +274,12 @@ the module. Three changes since 4.3.7 matter here:
   frequent in the rRNA database (a mosquito-cell total-RNA library in our
   hands) 10000 made every read 10-60x more expensive for the same reads
   flagged: 2,000 pairs took 85 s of alignment at 10000, 6.5 s at 1000 and
-  1.4 s at 250, and whole libraries ran for 16 h without finishing. The
-  pipeline builds its index with `--sortmerna_max_pos` (default 1000, the
-  4.3.7 value). A prebuilt `--sortmerna_index` carries whatever value it was
-  built with.
+  1.4 s at 250, and whole libraries ran for 16 h without finishing. On
+  20,000- and 200,000-pair slices the reads flagged at 1000 were identical to
+  10000's; on two whole libraries 1000 flagged 19 and 21 reads fewer, a
+  subset of 10000's set. The pipeline builds its index with
+  `--sortmerna_max_pos` (default 1000, the 4.3.7 value). A prebuilt
+  `--sortmerna_index` carries whatever value it was built with.
 
 The 2026 releases came quickly, and 5.0.0, 6.0.0 and 7.0.0 each shipped a
 regression fixed in a later release (miscounted multi-line FASTA input,
@@ -2846,11 +2848,13 @@ outdir: "./results"
 
 CPU and memory ceilings are detected from the machine, and Nextflow then schedules tasks so that the running tasks' combined requests never exceed them — which is what keeps a 72 GB Kraken2 task from being started four times at once. Override the detection with `--resource_limit_cpus`, `--resource_limit_memory` and `--resource_limit_time`.
 
+Every task gets the same time limit, `--resource_limit_time` (default 240 h), in place of the per-step limits used under SLURM. Nothing queues behind a local task, and with Nextflow before 26.10.0 a task the local executor kills at its limit aborts the whole run instead of failing on its own ([nextflow-io/nextflow#7569](https://github.com/nextflow-io/nextflow/issues/7569)); `-resume` picks the run up again, but every task that was in flight starts over. If you lower the ceiling, HISAT2 on a large library can take 15–30 h at 12 threads with the default `--hisat2_args`.
+
+Steps that pipe tools together use a few more cores than they request: a HISAT2 task's `samtools view | samtools fastq` adds two to its 12, and a PRISM task's four BLAST slices run beside its R process. On a node you share, set `--resource_limit_cpus` about 10% under your share (58 for 64 cores) so the sum stays within it.
+
 ### SLURM execution
 
 ```bash
-Every task gets the same time limit, `--resource_limit_time` (default 240 h), in place of the per-step limits used under SLURM. Nothing queues behind a local task, and with Nextflow before 26.10.0 a task the local executor kills at its limit aborts the whole run instead of failing on its own ([nextflow-io/nextflow#7569](https://github.com/nextflow-io/nextflow/issues/7569)); `-resume` picks the run up again, but every task that was in flight starts over. If you lower the ceiling, HISAT2 on a large library can take 15–30 h at 12 threads with the default `--hisat2_args`.
-
 -profile slurm,singularity --slurm_queue <partition>
 ```
 
@@ -3082,6 +3086,15 @@ nextflow run BioinfoIPBLN/reanatax -bg ...
 ```
 
 Or use `screen`/`tmux`, or submit the Nextflow process itself as a job.
+
+## Slow or stuck?
+
+A long task shows little from outside, and on Nextflow before 26.10.0 a task killed at its time limit takes the whole local run with it (see [Local execution](#local-execution)). Before killing one, look at its work directory: `.command.log` and the files below grow while the task works.
+
+- **`RRNA_ANNOTATE` / `SORTMERNA`.** The log stops at `Processor N thread started` and prints only `Restart: WAL fsync` once a minute until the end. `kvdb/` grows as reads are processed (45-60 MB for a 7 M-pair library). Busy threads and a growing `kvdb/` mean alignment, which costs 10-60x more per read on some libraries when the index was built with `--max-pos 10000` (see [Index reuse and versions](#index-reuse-and-versions)).
+- **`PRISM_RUN`.** `<sample>.log` names each of PRISM's steps as it starts. The full BLAST keeps about 50 of 64 cores busy for 10-13 h on a mostly microbial library; `makeblastdb` (10-25 min) and the filtering step (about 1 h) run on one core and look idle.
+- **`HISAT2_ALIGN` / `HISAT2_ALIGN_SPLIT`.** The unmapped FASTQ outputs grow as pairs are written. 15-30 h at 12 threads is normal for a large library with the default `--hisat2_args`.
+- **`KRAKEN2`.** Nothing is written until classification ends. Reading core_nt from network storage takes about 43 min before the first read is classified; `fincore --bytes --noheadings --output RES,SIZE <db>/*.k2d` shows how much of the database is in memory yet.
 
 ## Nextflow memory requirements
 
