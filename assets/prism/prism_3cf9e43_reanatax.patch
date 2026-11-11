@@ -11,7 +11,7 @@ licence. What each change does and why: README.md.
 Apply with:  git -C <PRISM clone at 3cf9e43> apply <this file>
 
 diff --git a/PRISM.R b/PRISM.R
-index f2d687f..9a7f78c 100644
+index f2d687f..0bcace9 100644
 --- a/PRISM.R
 +++ b/PRISM.R
 @@ -31,7 +31,8 @@ option_list = list(
@@ -32,7 +32,12 @@ index f2d687f..9a7f78c 100644
  min_read_per = opt$min_read_per
  min_uniq_frac = opt$min_uniq_frac
  paired = opt$paired %>% as.logical()
-@@ -73,6 +75,7 @@ min_qcovs = opt$min_qcovs
+@@ -69,10 +71,12 @@ max_sample = opt$max_sample
+ fq1_end = opt$fq1_end
+ fq2_end = opt$fq2_end
+ threads = opt$threads
++data.table::setDTthreads(as.integer(threads))
+ min_qcovs = opt$min_qcovs
  use_custom_db = as.logical(opt$use_custom_db)
  custom_db_path = opt$custom_db_path
  fasta_size_threshold_custom_db = opt$fasta_size_threshold_custom_db
@@ -40,7 +45,7 @@ index f2d687f..9a7f78c 100644
  if(is.null(opt$out_path)){
    out_path = paste0(ifelse(str_detect(data_path, '/$'), data_path, paste0(data_path, '/')), sample, '_prism/data/')
    out_path_final = paste0(ifelse(str_detect(data_path, '/$'), data_path, paste0(data_path, '/')), sample, '_prism/')
-@@ -94,6 +97,18 @@ log_file <- file(log_file_path, open = "wt")
+@@ -94,6 +98,18 @@ log_file <- file(log_file_path, open = "wt")
  on.exit({ close(log_file) }, add = TRUE)
  log_message("Starting PRISM pipeline")
  
@@ -59,7 +64,7 @@ index f2d687f..9a7f78c 100644
  
  # ------- Step 1 ------- 
  # ------- Initial Kraken2 host depletion, microbial surveillance, and putative microbial read extraction
-@@ -140,6 +155,7 @@ if (!file.exists(file.path(out_path, paste0('star/', sample, "_Aligned.out.sam")
+@@ -140,6 +156,7 @@ if (!file.exists(file.path(out_path, paste0('star/', sample, "_Aligned.out.sam")
  
  # ------- Step 4 ------- 
  # ------- Sub-sample microbial reads by species taxids
@@ -67,7 +72,7 @@ index f2d687f..9a7f78c 100644
  if (!file.exists(file.path(out_path, paste0(sample, "_sub_fa1")))) {
    id_df <- run_step("Sub-sampling by taxid", quote(
      prism_subsample(sample, out_path, fa1, fa2, sp_taxid, mpa, max_sample, paired)
-@@ -151,6 +167,7 @@ if (!file.exists(file.path(out_path, paste0(sample, "_sub_fa1")))) {
+@@ -151,6 +168,7 @@ if (!file.exists(file.path(out_path, paste0(sample, "_sub_fa1")))) {
    tax = ids %>% str_remove('.*taxid\\|') %>% as.numeric()
    id_df = data.frame(taxid = tax, id = ids %>% str_remove('\\s.*'))
  }
@@ -75,7 +80,7 @@ index f2d687f..9a7f78c 100644
  
  # ------- Step 5 ------- 
  # ------- BLAST on sub-sampled putative microbial reads
-@@ -171,17 +188,10 @@ if (!file.exists(file.path(out_path, paste0(sample, "-final-blast1.csv")))) {
+@@ -171,17 +189,10 @@ if (!file.exists(file.path(out_path, paste0(sample, "-final-blast1.csv")))) {
    if((paired == T & !file.exists(file.path(out_path, paste0(sample, "-final-blast2.csv")))) | paired == F){
      uit <- run_step("Multimapping analysis", quote(
        prism_multimapping(out_path, sample, kr_report, mpa, paired, 
@@ -95,7 +100,7 @@ index f2d687f..9a7f78c 100644
    }
  }
  
-@@ -203,7 +213,7 @@ if (!file.exists(file.path(out_path, paste0(sample, "-final-blast1.csv")))) {
+@@ -203,7 +214,7 @@ if (!file.exists(file.path(out_path, paste0(sample, "-final-blast1.csv")))) {
  # ------- Step 8 ------- 
  # ------- Filter non-microbial reads 
  out <- run_step("Filtering non-microbial reads", quote(
@@ -104,7 +109,7 @@ index f2d687f..9a7f78c 100644
  ))
  blast = out$micro; unmapped = out$unmapped
  
-@@ -232,7 +242,12 @@ run_step("Saving outputs", quote({
+@@ -232,7 +243,12 @@ run_step("Saving outputs", quote({
  
  # ------- Step 12 ------- 
  # ------- Make PRISM FASTA files
@@ -121,7 +126,7 @@ index f2d687f..9a7f78c 100644
 +}
  log_message("PRISM pipeline completed successfully.")
 diff --git a/functions.R b/functions.R
-index 026d0f7..6920105 100644
+index 026d0f7..6244f28 100644
 --- a/functions.R
 +++ b/functions.R
 @@ -189,11 +189,12 @@ prism_kraken <- function(sample,
@@ -188,7 +193,7 @@ index 026d0f7..6920105 100644
      shQuote(sorted_accession_file),
      shQuote(full_accession_map_path),
      shQuote(taxid_map_file)
-@@ -893,6 +894,39 @@ prism_blast = function(sample,
+@@ -893,6 +894,65 @@ prism_blast = function(sample,
  }
  
  
@@ -202,56 +207,288 @@ index 026d0f7..6920105 100644
 +#' @param taxids Character vector of taxids.
 +#' @param nodes_path String. NCBI `nodes.dmp`, or `NA` to return `taxids` unchanged.
 +
++.prism_nodes_cache <- new.env(parent = emptyenv())
++
 +prism_species_taxids <- function(taxids, nodes_path) {
 +  if (is.na(nodes_path)) return(taxids)
-+  nodes <- data.table::fread(nodes_path, sep = "\t", header = FALSE, select = c(1, 3, 5),
-+                             colClasses = "character", quote = "")
-+  setnames(nodes, c("taxid", "parent", "rank"))
-+  up <- match(nodes$parent, nodes$taxid)
++  tree <- .prism_nodes_cache[[nodes_path]]
++  if (is.null(tree)) {
++    nodes <- data.table::fread(nodes_path, sep = "\t", header = FALSE, select = c(1, 3, 5),
++                               colClasses = "character", quote = "")
++    setnames(nodes, c("taxid", "parent", "rank"))
++    tree <- list(taxid = nodes$taxid, species = nodes$rank == "species", up = match(nodes$parent, nodes$taxid))
++    assign(nodes_path, tree, envir = .prism_nodes_cache)
++  }
 +  ids <- unique(taxids)
-+  at <- match(ids, nodes$taxid)
++  at <- match(ids, tree$taxid)
 +  species <- rep(NA_character_, length(ids))
 +  repeat {
 +    open <- which(!is.na(at) & is.na(species))
 +    if (length(open) == 0) break
-+    hit <- nodes$rank[at[open]] == "species"
-+    species[open[hit]] <- nodes$taxid[at[open[hit]]]
++    hit <- tree$species[at[open]]
++    species[open[hit]] <- tree$taxid[at[open[hit]]]
 +    climb <- open[!hit]
-+    nxt <- up[at[climb]]
++    nxt <- tree$up[at[climb]]
 +    at[climb] <- ifelse(nxt == at[climb], NA_integer_, nxt)
 +  }
 +  species <- ifelse(is.na(species), ids, species)
 +  species[match(taxids, ids)]
 +}
 +
++# 90th percentile of x within each block of a table sorted by (gid, x), as
++# stats::quantile(x, 0.9, na.rm = TRUE) computes it (type 7), for every group at
++# once. gid must be sorted and contiguous.
++prism_group_q90 <- function(x, gid) {
++  o <- order(gid, x, method = "radix", na.last = TRUE)
++  xs <- x[o]
++  n_all <- tabulate(gid)
++  n <- n_all - tabulate(gid[is.na(x)], nbins = length(n_all))
++  start <- cumsum(n_all) - n_all + 1
++  index <- 1 + pmax(n - 1, 0) * 0.9
++  lo <- floor(index)
++  hi <- ceiling(index)
++  qs <- xs[start + lo - 1]
++  xhi <- xs[start + hi - 1]
++  i <- which(index > lo & xhi != qs)
++  h <- (index - lo)[i]
++  qs[i] <- (1 - h) * qs[i] + h * xhi[i]
++  qs
++}
++
 +
  #' Filter and classify BLAST-aligned reads to retain high-quality microbial hits
  #'
  #' This function filters BLAST alignment results from a set of CSV files to retain only
-@@ -909,8 +943,9 @@ prism_blast = function(sample,
+@@ -909,155 +969,141 @@ prism_blast = function(sample,
  #' @param paired Logical. `TRUE` if paired-end data were processed; used for bookkeeping only.
  #' @param blast_file_pattern String. File name pattern (e.g., `"blast.csv"`) used to locate BLAST output files in `out_path`.
  #' @param min_qcovs Numeric. Minimum query coverage threshold used to filter BLAST alignments.
 +#' @param nodes_path String. NCBI `nodes.dmp` used to roll BLAST taxids up to species, or `NA` to keep them as reported.
++
++prism_filter <- function(out_path, sample, kr_report, mpa, paired, blast_file_pattern, min_qcovs, nodes_path = NA) {
  
 -prism_filter <- function(out_path, sample, kr_report, mpa, paired, blast_file_pattern, min_qcovs) {
-+prism_filter <- function(out_path, sample, kr_report, mpa, paired, blast_file_pattern, min_qcovs, nodes_path = NA) {
-   
+-  
    # ————————————————
    # STEP 1: Load BLAST files
-@@ -960,7 +995,10 @@ prism_filter <- function(out_path, sample, kr_report, mpa, paired, blast_file_pa
-   
-   # Clean up taxid column (remove semicolon and everything after)
-   blast[, staxids := sub(";.*", "", staxids)]
+   # ————————————————
+-  
+-  # List files matching the given pattern in the output path
++
+   blast_files <- list.files(out_path, pattern = blast_file_pattern, full.names = TRUE)
+-  
+-  # Error check: ensure BLAST files exist
++
+   if (length(blast_files) == 0) {
+     stop("No '*-blast.csv' files found in ", out_path)
+   }
+-  
+-  # Load all BLAST files and combine them
+-  # Assign column names and ensure taxid field is valid numeric string
++
+   blast_list <- lapply(seq_along(blast_files), function(i) {
+     b <- data.table::fread(blast_files[i], header = FALSE)
+-    setnames(b, c('id','sacc','staxids','pos','qcovs','pident','bitscore'))  # 7 columns
+-    b[, read := i]  # Now add 8th column
++    setnames(b, c('id','sacc','staxids','pos','qcovs','pident','bitscore'))
++    b[, read := i]
+     return(b)
+   })
+   blast <- rbindlist(blast_list)
+   setcolorder(blast, c("id", "read", "sacc", "staxids", "pos", "qcovs", "pident", "bitscore"))
 -  
 +
-+  # Roll strain, serovar and subspecies taxids up to their species
+   blast = subset(blast, qcovs > min_qcovs)
+-  
++
+   # ————————————————————————————————————
+   # STEP 2: Remove reads mapping to human (taxid 9606)
+   # ————————————————————————————————————
+-  
+-  # Make sure staxids is a character only once
++
+   blast[, staxids := as.character(staxids)]
+-  
+-  # Flag human-mapped reads (taxid 9606) using efficient group logic
+-  blast[, is_human := any(staxids == "9606"), by = id]
+-  
+-  # Extract human-mapped reads
++
++  human_ids <- unique(blast$id[which(blast$staxids == "9606")])
++  na_ids <- unique(blast$id[is.na(blast$staxids)])
++  blast[, is_human := fifelse(id %chin% human_ids, TRUE, fifelse(id %chin% na_ids, NA, FALSE))]
++
+   unmapped <- blast[is_human == TRUE][, `:=`(
+     type = "human"
+   )]
+-  
+-  # Keep only non-human reads
++
+   blast <- blast[is_human == FALSE]
+-  
+-  # Remove temporary flag
++
+   blast[, is_human := NULL]
+-  
+-  # Clean up taxid column (remove semicolon and everything after)
+-  blast[, staxids := sub(";.*", "", staxids)]
+-  
++
++  # The rest works on the table ordered by read ID (C locale, ties in file
++  # order), which is the order the id-keyed merges of the original left it in.
++  # Reads are numbered in that order once, so the sorts below are on integers.
++  u <- unique(blast$id)
++  ids <- data.table(id = u, pos = seq_along(u))
++  setkey(ids, id)
++  gid_of_pos <- integer(length(u))
++  gid_of_pos[ids$pos] <- seq_along(u)
++  blast[, gid := gid_of_pos[match(id, u)]]
++  setorder(blast, gid)
++
++  u <- unique(blast$staxids)
++  blast[, staxids := sub(";.*", "", u)[match(staxids, u)]]
++
 +  blast[, staxids := prism_species_taxids(staxids, nodes_path)]
 +
    # ————————————————————————————————————————————
    # STEP 3: Filter low-quality and non-microbial reads
    # ————————————————————————————————————————————
-@@ -1078,7 +1116,7 @@ prism_filter <- function(out_path, sample, kr_report, mpa, paired, blast_file_pa
+-  
+-  # Filter microbial taxonomic profiles
++
+   kr_report <- as.data.table(kr_report)
+-  
++
+   micro_taxids <- as.character(
+     kr_report[grep("__Bacteria|__Fungi|__Viruses", mpa$V1), V7]
+   )
+-  
+-  # Flag low-quality reads
++
+   blast[, lowqual := as.integer(qcovs > min_qcovs)]
+-  
+-  # Compute quantiles once per ID
+-  # Step 1: Precompute quantiles per ID
+-  qstats <- blast[, .(
+-    q90_pident = quantile(pident, 0.9, na.rm = TRUE),
+-    q90_bitscore = quantile(bitscore, 0.9, na.rm = TRUE),
+-    q90_qcovs = quantile(qcovs, 0.9, na.rm = TRUE)
+-  ), by = id]
+-  
+-  # Step 2: Join back to main blast table
+-  blast <- merge(blast, qstats, by = "id", all.x = TRUE)
+-  
+-  # Keep only reads that meet high-quality thresholds
++
++  q90_pident <- prism_group_q90(blast$pident, blast$gid)
++  q90_bitscore <- prism_group_q90(blast$bitscore, blast$gid)
++  q90_qcovs <- prism_group_q90(blast$qcovs, blast$gid)
++  blast[, `:=`(q90_pident = q90_pident[gid], q90_bitscore = q90_bitscore[gid], q90_qcovs = q90_qcovs[gid])]
++
+   blast <- blast[
+     pident >= q90_pident | bitscore >= q90_bitscore | qcovs >= q90_qcovs
+   ]
+-  
+-  # Flag reads as "other" if they are non-microbial and best hit
++
++  mx <- blast[, .(max_pident = max(pident, na.rm = TRUE), max_bitscore = max(bitscore, na.rm = TRUE)), by = gid]
++  blast[, `:=`(max_pident = mx$max_pident[match(gid, mx$gid)], max_bitscore = mx$max_bitscore[match(gid, mx$gid)])]
+   blast[, other := as.integer(
+     !(staxids %in% micro_taxids) &
+-      (pident == max(pident, na.rm = TRUE) | bitscore == max(bitscore, na.rm = TRUE))
+-  ), by = id]
+-  
+-  # Append "other" and "lowqual" reads to unmapped
++      (pident == max_pident | bitscore == max_bitscore)
++  )]
++
+   unmapped <- rbindlist(list(
+     unmapped,
+     blast[other == 1 & !(staxids %in% micro_taxids)][, .(id, read, staxids, sacc, pos, qcovs, pident, bitscore, type = "other")],
+     blast[lowqual == 0][, .(id, read, staxids, sacc, pos, qcovs, pident, bitscore, type = "lowqual")]
+   ), use.names = TRUE, fill = TRUE)
+-  
+-  # Keep only high-quality microbial reads
++
+   blast <- blast[
+     other == 0 & staxids %in% micro_taxids & lowqual == 1
+   ]
+-  
+-  # Drop helper columns
+-  blast[, c("lowqual", "other", "q90_pident", "q90_bitscore", "q90_qcovs") := NULL]
+-  
++
++  blast[, c("lowqual", "other", "q90_pident", "q90_bitscore", "q90_qcovs", "max_pident", "max_bitscore") := NULL]
++
+   # ——————————————————————————————————————————————
+   # STEP 4: Assign species-level taxonomic rank per read
+   # ——————————————————————————————————————————————
+-  
+-  blast <- as.data.table(blast)
+-  
+-  # Step 4.1: Clean taxonomy names in kr_report for matching
++
+   kr_tax_lookup <- kr_report[, .(
+     taxid = as.character(V7),
+     name_clean = str_squish(str_replace_all(V8, "[^[:alnum:]]", " ")),
+     rank = str_to_lower(str_remove_all(V6, "[0-9]+"))
+   )]
+-  
+-  # Step 4.2: Build a lookup table from taxid → name + rank + order
++
+   rank_order <- data.table(rank = c('r','d','k','p','c','o','f','g','s'), order = 1:9)
+   kr_tax_lookup <- merge(kr_tax_lookup, rank_order, by = "rank", all.x = TRUE)
+-  
+-  # Step 4.3: For each read ID, identify the best taxonomic hit based on:
+-  # - taxid frequency per read
+-  # - if multiple hits, choose one with highest rank specificity (highest 'order')
+-  
+-  # Count how many times each (read, taxid) pair appears
+-  tax_counts <- blast[, .N, by = .(id, staxids)]
+-  
+-  # Join with kraken taxonomy info
++
++  tax_counts <- blast[, .N, by = .(gid, staxids)]
++  tax_counts[, id := ids$id[gid]]
++  tax_counts[, gid := NULL]
++  setcolorder(tax_counts, c("id", "staxids", "N"))
++
+   tax_counts <- merge(tax_counts, kr_tax_lookup, by.x = "staxids", by.y = "taxid", all.x = TRUE)
+-  
+-  # Remove unknown or unmatched taxids
++
+   tax_counts <- tax_counts[!is.na(order)]
+-  
+-  # Choose the most specific (highest order) name per read
+-  best_tax <- tax_counts[order(-order, -N), .SD[1], by = id]
+-  
+-  # Rename columns for clarity
++
++  best_tax <- tax_counts[order(-order, -N)][!duplicated(id)]
++
+   setnames(best_tax, c("rank", "name_clean"), c("rank", "tax_name"))
+-  
+-  # Step 4.4: Join best taxonomic label back to blast table
+-  blast <- merge(blast, best_tax[, .(id, rank, tax_name)], by = "id", all.x = TRUE)
+-  
++
++  blast[best_tax, on = "id", `:=`(rank = i.rank, tax_name = i.tax_name)]
++  setkey(blast, id)
++
+   # ————————————————————————————————————
+   # STEP 5: Return final list
+   # ————————————————————————————————————
+-  
++
+   list(
+-    micro = blast %>% dplyr::select(id, read, rank, staxids, tax_name, sacc, pos, qcovs, pident, bitscore),   # Filtered reads (microbial, good quality, species-level)
+-    unmapped = unmapped %>%  dplyr::select(id, read, staxids, type, sacc, pos, qcovs, pident, bitscore)   # Human, low-quality, or non-microbial reads  
++    micro = blast %>% dplyr::select(id, read, rank, staxids, tax_name, sacc, pos, qcovs, pident, bitscore),
++    unmapped = unmapped %>%  dplyr::select(id, read, staxids, type, sacc, pos, qcovs, pident, bitscore)
+   )
+ }
+ 
+@@ -1078,7 +1124,7 @@ prism_filter <- function(out_path, sample, kr_report, mpa, paired, blast_file_pa
  #' @param nreads Integer. Minimum number of uniquely mappable reads required per taxon (default: 10).
  #' @param min_qcovs Numeric. Minimum query coverage threshold passed to \code{prism_filter()}.
  
@@ -260,7 +497,7 @@ index 026d0f7..6920105 100644
    
    #— 1) Filter out non-microbial reads from Blast results (human and model organism) ————————————————
    
-@@ -1089,7 +1127,7 @@ prism_multimapping = function(out_path, sample, kr_report, mpa, paired, blast_fi
+@@ -1089,7 +1135,7 @@ prism_multimapping = function(out_path, sample, kr_report, mpa, paired, blast_fi
      return(character(0))
    }
    
@@ -269,7 +506,7 @@ index 026d0f7..6920105 100644
    blast = out$micro
    
    #— 2) Identify taxids with >=10 uniquely mappable reads ————————————————
-@@ -1101,9 +1139,7 @@ prism_multimapping = function(out_path, sample, kr_report, mpa, paired, blast_fi
+@@ -1101,9 +1147,7 @@ prism_multimapping = function(out_path, sample, kr_report, mpa, paired, blast_fi
    
    uit = colnames(ta)[tx>=nreads]
    
@@ -280,7 +517,7 @@ index 026d0f7..6920105 100644
    
    uit
  }
-@@ -1152,7 +1188,7 @@ prism_genbank = function(blast){
+@@ -1152,7 +1196,7 @@ prism_genbank = function(blast){
    )
    
    res[, interval_width := fifelse(!is.na(start) & !is.na(end), end - start, Inf)]
@@ -289,7 +526,7 @@ index 026d0f7..6920105 100644
    
    final <- res_most_specific[ , .(
      id, read, sacc, staxids, pos, qcovs, pident, bitscore,
-@@ -1287,10 +1323,14 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
+@@ -1287,10 +1331,14 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
    out = list.files(out_path, full.names = T) %>% str_subset('output.txt')
    
    # Construct awk command to extract lines matching the relevant taxids from the output file
@@ -305,7 +542,7 @@ index 026d0f7..6920105 100644
    out = read.delim(paste0(out_path, sample, '.tempout.txt'), header = F)
    
    # Clean and reformat output for further analysis
-@@ -1300,6 +1340,7 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
+@@ -1300,6 +1348,7 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
      mutate(taxid = str_remove(taxid, '\\)') %>% trimws() %>% as.numeric(), name = trimws(name)) %>% 
      dplyr::rename(id = V2) %>%
      tibble()
@@ -313,7 +550,7 @@ index 026d0f7..6920105 100644
    
    # Initialize empty lists to store outputs
    li = list()
-@@ -1363,6 +1404,10 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
+@@ -1363,6 +1412,10 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
      # Limit rows for performance reasons
      if(nrow(out) > 1000){out = out[1:1000, ]}
      
@@ -324,7 +561,7 @@ index 026d0f7..6920105 100644
      # Initialize temporary list to store sample-level summaries
      df.list = list()
      
-@@ -1424,8 +1469,12 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
+@@ -1424,8 +1477,12 @@ prism_misclass_kmertax = function(out_path, sample, kr_report, blast){
    system(paste0('rm ',  out_path, sample, '.tempout.txt'))
    
    # Combine all summaries into final outputs
@@ -337,7 +574,7 @@ index 026d0f7..6920105 100644
    
    misclass = bind_rows(misclass) %>% pivot_longer(-c(taxid, rank)) %>% group_by(taxid, name) %>% 
      mutate(value = value/value[rank == 'k']) %>% subset(rank != 'k') %>% 
-@@ -1511,7 +1560,16 @@ prism_profile = function(out_path, sample, kr_report, blast, prod){
+@@ -1511,7 +1568,16 @@ prism_profile = function(out_path, sample, kr_report, blast, prod){
    
    # load xgboost contamination model and predict
    xg = readRDS(file = paste0(prism_path, 'prismxg.RDS'))
@@ -355,7 +592,7 @@ index 026d0f7..6920105 100644
    
    # make species counts file 
    counts = prod %>% 
-@@ -1548,64 +1606,22 @@ prism_profile = function(out_path, sample, kr_report, blast, prod){
+@@ -1548,64 +1614,22 @@ prism_profile = function(out_path, sample, kr_report, blast, prod){
  #' @param paired Logical. `TRUE` if paired-end reads are provided and should be processed.
  
  prism_FASTA = function(fa1, fa2, blast, out_path, out_path_final, sample, paired){

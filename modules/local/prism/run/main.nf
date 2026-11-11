@@ -167,11 +167,15 @@ process PRISM_RUN {
     # PRISM's blastn runs as ${blast_slices} processes over slices of the reads
     # (bin/prism_blastn.py, one per four cores unless task.ext.blast_slices
     # says otherwise): a single megablast keeps about half of its threads busy.
-    # blastdbcmd and makeblastdb are linked as they are.
+    # Its per-library BLAST database is extracted volume by volume and built
+    # chunk by chunk, as many at a time (bin/prism_blastdbcmd.py,
+    # bin/prism_makeblastdb.py): both tools are single-threaded, and on a mock
+    # community they held one core for 20 min while the rest idled.
     mkdir -p prism_bin/blast
-    ln -s "\$(command -v blastdbcmd)" "\$(command -v makeblastdb)" prism_bin/blast/
     printf '#!/usr/bin/env bash\\nexec prism_blastn.py %s ${blast_slices} "\$@"\\n' "\$(command -v blastn)" > prism_bin/blast/blastn
-    chmod +x prism_bin/blast/blastn
+    printf '#!/usr/bin/env bash\\nexec prism_blastdbcmd.py %s ${blast_slices} "\$@"\\n' "\$(command -v blastdbcmd)" > prism_bin/blast/blastdbcmd
+    printf '#!/usr/bin/env bash\\nexec prism_makeblastdb.py %s ${blast_slices} "\$@"\\n' "\$(command -v makeblastdb)" > prism_bin/blast/makeblastdb
+    chmod +x prism_bin/blast/blastn prism_bin/blast/blastdbcmd prism_bin/blast/makeblastdb
 
     # BLAST finds a taxid's descendants only through taxonomy4blast.sqlite3,
     # which it looks for on BLASTDB - also for the per-sample database PRISM

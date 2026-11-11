@@ -2254,12 +2254,26 @@ task's limit is 48 h.
 
 **Cores.** blastn runs in slices of four threads each (`bin/prism_blastn.py`),
 and on 64 cores the full BLAST of the Zymo mock libraries kept about 50 of them
-busy. Several of PRISM's steps run on one core, though: building the
-per-sample BLAST database (10-25 min, part of the subsample BLAST step),
-filtering the hits (about 1 h per mock library), GenBank annotation and
-profiling. A single task with all of a node's cores leaves the others idle for
-those hours. Two tasks with half the cores each finish a cohort sooner, as long
-as the node has memory for both: on a 1.1 TB node, two tasks of 200 GB fit
+busy. The per-sample BLAST database is extracted from the volumes of
+`--prism_blast_db` and built from chunks of its FASTA by as many processes
+(`bin/prism_blastdbcmd.py`, `bin/prism_makeblastdb.py`; `task.ext.blast_slices`
+sets the number for all three, one per four cores by default). Both tools are
+single-threaded, and on a mock library they held one core for about 20 min
+while the rest idled. With eight processes, that library's 115 GB extraction
+took 363 s instead of 531-786 s on a busy node (94 s instead of 578 s on a
+quieter one) and gives the same FASTA byte for byte; the build took 188 s
+instead of 1,069 s. The built database is the same sequences cut into
+volumes differently, which changes only which of several equally scoring
+subjects fill BLAST's ten hit slots. BLAST does that on its own between runs
+(two runs on one database at six threads differed in 8 of 10,064 hits), and
+on the mock library the cut changed no read's best score or species at that
+score, no uniquely identifiable species and no PRISM score; 16 instead of 6
+BLAST threads changed one score by 0.018. PRISM's hit filter, which held one
+core for 45-107 min on 5-9 GB of hits, takes minutes (3.6 min instead of 54 on
+153 M hits with 32 threads, same tables). GenBank annotation and profiling
+still run on one core, 5-12 min each on such libraries. Two tasks with half
+the cores each finish a cohort sooner, as long as the node has memory for
+both: on a 1.1 TB node, two tasks of 200 GB fit
 beside the shared databases. `PRISM_RUN` asks for 16 cores by default, so give
 it the cores you want each task to have (`withName: 'PRISM_RUN' { cpus = 32 }`)
 rather than capping how many run at once.
@@ -3092,7 +3106,7 @@ Or use `screen`/`tmux`, or submit the Nextflow process itself as a job.
 A long task shows little from outside, and on Nextflow before 26.10.0 a task killed at its time limit takes the whole local run with it (see [Local execution](#local-execution)). Before killing one, look at its work directory: `.command.log` and the files below grow while the task works.
 
 - **`RRNA_ANNOTATE` / `SORTMERNA`.** The log stops at `Processor N thread started` and prints only `Restart: WAL fsync` once a minute until the end. `kvdb/` grows as reads are processed (45-60 MB for a 7 M-pair library). Busy threads and a growing `kvdb/` mean alignment, which costs 10-60x more per read on some libraries when the index was built with `--max-pos 10000` (see [Index reuse and versions](#index-reuse-and-versions)).
-- **`PRISM_RUN`.** `<sample>.log` names each of PRISM's steps as it starts. The full BLAST keeps about 50 of 64 cores busy for 10-13 h on a mostly microbial library; `makeblastdb` (10-25 min) and the filtering step (about 1 h) run on one core and look idle.
+- **`PRISM_RUN`.** `<sample>.log` names each of PRISM's steps as it starts. The full BLAST keeps about 50 of 64 cores busy for 10-13 h on a mostly microbial library; GenBank annotation and profiling (5-12 min each) run on one core and look idle.
 - **`HISAT2_ALIGN` / `HISAT2_ALIGN_SPLIT`.** The unmapped FASTQ outputs grow as pairs are written. 15-30 h at 12 threads is normal for a large library with the default `--hisat2_args`.
 - **`KRAKEN2`.** Nothing is written until classification ends. Reading core_nt from network storage takes about 43 min before the first read is classified; `fincore --bytes --noheadings --output RES,SIZE <db>/*.k2d` shows how much of the database is in memory yet.
 
