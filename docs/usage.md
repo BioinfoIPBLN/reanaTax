@@ -331,13 +331,25 @@ To skip host depletion entirely and classify the trimmed reads directly, use `--
 
 ### A note on the default `--hisat2_args`
 
-The default is `--bowtie2-dp 2 --score-min L,0,-1 --no-softclip -k 5`: HISAT2's `--very-sensitive` preset (`--bowtie2-dp 2 -k 50 --score-min L,0,-1`) spelled out, with soft-clipping off and 5 alignments sought instead of 50.
+The default is `--bowtie2-dp 2 --score-min L,0,-1 --no-softclip -k 5 --no-temp-splicesite`: HISAT2's `--very-sensitive` preset (`--bowtie2-dp 2 -k 50 --score-min L,0,-1`) spelled out, with soft-clipping off, 5 alignments sought instead of 50, and no splice sites learned during the run.
 
 **Why `--no-softclip`.** HISAT2 soft-clips by default and charges 1 to 2 points per clipped base, scaled by quality: 2 only at Phred 40, so 1 at the Q37-38 ceiling of Illumina data. `--very-sensitive` sets the minimum score to `L,0,-1`, minus the read length. Together they let a read clip all but a seed-length stretch and still pass, so a 9-25 bp chance match to the host (`71S19M60S`, `135S9M6S`) is enough to call a read host. On PRISM's WGS negative controls that removed 14-39% of the reads, and Kraken2 called almost none of them human: they were a random slice of the microbial reads. With `--no-softclip` a read has to align over its whole length, spliced if need be, and those reads are kept. On 70 low-count CLID cell-line runs it found the known infection in 36 instead of 26, losing none. The cost is human reads that genuinely need clipping (adapter remnants, poly(A) tails, short overhangs past an exon): about five times as many reach Kraken2, where `--drop_host_taxon` removes them. Poly(A) tails are now trimmed by fastp beforehand (`--trim_poly_x`, above), so the reads that carry them align end to end instead. HISAT2's default floor (`--hisat2_args '--score-min L,0,-0.2'`) found 39 of the 70, at forty times the human reads.
 
 **Why `-k 5`.** `-k 50` makes HISAT2 look for up to 50 alignments per read, and host depletion uses one. On 1 M reads of three ordinary CLID runs, `-k 5` was 1.25-1.5 times faster and removed the same reads to within 0.004%. On a Visium chunk whose untrimmed poly(A) reads matched many genomic A-tracts it was 3.8 times faster. `-k 1` is faster again but missed 0.01-0.02% more, and would leave every NH tag at 1, hiding the multimappers that `--quantify_host` counts differently.
 
 It does **not** bloat the BAM: the module pipes HISAT2 through `samtools view -F 256`, so secondary alignments are discarded before anything is written and the BAM holds one primary alignment per aligned read. That is also what makes the BAM directly usable for `--gtf`-driven host quantification.
+
+**Why `--no-temp-splicesite`.** By default HISAT2 adds each splice site it finds to the search for the reads that follow, so that a later read with a short anchor past an exon can be split there. One task aligns a whole library, so the list grows with the library, and the task slows down and takes more memory as it goes. Alignment time grew about as pairs^1.8, and memory reached 60-124 GB against a 5.4 GB index. A read's host call also depended on the reads aligned before it. Thirty-one RNA studies of insect and tick hosts were rerun with the flag:
+
+| Study                         | HISAT2 time, summed over libraries                      | Slowest library | Peak memory   |
+| ----------------------------- | ------------------------------------------------------- | --------------- | ------------- |
+| PRJNA669319 (18 libraries)    | 335 h → 6.8 h                                           | 44 h → 28 min   | 13.6 → 2.8 GB |
+| PRJNA605178, CMS002 (96)      | 369 h for 64 libraries, then stopped → 65 h for all 96  | 29 h → 1.9 h    | 34.5 → 9.5 GB |
+| PRJNA1223432, HHJM7DSX7 (128) | 328 h for 19 libraries, then stopped → 86 h for all 128 | 79 h → 1.9 h    | 172 → 5.8 GB  |
+
+Small libraries took about as long either way, within 15%. On one 17 M-pair library the alignment rate was 61.14% with the flag and 61.13% without.
+
+With a `--gtf` the host share of the trimmed reads moved by 0.1 points or less. Without one, the index holds no splice sites, and the learned ones were what placed spliced reads with short anchors. The host share then fell by up to 0.5 points: from 87.34% to 86.83% on a _Hyalomma anatolicum_ contig assembly. Kraken2 called those extra reads unclassified or the host's family, which `--drop_host_clade family` removes. Bacteria rose by 0.16%. To align such a host as before, at the old cost in time, leave `--no-temp-splicesite` out of `--hisat2_args`.
 
 **`--hisat2_max_alignments` works with the default, not with a preset.** It appends `-k N`. With the default a later `-k` wins (`-k 5 -k 1` wrote NH:i:1 on every read). But if `--hisat2_args` carries a preset again, HISAT2 ignores the appended `-k`. A run with `--very-sensitive -k 1` produced identical alignment rates (0.44% / 28.77% on Swab 26, to two decimals) and an identical NH-tag distribution to a `-k 50` run, because the preset is applied last. The pipeline warns when you combine a preset with `--hisat2_max_alignments`.
 
@@ -618,7 +630,7 @@ one you are still debugging.
 
 ### Chunked alignment (`--hisat2_chunk_size`)
 
-HISAT2's memory grows with how much a single process has aligned, and only a fresh process resets it. With `--very-sensitive` on libraries of a few hundred million pairs this is not a small effect — a single alignment has been measured at 68 GB peak RSS, and larger libraries have been reported in the hundreds of GB. `--hisat2_chunk_size` aligns the library in slices, one HISAT2 process each, so the ceiling is set by the chunk rather than by the library:
+HISAT2's memory grows with how much a single process has aligned, and only a fresh process resets it. Most of that growth is the splice sites it learns as it goes, which the default `--hisat2_args` turns off with `--no-temp-splicesite` (see [A note on the default `--hisat2_args`](#a-note-on-the-default---hisat2_args)): peak memory then stayed under 10 GB on 31 RNA studies. Without that flag, with `--very-sensitive` on libraries of a few hundred million pairs this is not a small effect — a single alignment has been measured at 68 GB peak RSS, and larger libraries have been reported in the hundreds of GB. `--hisat2_chunk_size` aligns the library in slices, one HISAT2 process each, so the ceiling is set by the chunk rather than by the library:
 
 ```bash
 --hisat2_chunk_size 5000000                              # 5 M read pairs per task
@@ -3110,7 +3122,7 @@ A long task shows little from outside, and on Nextflow before 26.10.0 a task kil
 
 - **`RRNA_ANNOTATE` / `SORTMERNA`.** The log stops at `Processor N thread started` and prints only `Restart: WAL fsync` once a minute until the end. `kvdb/` grows as reads are processed (45-60 MB for a 7 M-pair library). Busy threads and a growing `kvdb/` mean alignment, which costs 10-60x more per read on some libraries when the index was built with `--max-pos 10000` (see [Index reuse and versions](#index-reuse-and-versions)).
 - **`PRISM_RUN`.** `<sample>.log` names each of PRISM's steps as it starts. The full BLAST keeps about 50 of 64 cores busy for 10-13 h on a mostly microbial library; GenBank annotation and profiling (5-12 min each) run on one core and look idle.
-- **`HISAT2_ALIGN` / `HISAT2_ALIGN_SPLIT`.** The unmapped FASTQ outputs grow as pairs are written. 15-30 h at 12 threads is normal for a large library with the default `--hisat2_args`.
+- **`HISAT2_ALIGN` / `HISAT2_ALIGN_SPLIT`.** The unmapped FASTQ outputs grow as pairs are written. With the default `--hisat2_args`, no library of 31 RNA studies took more than 2 h. A task that slows down as it goes and runs for many hours is running without `--no-temp-splicesite` (see [A note on the default `--hisat2_args`](#a-note-on-the-default---hisat2_args)).
 - **`KRAKEN2`.** Nothing is written until classification ends. Reading core_nt from network storage takes about 43 min before the first read is classified; `fincore --bytes --noheadings --output RES,SIZE <db>/*.k2d` shows how much of the database is in memory yet.
 
 ## Nextflow memory requirements
