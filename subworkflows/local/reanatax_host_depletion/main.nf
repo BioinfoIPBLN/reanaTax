@@ -154,6 +154,7 @@ workflow HOST_DEPLETION {
                 params.host_aligner,
                 PREPARE_HOST_REFERENCE_FIRST.out.minimap2_index,
                 params.minimap2_preset,
+                params.hisat2_two_pass && !params.gtf,
             )
             ch_nonhost_reads = HOST_DEPLETION_FIRST.out.reads
             ch_qualimap = HOST_DEPLETION_FIRST.out.qualimap
@@ -197,6 +198,7 @@ workflow HOST_DEPLETION {
                 params.host_aligner,
                 PREPARE_HOST_REFERENCE_EXTRA1.out.minimap2_index,
                 params.minimap2_preset,
+                params.hisat2_two_pass,
             )
             ch_nonhost_reads = HOST_DEPLETION_EXTRA1.out.reads
             ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_EXTRA1.out.summary)
@@ -235,6 +237,7 @@ workflow HOST_DEPLETION {
                 params.host_aligner,
                 PREPARE_HOST_REFERENCE_EXTRA2.out.minimap2_index,
                 params.minimap2_preset,
+                params.hisat2_two_pass,
             )
             ch_nonhost_reads = HOST_DEPLETION_EXTRA2.out.reads
             ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_EXTRA2.out.summary)
@@ -278,6 +281,7 @@ workflow HOST_DEPLETION {
             params.host_aligner,
             PREPARE_HOST_REFERENCE.out.minimap2_index,
             params.minimap2_preset,
+            params.hisat2_two_pass && (multi_pass || !params.gtf),
         )
         ch_nonhost_reads = HOST_DEPLETION_FINAL.out.reads
         ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_FINAL.out.summary)

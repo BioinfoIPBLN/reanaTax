@@ -349,7 +349,15 @@ It does **not** bloat the BAM: the module pipes HISAT2 through `samtools view -F
 
 Small libraries took about as long either way, within 15%. On one 17 M-pair library the alignment rate was 61.14% with the flag and 61.13% without.
 
-With a `--gtf` the host share of the trimmed reads moved by 0.1 points or less. Without one, the index holds no splice sites, and the learned ones were what placed spliced reads with short anchors. The host share then fell by up to 0.5 points: from 87.34% to 86.83% on a _Hyalomma anatolicum_ contig assembly. Kraken2 called those extra reads unclassified or the host's family, which `--drop_host_clade family` removes. Bacteria rose by 0.16%. To align such a host as before, at the old cost in time, leave `--no-temp-splicesite` out of `--hisat2_args`.
+With a `--gtf` the host share of the trimmed reads moved by 0.1 points or less. Without one, the index holds no splice sites, and the learned ones were what placed spliced reads with short anchors. The host share then fell by up to 0.5 points: from 87.34% to 86.83% on a _Hyalomma anatolicum_ contig assembly. Kraken2 called those extra reads unclassified or the host's family, which `--drop_host_clade family` removes. Bacteria rose by 0.16%. `--hisat2_two_pass` (below) is meant to place those reads again, at the cost of one more alignment per library. To align such a host as before, at the old cost in time, leave `--no-temp-splicesite` out of `--hisat2_args`.
+
+**Two passes for a host without a `--gtf` (`--hisat2_two_pass`).** Every library is aligned twice against each host reference that `--gtf` does not describe. The first pass aligns the whole library only to list the splice sites its reads span (`--novel-splicesite-outfile`) and throws the alignments away. The lists of all libraries aligned against that reference are merged into one, and the second pass, the alignment that decides which reads are host, reads it with `--known-splicesite-infile`. Every read is then aligned against the same sites, those found in the whole run, in whatever order the reads come. The first pass always runs with `--no-temp-splicesite`, adding it when `--hisat2_args` lacks it. With `--hisat2_chunk_size` the first pass runs per chunk. What it costs:
+
+- one more alignment per library, about as long as the second;
+- no library's second pass starts before every library's first pass has finished;
+- adding a library to a run changes the merged list, so `-resume` runs the second pass of every library again.
+
+The reference `--gtf` describes is aligned once, as before: its index already holds the annotated splice sites. The merged lists are published in `hisat2/splicesites/`.
 
 **`--hisat2_max_alignments` works with the default, not with a preset.** It appends `-k N`. With the default a later `-k` wins (`-k 5 -k 1` wrote NH:i:1 on every read). But if `--hisat2_args` carries a preset again, HISAT2 ignores the appended `-k`. A run with `--very-sensitive -k 1` produced identical alignment rates (0.44% / 28.77% on Swab 26, to two decimals) and an identical NH-tag distribution to a `-k 50` run, because the preset is applied last. The pipeline warns when you combine a preset with `--hisat2_max_alignments`.
 

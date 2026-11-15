@@ -434,6 +434,12 @@
                     "help_text": "Set to `1` to keep the search sensitivity of `--very-sensitive` while writing only the best alignment. Recommended whenever the host BAM is only used for QC or for counting host reads.",
                     "fa_icon": "fas fa-compress"
                 },
+                "hisat2_two_pass": {
+                    "type": "boolean",
+                    "description": "For host references without --gtf, align each HISAT2 library twice: first only to list the splice sites its reads span, then for real, with the sites found in every library.",
+                    "help_text": "Without --gtf the HISAT2 index holds no splice sites, and the default `--no-temp-splicesite` keeps HISAT2 from learning them during the run, so a spliced host read with a short anchor past an exon stays unaligned and goes on to classification. On 31 RNA studies that was up to 0.5 points of the host share, mostly ending up unclassified or in the host's own family. The first pass writes each library's splice sites (`--novel-splicesite-outfile`), the lists of every library aligned against the same reference are merged, and the second pass reads them with `--known-splicesite-infile`. It costs one more alignment per library, and no second pass starts before every first pass has finished. The reference --gtf describes is aligned once, as before. The merged lists are published in `hisat2/splicesites/`.",
+                    "fa_icon": "fas fa-redo"
+                },
                 "save_host_bam": {
                     "type": "boolean",
                     "default": true,

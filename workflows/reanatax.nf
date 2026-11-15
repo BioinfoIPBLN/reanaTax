@@ -271,6 +271,7 @@ workflow REANATAX {
             'hisat2',
             channel.empty(),
             null,
+            false,
         )
         ch_nonhost_reads = HOST_DEPLETION_UNIVEC.out.reads
         ch_hisat2_summaries = ch_hisat2_summaries.mix(HOST_DEPLETION_UNIVEC.out.summary)

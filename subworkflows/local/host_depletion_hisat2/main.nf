@@ -14,6 +14,9 @@ include { BOWTIE2_ALIGN_SPLIT as BOWTIE2_ALIGN_SPLIT_CHUNK } from '../../../modu
 include { MINIMAP2_ALIGN_SPLIT     } from '../../../modules/local/minimap2/alignsplit/main'
 include { HISAT2_CHUNKSPLIT        } from '../../../modules/local/hisat2/chunksplit/main'
 include { HISAT2_MERGECHUNKS       } from '../../../modules/local/hisat2/mergechunks/main'
+include { HISAT2_SPLICESITES       } from '../../../modules/local/hisat2/splicesites/main'
+include { HISAT2_SPLICESITES as HISAT2_SPLICESITES_CHUNK } from '../../../modules/local/hisat2/splicesites/main'
+include { HISAT2_MERGESPLICESITES  } from '../../../modules/local/hisat2/mergesplicesites/main'
 include { SAMTOOLS_FAIDX           } from '../../../modules/local/samtools/faidx/main'
 include { BAM_SORT_STATS_SAMTOOLS  } from '../../../subworkflows/local/bam_sort_stats_samtools/main'
 include { QUALIMAP_BAMQC           } from '../../../modules/nf-core/qualimap/bamqc/main'
@@ -37,6 +40,7 @@ workflow HOST_DEPLETION_HISAT2 {
     aligner_mode // string: 'auto' (DNA to Bowtie2, the rest to HISAT2), 'hisat2' or 'bowtie2'
     ch_minimap2_index // channel: [ val(meta + preset), path(mmi) ] - empty unless a long-read library needs it
     minimap2_preset // string: the minimap2 preset for every long-read library, or null to choose per library
+    two_pass // boolean: align the HISAT2 libraries twice, the second time with the splice sites the first found in all of them (--hisat2_two_pass)
 
     main:
 
@@ -73,6 +77,18 @@ workflow HOST_DEPLETION_HISAT2 {
         }
     MINIMAP2_ALIGN_SPLIT(ch_long_input.reads, ch_long_input.index, true, save_host_bam)
     def ch_short_reads = ch_by_aligner.short_reads
+
+    //
+    // --hisat2_two_pass. Without a --gtf the index holds no splice sites, and
+    // with --no-temp-splicesite HISAT2 learns none during the run, so a spliced
+    // host read whose anchor past an exon is short stays unaligned. Pass 1
+    // aligns every library in full only to list the splice sites it spans;
+    // the lists of all libraries are merged into one, and the alignment below
+    // reads it with --known-splicesite-infile. No library's second pass can
+    // start before every library's first pass has finished. Off, the empty
+    // tuple leaves the alignment commands, and so the cached tasks, as before.
+    //
+    def ch_splicesites = channel.value([[:], []])
 
     //
     // Chunked alignment. HISAT2's memory grows with how much it has aligned in
@@ -118,14 +134,20 @@ workflow HOST_DEPLETION_HISAT2 {
             hisat2: true
         }
 
+        if (two_pass) {
+            HISAT2_SPLICESITES_CHUNK(ch_chunks_routed.hisat2, ch_index.first())
+            HISAT2_MERGESPLICESITES(spliceSiteLists(HISAT2_SPLICESITES_CHUNK.out.splicesites))
+            ch_splicesites = HISAT2_MERGESPLICESITES.out.splicesites.first()
+        }
+
         if (require_both_mates_unmapped) {
-            HISAT2_ALIGN_SPLIT_CHUNK(ch_chunks_routed.hisat2, ch_index.first(), channel.value([[:], []]), true, save_host_bam)
+            HISAT2_ALIGN_SPLIT_CHUNK(ch_chunks_routed.hisat2, ch_index.first(), ch_splicesites, true, save_host_bam)
             ch_chunk_bam = HISAT2_ALIGN_SPLIT_CHUNK.out.bam
             ch_chunk_summary = HISAT2_ALIGN_SPLIT_CHUNK.out.summary
             ch_chunk_fastq = HISAT2_ALIGN_SPLIT_CHUNK.out.fastq
         }
         else {
-            HISAT2_ALIGN_CHUNK(ch_chunks_routed.hisat2, ch_index.first(), channel.value([[:], []]), true)
+            HISAT2_ALIGN_CHUNK(ch_chunks_routed.hisat2, ch_index.first(), ch_splicesites, true)
             ch_chunk_bam = HISAT2_ALIGN_CHUNK.out.bam
             ch_chunk_summary = HISAT2_ALIGN_CHUNK.out.summary
             ch_chunk_fastq = HISAT2_ALIGN_CHUNK.out.fastq
@@ -190,14 +212,20 @@ workflow HOST_DEPLETION_HISAT2 {
             hisat2: true
         }
 
+        if (two_pass) {
+            HISAT2_SPLICESITES(ch_routed.hisat2, ch_index.first())
+            HISAT2_MERGESPLICESITES(spliceSiteLists(HISAT2_SPLICESITES.out.splicesites))
+            ch_splicesites = HISAT2_MERGESPLICESITES.out.splicesites.first()
+        }
+
         if (require_both_mates_unmapped) {
-            HISAT2_ALIGN_SPLIT(ch_routed.hisat2, ch_index.first(), channel.value([[:], []]), true, save_host_bam)
+            HISAT2_ALIGN_SPLIT(ch_routed.hisat2, ch_index.first(), ch_splicesites, true, save_host_bam)
             ch_aligned = HISAT2_ALIGN_SPLIT.out.bam
             ch_summary = HISAT2_ALIGN_SPLIT.out.summary
             ch_fastq = HISAT2_ALIGN_SPLIT.out.fastq
         }
         else {
-            HISAT2_ALIGN(ch_routed.hisat2, ch_index.first(), channel.value([[:], []]), true)
+            HISAT2_ALIGN(ch_routed.hisat2, ch_index.first(), ch_splicesites, true)
             ch_aligned = HISAT2_ALIGN.out.bam
             ch_summary = HISAT2_ALIGN.out.summary
             ch_fastq = HISAT2_ALIGN.out.fastq
@@ -369,6 +397,17 @@ def chunkName(fastq) {
         error("Unexpected chunk file name '${fastq.name}': HISAT2_CHUNKSPLIT names them <id>.partNNNN_<mate>.fastq.gz.")
     }
     return match[0][1]
+}
+
+// Every pass-1 splice-site list of one reference, as the single input of its
+// merge. Sorted by name, so a resumed run hands the merge the same list and
+// its cached result - and with it every second-pass task - still matches.
+// collect emits nothing when no library went to HISAT2, so no merge runs then.
+def spliceSiteLists(ch_lists) {
+    return ch_lists
+        .map { _meta, sites -> sites }
+        .collect(sort: { a, b -> a.name <=> b.name })
+        .map { lists -> [[id: 'splicesites'], lists] }
 }
 
 // Collect one sample's chunk outputs back under the sample's own meta, released

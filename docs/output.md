@@ -121,6 +121,8 @@ With `--long_reads`, [fastplong](https://github.com/OpenGene/fastplong) trims in
   - `<sample>.host.hisat2.summary.log` (RNA), `<sample>.host.bowtie2.summary.log` (DNA, see `--host_aligner`) or `<sample>.host.minimap2.summary.log` (`--long_reads`): alignment summary, including the overall alignment rate. All three are in the same format; for minimap2, "aligned >1 times" is a primary alignment with MAPQ 0. The directory keeps its name for all of them.
 - `hisat2/samtools_stats/`
   - `*.stats`, `*.flagstat`, `*.idxstats`: alignment statistics.
+- `hisat2/splicesites/` (`--hisat2_two_pass`)
+  - `host.splicesites.tsv`, and `host1`, `host2`, `host3` for earlier references of a multi-reference run, as the alignment files are named: the splice sites the first pass found in all libraries, one per line as `sequence`, `left`, `right`, `strand` (0-based, the last base of the exon before the intron and the first base after it). The second pass aligned every library with this list.
 - `unaligned/`
   - `<sample>.host.unmapped_1.fastq.gz`, `<sample>.host.unmapped_2.fastq.gz` (paired-end)
   - `<sample>.host.unmapped.fastq.gz` (single-end)

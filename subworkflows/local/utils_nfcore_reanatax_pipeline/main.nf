@@ -647,6 +647,13 @@ def validateInputParameters() {
         log.warn("--hisat2_max_alignments ${params.hisat2_max_alignments} has no effect: the preset in --hisat2_args ('${params.hisat2_args}') overrides -k. See docs/usage.md.")
     }
 
+    if (params.hisat2_two_pass) {
+        def no_hisat2 = params.skip_host_removal || params.single_cell || params.long_reads || params.host_aligner in ['bowtie2', 'minimap2']
+        if (no_hisat2 || (host_refs.size() == 1 && params.gtf)) {
+            log.warn("--hisat2_two_pass has no effect on this run: it applies to HISAT2 host passes against a reference without --gtf, and ${no_hisat2 ? 'no library is aligned to the host with HISAT2' : 'the only host reference is the one --gtf describes'}.")
+        }
+    }
+
     if (params.quantify_host && !params.gtf) {
         error("--quantify_host needs an annotation: add --gtf. Counts are taken from the host BAM of the first reference given.")
     }

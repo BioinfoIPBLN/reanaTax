@@ -137,6 +137,7 @@ workflow TARGETED_TAXON {
         'hisat2',
         channel.empty(),
         null,
+        false,
     )
     ch_multiqc_files = ch_multiqc_files.mix(TARGET_ALIGNMENT.out.multiqc_files)
     ch_bam = TARGET_ALIGNMENT.out.bam
