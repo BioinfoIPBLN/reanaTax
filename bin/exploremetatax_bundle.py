@@ -3,11 +3,11 @@
 exploremetatax_bundle.py -- package the taxonomic tables for the exploreMetaTax
 Shiny app (https://shiny-public.fgcz.uzh.ch/app/exploreMetaTax).
 
-The app has no archive ingest. You extract this tarball and point its "Browse a
-folder" upload at the extracted directory; it then uploads every file in the
-folder and keeps only those whose NAME matches the format picked on the radio
-button. So the bundle is a flat directory whose filenames are chosen to satisfy
-that filter, not a copy of the results tree.
+The app takes this tarball as an upload: it unpacks it, loads the sample
+metadata and the differential-abundance tables by itself, and keeps as reports
+only the files whose NAME matches the format picked on the radio button. So the
+bundle is a flat directory whose filenames are chosen to satisfy that filter,
+not a copy of the results tree.
 
 That distinction is not cosmetic. Taking reanaTax's published names as they are:
 
@@ -35,11 +35,11 @@ import shutil
 import sys
 import tarfile
 
-# Verbatim from format_filename_pattern() in apps/exploreMetaTax/app/app.R.
-# Kept as a literal copy so a divergence shows up as a failed bundle rather
-# than as a file the app quietly ignores.
+# Verbatim from format_filename_pattern() in the app's R/22_uploads.R
+# (shinyproxy_apps/exploreMetaTax). Kept as a literal copy so a divergence
+# shows up as a failed bundle rather than as a file the app quietly ignores.
 APP_PATTERNS = {
-    "kraken2": r"\.report\.txt$|_report\.txt$|\.kreport2?$|_kraken2\.txt$",
+    "kraken2": r"\.report\.txt$|_report\.txt$|\.kreport2?$|_kraken2\.txt$|[._-]kreport\.txt$|centrifuge[^/]*\.(txt|tsv|kreport)$",
     "krakenuniq": r"_krakenuniq.*\.txt$|\.krakenuniq$|_krakenuniq_report\.txt$",
     "bracken": r"\.bracken$|_bracken[^/]*\.(txt|tsv)$",
     "combined_bracken": r"combined.*bracken.*\.(txt|tsv)$",
@@ -49,7 +49,24 @@ APP_PATTERNS = {
         r"pathabund(ance)?.*\.tsv$|reactions?.*\.tsv$|gene[_-]?famil(ies|y).*\.tsv$"
         r"|(^|[_-])ko(_cpm)?\.tsv$|kegg[_-]?kos?.*\.tsv$"
     ),
+    "emu": r"rel-abundance[^/]*\.tsv$|emu-combined[^/]*\.tsv$|[._-]emu[^/]*\.tsv$",
+    "kaiju": r"kaiju[^/]*\.(tsv|txt)$",
+    "biom": r"\.biom$",
 }
+
+# Verbatim from is_da_name() / is_metadata_name() in the app's R/29_da.R: the
+# side files the app loads from an archive on its own. They must match one of
+# these and none of APP_PATTERNS.
+DA_PATTERN = (
+    r"\.(ancom[-_]?bc|aldex|maaslin3|maaslin|lefse|deseq|edger|linda|limma)[0-9]*\.results\.(tsv|csv|txt)$"
+    r"|(^|[._-])(da|differential[_-]?abundance)[._-]?results?\.(tsv|csv|txt)$"
+)
+METADATA_PATTERN = r"(^|[._-])(metadata|samplesheet|sample_sheet)\.(tsv|csv|txt)$"
+
+# Deepest rank first: of the per-rank Emu cohort tables only one is bundled,
+# since the app builds the higher ranks from the lineage columns itself and
+# loading two would double every sample.
+EMU_RANKS = ["species", "genus", "family", "order", "class", "phylum", "superkingdom", "domain"]
 
 # Which radio button each of our files is meant to be loaded under. `None`
 # means the file is documentation or metadata and must match no format at all.
@@ -61,6 +78,9 @@ LAYOUT_NOTE = {
     "metaphlan": "MetaPhlAn Profiles",
     "merged_metaphlan": "Merged MetaPhlAn Table",
     "humann": "HUMAnN Tables",
+    "emu": "Emu (per-sample or combined)",
+    "da": "loaded by itself (Differential Abundance tab)",
+    "metadata": "loaded by itself (Metadata box)",
 }
 
 
@@ -111,6 +131,8 @@ def main():
                         help="the --groups the *_regroup tables were made with (the pipeline's "
                              "--humann_regroup): *_ko are bundled as KEGG orthologs, *_rxn as "
                              "reactions, anything else is left out")
+    parser.add_argument("--da", help="directory of differential-abundance result tables")
+    parser.add_argument("--emu", help="directory of Emu cohort tables (emu combine-outputs)")
     parser.add_argument("--metadata", help="sample metadata TSV")
     parser.add_argument("--outdir", default="exploreMetaTax", help="staging directory name")
     parser.add_argument("--output", required=True, help="tarball to write")
@@ -180,8 +202,39 @@ def main():
             )
         place(path, stage, base, "humann", planned)
 
+    # `<prefix>.<method>.results.tsv`, as differential_abundance.R names them.
+    for path in files_in(args.da):
+        name = os.path.basename(path)
+        if not re.search(DA_PATTERN, name, re.I):
+            raise SystemExit(
+                f"exploremetatax_bundle: '{name}' is not named like a differential-abundance "
+                "result table (<prefix>.<method>.results.tsv)."
+            )
+        place(path, stage, name, "da", planned)
+
+    # One Emu table: the deepest rank, its count variant when there is one.
+    emu_tables = {}
+    for path in files_in(args.emu):
+        match = re.match(r"emu-combined-([a-z]+)(-counts)?\.tsv$", os.path.basename(path), re.I)
+        if not match:
+            print(f"exploremetatax_bundle: leaving out '{os.path.basename(path)}': not an "
+                  "`emu combine-outputs` table.", file=sys.stderr)
+            continue
+        rank, counts = match.group(1).lower(), bool(match.group(2))
+        emu_tables.setdefault(rank, {})[counts] = path
+    for rank in EMU_RANKS:
+        if rank in emu_tables:
+            chosen = emu_tables[rank].get(True) or emu_tables[rank][False]
+            place(chosen, stage, os.path.basename(chosen), "emu", planned)
+            left = [os.path.basename(p) for r, d in emu_tables.items() for p in d.values() if p != chosen]
+            if left:
+                print(f"exploremetatax_bundle: bundling the Emu {rank} table only; the app "
+                      f"derives the higher ranks from it. Left out: {', '.join(sorted(left))}.",
+                      file=sys.stderr)
+            break
+
     if args.metadata and os.path.isfile(args.metadata):
-        place(args.metadata, stage, "metadata.tsv", None, planned)
+        place(args.metadata, stage, "metadata.tsv", "metadata", planned)
 
     if not planned:
         raise SystemExit("exploremetatax_bundle: nothing to bundle.")
@@ -192,7 +245,11 @@ def main():
     problems = []
     for name, wanted in planned:
         matched = matching_formats(name)
-        expected = {wanted} if wanted else set()
+        expected = {wanted} if wanted in APP_PATTERNS else set()
+        if wanted == "da" and not re.search(DA_PATTERN, name, re.I):
+            problems.append(f"  {name}: the app would not load it as a differential-abundance table")
+        if wanted == "metadata" and not re.search(METADATA_PATTERN, name, re.I):
+            problems.append(f"  {name}: the app would not load it as metadata")
         if matched != expected:
             problems.append(
                 f"  {name}: matches {sorted(matched) or ['nothing']}, expected {sorted(expected) or ['nothing']}"
@@ -212,27 +269,25 @@ def main():
             "exploreMetaTax bundle\n"
             "=====================\n\n"
             "https://shiny-public.fgcz.uzh.ch/app/exploreMetaTax\n\n"
-            "1. Extract this archive.\n"
-            "2. In the app, open 'Upload and Filter Data'.\n"
-            "3. Tick 'Browse a folder (uploads all matching reports inside)'.\n"
-            "4. Pick the input format on the radio button, then Browse to the\n"
-            "   extracted folder and press 'Load Data'. Only the files belonging\n"
-            "   to the chosen format are loaded, so the same folder serves every\n"
-            "   format below - switch the radio button and load again.\n\n"
+            "1. In the app, open 'Upload and Filter Data'.\n"
+            "2. Pick the input format on the radio button (see Contents).\n"
+            "3. Upload this .tar.gz as it is and press 'Load Data'. The app\n"
+            "   unpacks it, loads only the files of the chosen format as samples,\n"
+            "   and loads metadata.tsv and the differential-abundance tables by\n"
+            "   itself. To see another format, switch the radio button and load\n"
+            "   the archive again.\n\n"
+            "Extracting the archive and ticking 'Browse a folder' works too.\n\n"
             "Contents:\n"
         )
         for fmt, count in sorted(counts.items(), key=lambda item: str(item[0])):
-            if fmt is None:
-                handle.write("  metadata.tsv - load via the separate 'Metadata' box\n")
-            else:
-                handle.write(f"  {count} file(s) -> radio button '{LAYOUT_NOTE[fmt]}'\n")
+            handle.write(f"  {count} file(s) -> {LAYOUT_NOTE[fmt]}\n")
 
     with tarfile.open(args.output, "w:gz") as tar:
         tar.add(stage, arcname=os.path.basename(stage))
 
     print(
         f"[exploremetatax_bundle] wrote {args.output} with {len(planned)} file(s): "
-        + ", ".join(f"{count} {fmt or 'metadata'}" for fmt, count in sorted(counts.items(), key=lambda i: str(i[0]))),
+        + ", ".join(f"{count} {fmt}" for fmt, count in sorted(counts.items(), key=lambda i: str(i[0]))),
         file=sys.stderr,
     )
     return 0

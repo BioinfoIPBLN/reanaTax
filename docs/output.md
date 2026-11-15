@@ -543,12 +543,13 @@ A sample whose summary reads `AI summary timed out. Please try again` was attemp
 ## Exploring the results interactively
 
 The taxonomic tables are meant to be explored, not just read. **exploreMetaTax**
-is a Shiny app for exactly that — run with `--exploremetatax_bundle`, extract
-`exploremetatax/reanatax.exploreMetaTax.tar.gz` and upload the extracted folder,
-and get filtering, alpha and beta diversity, rarefaction, PCA, a LifemapR
-taxonomy tree and publication-ready exports. Upload the bundle rather than the
-`kraken2/` and `bracken/` folders themselves: the app recognises files by name,
-and several of the pipeline's names would be skipped or misread.
+is a Shiny app for exactly that — run with `--exploremetatax_bundle`, upload
+`exploremetatax/reanatax.exploreMetaTax.tar.gz` as it is, and get filtering,
+alpha and beta diversity (CLR, PERMANOVA), rarefaction, PCA, the ANCOM-BC2 /
+ALDEx2 results against the same filters, a LifemapR taxonomy tree and
+publication-ready exports. Upload the bundle rather than the `kraken2/` and
+`bracken/` folders themselves: the app recognises files by name, and several of
+the pipeline's names would be skipped or misread.
 
 Two ways to run it:
 

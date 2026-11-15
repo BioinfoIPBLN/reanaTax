@@ -2720,15 +2720,18 @@ Three things to know about how it is wired:
 for the [exploreMetaTax](https://shiny-public.fgcz.uzh.ch/app/exploreMetaTax)
 Shiny app. To use it:
 
-1. Extract the archive.
-2. In the app, open **Upload and Filter Data**.
-3. Tick **Browse a folder (uploads all matching reports inside)**.
-4. Choose the input format on the radio button, Browse to the extracted folder,
-   and press **Load Data**.
+1. In the app, open **Upload and Filter Data**.
+2. Choose the input format on the radio button (Kraken2 Reports, Bracken
+   Per-Sample, Combined Bracken Table, Emu, ...).
+3. Upload the `.tar.gz` as it is and press **Load Data**.
 
-The same folder serves every format: the app uploads everything in it and keeps
-only the files whose names match the chosen format, so switch the radio button
-and load again to move between Kraken2, Bracken and the combined table.
+The app unpacks the archive, loads the files of the chosen format as samples,
+and loads `metadata.tsv` (from `--da_metadata`) and the ANCOM-BC2 / ALDEx2
+result tables by itself: the metadata drives the group colours and tests, and
+the result tables open a **Differential Abundance** tab. The same archive serves
+every format: switch the radio button and load it again to move between
+Kraken2, Bracken, the combined table and Emu. Extracting it and ticking **Browse
+a folder** works too.
 
 ### Why this is not just a tar of `--outdir`
 

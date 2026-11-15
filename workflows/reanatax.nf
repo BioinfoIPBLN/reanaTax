@@ -711,6 +711,7 @@ workflow REANATAX {
     // by nothing downstream; `--run_emu --skip_kraken2` makes it the only
     // classifier. Count tables only when --emu_args keeps the counts.
     //
+    def ch_emu_combined = channel.empty()
     if (params.run_emu) {
         TAXONOMY_EMU(
             ch_nonhost_reads,
@@ -718,6 +719,7 @@ workflow REANATAX {
             commaList(params.emu_ranks),
             (params.emu_args ?: '').tokenize(' ').contains('--keep-counts'),
         )
+        ch_emu_combined = TAXONOMY_EMU.out.combined
     }
 
     //
@@ -921,6 +923,7 @@ workflow REANATAX {
     // thinned by --min_rel_abundance would filter twice with two different
     // rules.
     //
+    def ch_da_results = channel.empty()
     if (params.da_metadata && !params.skip_bracken && !params.skip_kraken2) {
         def da_missing = ['da_grouping', 'da_sample_group', 'da_ref_group'].findAll { key -> !params[key] }
         if (da_missing) {
@@ -931,6 +934,7 @@ workflow REANATAX {
             params.da_metadata,
             daMethods(params.da_method),
         )
+        ch_da_results = DIFFERENTIAL_ABUNDANCE.out.results
         ch_multiqc_files = ch_multiqc_files.mix(DIFFERENTIAL_ABUNDANCE.out.multiqc_files)
     }
 
@@ -1044,6 +1048,8 @@ workflow REANATAX {
             ch_metaphlan_profile.map { _meta, file_ -> file_ }.flatten().collect(sort: true).ifEmpty([]),
             ch_metaphlan_merged.map { _meta, file_ -> file_ }.flatten().collect(sort: true).ifEmpty([]),
             ch_humann_tables.map { _meta, file_ -> file_ }.flatten().collect(sort: true).ifEmpty([]),
+            ch_da_results.map { _meta, file_ -> file_ }.flatten().collect(sort: true).ifEmpty([]),
+            ch_emu_combined.map { _meta, file_ -> file_ }.flatten().collect(sort: true).ifEmpty([]),
             params.da_metadata ? file(params.da_metadata, checkIfExists: true) : [],
         )
     }

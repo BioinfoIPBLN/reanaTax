@@ -26,6 +26,8 @@ process EXPLOREMETATAX_BUNDLE {
     path metaphlan_profiles, stageAs: 'metaphlan/*'
     path metaphlan_merged, stageAs: 'metaphlan_merged/*'
     path humann_tables, stageAs: 'humann/*'
+    path da_results, stageAs: 'da/*'
+    path emu_tables, stageAs: 'emu/*'
     path metadata, stageAs: 'metadata/*'
 
     output:
@@ -49,6 +51,8 @@ process EXPLOREMETATAX_BUNDLE {
         --metaphlan metaphlan \\
         --metaphlan-merged metaphlan_merged \\
         --humann humann \\
+        --da da \\
+        --emu emu \\
         ${metadata_arg} \\
         --outdir ${prefix}_exploreMetaTax \\
         --output ${prefix}.exploreMetaTax.tar.gz
