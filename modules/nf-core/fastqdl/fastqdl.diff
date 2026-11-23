@@ -1,6 +1,6 @@
 --- modules/nf-core/fastqdl/main.nf
 +++ modules/nf-core/fastqdl/main.nf
-@@ -14,6 +14,7 @@
+@@ -17,6 +17,7 @@
      tuple val(meta), path("*.fastq.gz")       , emit: fastq
      tuple val(meta), path("*-run-info.tsv")   , emit: runinfo
      tuple val(meta), path("*-run-mergers.tsv"), emit: runmergers, optional: true
@@ -8,26 +8,24 @@
      tuple val("${task.process}"), val('fastq-dl'), eval('fastq-dl --version |& sed "s/.* //"'), emit: versions_fastqdl, topic: versions
  
  
-@@ -30,6 +31,34 @@
+@@ -33,6 +34,32 @@
          --accession ${accession} \\
          --cpus ${task.cpus} \\
          --outdir .
 +
-+    # fastq-dl exits 0 even when every attempt at a file failed, leaving a
-+    # zero-byte .fastq.gz behind. Nothing downstream can tell that apart from a
-+    # real download, so the run continues and dies several steps later inside
-+    # whichever tool reads the file first - reporting a corrupt FASTQ rather
-+    # than a failed download, and never retrying the thing that actually broke.
-+    #
-+    # Checking here makes the task fail where the fault is, so Nextflow's retry
-+    # retries the download. gzip -t reads the whole stream because a truncated
-+    # transfer has a valid header and only fails at the end.
++    # fastq-dl before 3.1 exited 0 even when every attempt at a file failed,
++    # leaving a zero-byte .fastq.gz that failed several steps later inside
++    # whichever tool read it first. 4.x exits non-zero instead; the check stays
++    # because a file can still arrive empty or truncated, and failing here makes
++    # Nextflow retry the download rather than the step that tripped over it.
++    # gzip -t reads the whole stream because a truncated transfer has a valid
++    # header and only fails at the end.
 +    found=0
 +    for fastq in *.fastq.gz; do
 +        [ -e "\$fastq" ] || continue
 +        found=1
 +        if [ ! -s "\$fastq" ]; then
-+            echo "ERROR: ${accession}: '\$fastq' is empty. fastq-dl exhausted its retries and still exited 0 - the archive most likely lists a file it cannot serve. Check the other provider (--fastqdl_provider)." >&2
++            echo "ERROR: ${accession}: '\$fastq' is empty - the archive most likely lists a file it cannot serve. Check the other provider (--fastqdl_provider)." >&2
 +            exit 1
 +        fi
 +        if ! gzip -t "\$fastq" 2>/dev/null; then
@@ -45,7 +43,7 @@
      stub:
 --- modules/nf-core/fastqdl/meta.yml
 +++ modules/nf-core/fastqdl/meta.yml
-@@ -64,6 +64,17 @@
+@@ -61,6 +61,17 @@
            pattern: "*-run-mergers.tsv"
            ontologies:
              - edam: http://edamontology.org/format_3475

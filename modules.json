@@ -32,7 +32,7 @@
                     },
                     "fastqdl": {
                         "branch": "master",
-                        "git_sha": "e62a1ec1dcefe39a0f543528c2817ddaf6d3c099",
+                        "git_sha": "39a573d9581e2efa181e62306db4f8e971d57165",
                         "installed_by": ["modules"],
                         "patch": "modules/nf-core/fastqdl/fastqdl.diff"
                     },

@@ -1,11 +1,14 @@
+// Copyright (c) the nf-core community under an open-source MIT license.
+// See https://github.com/nf-core/modules for full license, file patching instructions and upstream contributing.
+
 process FASTQDL {
     tag "$meta.id"
     label 'process_medium'
 
     conda "${moduleDir}/environment.yml"
-    container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container ?
-        'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/25/25de473366050bf652634865e5cf8450e682852a03dc34f77243264794cb989f/data':
-        'community.wave.seqera.io/library/fastq-dl:3.0.1--fa446f61dfc85bc3' }"
+    container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container
+?         'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/ed/ed693e48ea3639b0a0f6a0ad191ad31f4e8fa15674a42c4053df6e06eff30cdc/data'
+:         'community.wave.seqera.io/library/fastq-dl:4.0.1--0758300a069ba945' }"
 
     input:
     tuple val(meta), val(accession)
@@ -32,21 +35,19 @@ process FASTQDL {
         --cpus ${task.cpus} \\
         --outdir .
 
-    # fastq-dl exits 0 even when every attempt at a file failed, leaving a
-    # zero-byte .fastq.gz behind. Nothing downstream can tell that apart from a
-    # real download, so the run continues and dies several steps later inside
-    # whichever tool reads the file first - reporting a corrupt FASTQ rather
-    # than a failed download, and never retrying the thing that actually broke.
-    #
-    # Checking here makes the task fail where the fault is, so Nextflow's retry
-    # retries the download. gzip -t reads the whole stream because a truncated
-    # transfer has a valid header and only fails at the end.
+    # fastq-dl before 3.1 exited 0 even when every attempt at a file failed,
+    # leaving a zero-byte .fastq.gz that failed several steps later inside
+    # whichever tool read it first. 4.x exits non-zero instead; the check stays
+    # because a file can still arrive empty or truncated, and failing here makes
+    # Nextflow retry the download rather than the step that tripped over it.
+    # gzip -t reads the whole stream because a truncated transfer has a valid
+    # header and only fails at the end.
     found=0
     for fastq in *.fastq.gz; do
         [ -e "\$fastq" ] || continue
         found=1
         if [ ! -s "\$fastq" ]; then
-            echo "ERROR: ${accession}: '\$fastq' is empty. fastq-dl exhausted its retries and still exited 0 - the archive most likely lists a file it cannot serve. Check the other provider (--fastqdl_provider)." >&2
+            echo "ERROR: ${accession}: '\$fastq' is empty - the archive most likely lists a file it cannot serve. Check the other provider (--fastqdl_provider)." >&2
             exit 1
         fi
         if ! gzip -t "\$fastq" 2>/dev/null; then
