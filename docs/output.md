@@ -180,7 +180,7 @@ Only written with `--quantify_host` and `--gtf`. These come from the same librar
 - `kraken2/reads/` (with `--kraken2_save_reads`)
   - `<sample>.classified*.fastq.gz`, `<sample>.unclassified*.fastq.gz`
 - `kraken2/read_assignments/` (with `--kraken2_save_readclassifications`)
-  - `<sample>.kraken2.classifiedreads.txt`: one line per read. These files are large.
+  - `<sample>.kraken2.classifiedreads.txt.gz`: one line per read, gzipped with pigz on the Kraken2 task's cores (level from `--compression_level`). Even compressed these are the largest files of a run. Read them with `zcat`, or with `extract_kraken_reads.py -k <(zcat <file>)`, since KrakenTools does not open gzip itself.
 
 </details>
 

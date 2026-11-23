@@ -44,7 +44,7 @@ process KRAKENTOOLS_EXTRACTREADS {
         : "-o ${prefix}.taxon_${label}_1.fastq -o2 ${prefix}.taxon_${label}_2.fastq"
     """
     extract_kraken_reads.py \\
-        -k ${classifiedreads} \\
+        -k <(gzip -cdf ${classifiedreads}) \\
         -r ${report} \\
         -t ${taxid.toString().replaceAll(',', ' ')} \\
         ${seq_in} \\

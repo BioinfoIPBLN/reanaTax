@@ -35,6 +35,7 @@ Two passes, because the --output files are one line per read and large:
 """
 import argparse
 import csv
+import gzip
 import os
 import re
 import sys
@@ -73,7 +74,8 @@ def scan(path, host_taxids):
     reads_total = 0
     reads_tainted = 0
 
-    with open(path, encoding="utf-8", errors="replace") as handle:
+    opener = gzip.open(path, "rt", encoding="utf-8", errors="replace") if str(path).endswith(".gz") else open(path, encoding="utf-8", errors="replace")
+    with opener as handle:
         for line in handle:
             fields = line.rstrip("\n").split("\t", 4)
             if len(fields) < 5:

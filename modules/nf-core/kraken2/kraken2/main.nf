@@ -16,7 +16,7 @@ process KRAKEN2_KRAKEN2 {
     output:
     tuple val(meta), path('*.classified{.,_}*')     , optional:true, emit: classified_reads_fastq
     tuple val(meta), path('*.unclassified{.,_}*')   , optional:true, emit: unclassified_reads_fastq
-    tuple val(meta), path('*classifiedreads.txt')   , optional:true, emit: classified_reads_assignment
+    tuple val(meta), path('*classifiedreads.txt.gz'), optional:true, emit: classified_reads_assignment
     tuple val(meta), path('*report.txt')                           , emit: report
     tuple val("${task.process}"), val('kraken2'), eval('kraken2 --version 2>&1 | head -1 | sed "s/^.*Kraken version //; s/ .*//"'), topic: versions, emit: versions_kraken2
     tuple val("${task.process}"), val('pigz'), eval('pigz --version 2>&1 | sed "s/pigz //g"'), topic: versions, emit: versions_pigz
@@ -34,6 +34,8 @@ process KRAKEN2_KRAKEN2 {
     def unclassified_option = save_output_fastqs ? "--unclassified-out ${unclassified}" : ""
     def readclassification_option = save_reads_assignment ? "--output ${prefix}.kraken2.classifiedreads.txt" : "--output /dev/null"
     def compress_reads_command = save_output_fastqs ? "pigz -p $task.cpus *.fastq" : ""
+    def level = task.ext.compression != null ? "-${task.ext.compression} " : ''
+    def compress_assignment_command = save_reads_assignment ? "pigz ${level}-p ${task.cpus} ${prefix}.kraken2.classifiedreads.txt" : ""
 
     """
     kraken2 \\
@@ -49,6 +51,7 @@ process KRAKEN2_KRAKEN2 {
         $reads
 
     $compress_reads_command
+    $compress_assignment_command
     """
 
     stub:
@@ -63,7 +66,7 @@ process KRAKEN2_KRAKEN2 {
         touch $unclassified
     fi
     if [ "$save_reads_assignment" == "true" ]; then
-        touch ${prefix}.kraken2.classifiedreads.txt
+        echo "" | gzip > ${prefix}.kraken2.classifiedreads.txt.gz
     fi
     """
 

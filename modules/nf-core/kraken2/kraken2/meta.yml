@@ -77,11 +77,11 @@ output:
           description: |
             Groovy Map containing sample information
             e.g. [ id:'test', single_end:false ]
-      - "*classifiedreads.txt":
+      - "*classifiedreads.txt.gz":
           type: file
           description: |
             Kraken2 output file indicating the taxonomic assignment of
-            each input read
+            each input read, gzipped
           ontologies: []
   report:
     - - meta:

@@ -112,7 +112,7 @@ process KRAKEN2_DAEMON {
     output:
     tuple val(meta), path('*.classified{.,_}*'), optional: true, emit: classified_reads_fastq
     tuple val(meta), path('*.unclassified{.,_}*'), optional: true, emit: unclassified_reads_fastq
-    tuple val(meta), path('*classifiedreads.txt'), optional: true, emit: classified_reads_assignment
+    tuple val(meta), path('*classifiedreads.txt.gz'), optional: true, emit: classified_reads_assignment
     tuple val(meta), path('*report.txt'), emit: report
     tuple val(meta), path('*.k2.log'), emit: log
     tuple val("${task.process}"), val('kraken2'), eval('kraken2 --version 2>&1 | head -1 | sed "s/^.*Kraken version //; s/ .*//"'), topic: versions, emit: versions_kraken2
@@ -183,9 +183,11 @@ process KRAKEN2_DAEMON {
     // is not worth a silently mis-paired classification.
     def reads_abs = [reads].flatten().collect { fastq -> "\$PWD/${fastq}" }.join(' ')
     // --compression_level. These FASTQs are only written with
-    // --kraken2_save_reads, and they are the size of the non-host library.
+    // --kraken2_save_reads, and they are the size of the non-host library. The
+    // per-read assignments are one line per read, the largest file of a run.
     def level = task.ext.compression != null ? "-${task.ext.compression} " : ''
     def compress_reads_command = save_output_fastqs ? "pigz ${level}-p ${task.cpus} *.fastq" : ""
+    def compress_assignment_command = save_reads_assignment ? "pigz ${level}-p ${task.cpus} ${prefix}.kraken2.classifiedreads.txt" : ""
 
     // No --gzip-compressed: `k2 classify` detects gzip/bz2/xz from the file
     // itself and rejects the flag the legacy wrapper needs.
@@ -242,6 +244,7 @@ ${reset_daemon}
     ) 9>>/tmp/reanatax_k2_daemon.\$(id -u).lock
 
     ${compress_reads_command}
+    ${compress_assignment_command}
     """
 
     stub:
@@ -256,7 +259,7 @@ ${reset_daemon}
         touch ${unclassified}
     fi
     if [ "${save_reads_assignment}" == "true" ]; then
-        touch ${prefix}.kraken2.classifiedreads.txt
+        echo "" | gzip > ${prefix}.kraken2.classifiedreads.txt.gz
     fi
     """
 }
