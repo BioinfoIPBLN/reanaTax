@@ -65,9 +65,10 @@ def read_microbial(path):
     are used, because a correlation wants abundance free of library size; a
     Bracken-shaped table without them falls back to the `_num` counts.
 
-    Rows are keyed on the taxon name, which is unique here: Bracken's
-    combine_bracken_outputs.py stops on a name shared by two taxids rather than
-    writing both. A combine_kreports table is refused. It is a hierarchy, so
+    Rows are keyed on the taxon name, which is unique here: a name shared by
+    two taxids (SILVA's "uncultured" genera) reaches the combined table as
+    `<name> (taxid <taxid>)` (bin/bracken_unique_names.py). A combine_kreports
+    table is refused. It is a hierarchy, so
     its most abundant rows are root, the domains and the phyla, each holding
     the same reads again, and a top-N cut on it would correlate those.
     """

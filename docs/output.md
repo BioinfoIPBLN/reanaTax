@@ -365,7 +365,7 @@ See [usage](usage.md#diversity-and-what-explains-it---run_diversity) for the cav
 - `bracken/`
   - `<sample>.bracken_<level>.tsv`: re-estimated abundances for that sample.
   - `<sample>.bracken_<level>.kraken2.report_bracken.txt`: the same estimate in Kraken2 report format.
-  - `bracken_combined_<level>.txt`: all samples in one table — this is the file to take into R or Python.
+  - `bracken_combined_<level>.txt`: all samples in one table — this is the file to take into R or Python. One row per taxid, and the names are unique too: a name the cohort's samples give to more than one taxid, as SILVA does with its "uncultured" genera (one per family), is written `<name> (taxid <taxid>)` on each of those rows.
   - `bracken_combined_<level>.filtered.rpm_total.tsv`: the filtered table as reads per million of each library.
 
 </details>

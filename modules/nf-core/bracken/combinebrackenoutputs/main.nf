@@ -21,10 +21,15 @@ process BRACKEN_COMBINEBRACKENOUTPUTS {
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
 
+    // combine_bracken_outputs.py stops on a name shared by two taxids (SILVA's
+    // "uncultured" genera); bracken_unique_names.py (bin/) labels those rows
+    // `<name> (taxid <taxid>)` in copies of the inputs, in their order.
     """
+    files=(${input})
+    bracken_unique_names.py --outdir unique "\${files[@]}"
     combine_bracken_outputs.py \\
         $args \\
-        --files ${input} \\
+        --files "\${files[@]/#/unique/}" \\
         -o ${prefix}.txt
     """
 
