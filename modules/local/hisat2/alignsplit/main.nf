@@ -109,12 +109,13 @@ process HISAT2_ALIGN_SPLIT {
         def host_bam = "samtools view -b ${bam_level}-F 4 -F 8 tmp/${prefix}.all.bam > ${prefix}.bam"
         def unaligned = save_unaligned
             ? """samtools view -u -f 12 tmp/${prefix}.all.bam \\
-            | samtools fastq ${fq_level}-1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n -"""
+            | samtools fastq ${fq_level}-1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n - 2> tmp/${prefix}.fastq.log"""
             : ''
+        def pair_check = save_unaligned ? "check_fastq_pairs.sh tmp/${prefix}.fastq.log" : ''
         if (!save_bam) {
             sink = save_unaligned
                 ? """| samtools view -u -f 12 - \\
-            | samtools fastq ${fq_level}-1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n -"""
+            | samtools fastq ${fq_level}-1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n - 2> tmp/${prefix}.fastq.log"""
                 : '> /dev/null'
             host_bam = ''
             unaligned = ''
@@ -136,6 +137,7 @@ process HISAT2_ALIGN_SPLIT {
 
         ${host_bam}
         ${unaligned}
+        ${pair_check}
         """
     }
 

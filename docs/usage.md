@@ -86,6 +86,8 @@ TREATMENT_REP1,AEG588A4_S4_L003_R1_001.fastq.gz,
 
 All runs of one sample must have the same endedness.
 
+**Mate names.** The two mates of a pair must carry the same read name, the first word of the header line. A `/1` or `/2` is dropped only at the very end of the line: `@r1/1` and `@r1 1:N:0/1` are fine, but `@SRR1.1/1 1 length=100` (written by some SRA conversions) keeps `/1` in the name. Host depletion then cannot pair the mates and stops with an error naming the cause. Strip the suffix from the first word first, e.g. `zcat in_1.fastq.gz | sed -E '1~4s#^(@[^[:space:]]+)/[12]([[:space:]]|$)#\1\2#' | gzip > fixed_1.fastq.gz`, and the same for read 2.
+
 ## Trimming (`--trim_poly_x`)
 
 fastp runs on every library with `--detect_adapter_for_pe` (adapter detection

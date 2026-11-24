@@ -53,7 +53,8 @@ process BOWTIE2_ALIGN_SPLIT {
     def mapped = meta.single_end ? '-F 4' : '-F 4 -F 8'
     def to_fastq = meta.single_end
         ? "samtools fastq ${fq_level}-0 ${prefix}.unmapped.fastq.gz -n -"
-        : "samtools fastq ${fq_level}-1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n -"
+        : "samtools fastq ${fq_level}-1 ${prefix}.unmapped_1.fastq.gz -2 ${prefix}.unmapped_2.fastq.gz -0 /dev/null -s /dev/null -n - 2> tmp/${prefix}.fastq.log"
+    def pair_check = save_unaligned && !meta.single_end ? "check_fastq_pairs.sh tmp/${prefix}.fastq.log" : ''
 
     def sink = "| samtools view -bS ${bam_level}-F 256 - > tmp/${prefix}.all.bam"
     def host_bam = "samtools view -b ${bam_level}${mapped} tmp/${prefix}.all.bam > ${prefix}.bam"
@@ -80,6 +81,7 @@ process BOWTIE2_ALIGN_SPLIT {
 
     ${host_bam}
     ${unaligned}
+    ${pair_check}
     cat ${prefix}.bowtie2.summary.log >&2
     """
 
