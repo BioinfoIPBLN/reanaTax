@@ -31,6 +31,7 @@ process ABUNDANCE_CONTROL {
     input:
     tuple val(meta), path(table, stageAs: 'input/*')
     val controls
+    val absent_controls
     val ratio
     val statistic
     val min_reads
@@ -56,11 +57,15 @@ process ABUNDANCE_CONTROL {
     // from whichever form --negative_controls took. Empty when only
     // --prevalence_filter is in play, which the script accepts.
     def controls_arg = controls ? "--controls '${controls}'" : ''
+    // Controls an upstream gate left out of this table; the subworkflow
+    // splits them from the rest.
+    def absent_arg = absent_controls ? "--absent-controls '${absent_controls}'" : ''
     """
     control_filter.py \\
         ${args} \\
         --input ${table} \\
         ${controls_arg} \\
+        ${absent_arg} \\
         --ratio ${ratio} \\
         --statistic ${statistic} \\
         --min-reads ${min_reads} \\

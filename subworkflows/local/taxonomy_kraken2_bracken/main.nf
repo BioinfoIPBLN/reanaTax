@@ -600,9 +600,26 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
     def ch_bracken_for_filter = ch_bracken_combined
 
     if (control_settings) {
+        // A blank with no classified reads is not in the combined kreport, and
+        // one with no taxon at Bracken's threshold is not in the Bracken table.
+        // Each table is judged against the controls it holds.
+        def ch_sample_ids = ch_reads.map { meta, _reads -> meta.id }.collect().map { ids -> [ids] }
+        def ch_kraken2_control = KRAKENTOOLS_COMBINEKREPORTS.out.txt
+            .combine(ch_sample_ids)
+            .map { meta, table, ids ->
+                [meta, table] + splitControls(
+                    control_settings.controls,
+                    meta.names.tokenize(' '),
+                    ids,
+                    'the combined Kraken2 report',
+                    'Kraken2 classified none of their reads',
+                    'Neither that table nor the cell matrix has a cell zeroed against a control.',
+                )
+            }
         CONTROL_KRAKEN2(
-            KRAKENTOOLS_COMBINEKREPORTS.out.txt,
-            control_settings.controls ?: '',
+            ch_kraken2_control.map { meta, table, _present, _absent -> [meta, table] },
+            ch_kraken2_control.map { _meta, _table, present, _absent -> present },
+            ch_kraken2_control.map { _meta, _table, _present, absent -> absent },
             control_settings.ratio,
             control_settings.statistic,
             control_settings.min_reads,
@@ -628,9 +645,22 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
         // the flat table is the one whose "failed in every library" is a
         // statement about reads rather than about a clade sum.
         if (!skip_bracken) {
+            def ch_bracken_control = ch_bracken_combined
+                .combine(ch_sample_ids)
+                .map { meta, table, ids ->
+                    [meta, table] + splitControls(
+                        control_settings.controls,
+                        meta.names.tokenize(','),
+                        ids,
+                        'the combined Bracken table',
+                        "no taxon at rank ${bracken_settings.level} reached --bracken_threshold ${bracken_settings.threshold} reads; --bracken_threshold 0 keeps them",
+                        "None of that table's cells is zeroed against a control, and the taxa that fail in every library are taken from the Kraken2 report's control verdicts.",
+                    )
+                }
             CONTROL_BRACKEN(
-                ch_bracken_combined,
-                control_settings.controls ?: '',
+                ch_bracken_control.map { meta, table, _present, _absent -> [meta, table] },
+                ch_bracken_control.map { _meta, _table, present, _absent -> present },
+                ch_bracken_control.map { _meta, _table, _present, absent -> absent },
                 control_settings.ratio,
                 control_settings.statistic,
                 control_settings.min_reads,
@@ -642,7 +672,16 @@ workflow TAXONOMY_KRAKEN2_BRACKEN {
             // The whole-taxon verdict still comes from Bracken: that table is
             // flat and holds each read once, so "failed in every library" is a
             // statement about reads rather than about a clade sum.
-            ch_control_drop = CONTROL_BRACKEN.out.drop_list.map { _meta, list -> list }
+            // With no control left in the Bracken table, the Kraken2 report's
+            // whole-taxon verdicts stand in for it.
+            ch_control_drop = CONTROL_BRACKEN.out.drop_list
+                .map { _meta, list -> list }
+                .mix(
+                    ch_bracken_control
+                        .filter { _meta, _table, present, absent -> absent && !present }
+                        .combine(CONTROL_KRAKEN2.out.drop_list)
+                        .map { _meta, _table, _present, _absent, _kraken2_meta, list -> list }
+                )
             ch_control_evidence = CONTROL_BRACKEN.out.evidence
         }
         else {
@@ -803,6 +842,27 @@ def hasBrackenTaxa(report, level, threshold) {
         }
         return fields[-3].trim() == level && (clade_reads as long) >= min_reads
     }
+}
+
+//
+// --negative_controls against one combined table: [present, absent], each a
+// comma-separated string. A control that is no sample of the run stops it (a
+// typo would otherwise shrink the control set unseen); one that is a sample but
+// has no column was left out upstream, and is reported.
+//
+def splitControls(controls, table_names, sample_ids, table, reason, none_left) {
+    def wanted = controls ? controls.tokenize(',').collect { id -> id.trim() }.findAll { id -> id } : []
+    def unknown = wanted.findAll { id -> !sample_ids.contains(id) }
+    if (unknown) {
+        error("--negative_controls: ${unknown.join(', ')} ${unknown.size() == 1 ? 'is not a sample' : 'are not samples'} of this run. The samples are: ${sample_ids.toUnique().toSorted().join(', ')}")
+    }
+    def present = wanted.findAll { id -> table_names.contains(id) }
+    def absent = wanted - present
+    if (absent) {
+        def outcome = present ? "That table is judged against the other ${present.size()} control(s)." : none_left
+        log.warn("--negative_controls: ${absent.join(', ')} ${absent.size() == 1 ? 'is' : 'are'} not in ${table} (${reason}). ${outcome}")
+    }
+    return [present.join(','), absent.join(',')]
 }
 
 def hasClassifiedReads(report) {

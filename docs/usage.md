@@ -1855,6 +1855,17 @@ With `--sc_apply_drop_list` (on by default for single-cell runs) the per-library
 verdicts reach the cell matrix too, so the cohort profile and the single-cell
 profile cannot disagree about a cell one of them zeroed.
 
+**A blank that an earlier step left out is reported, not scored.** A library
+with no classified reads has no column in the combined Kraken2 report, and one
+with no taxon at `--bracken_level` reaching `--bracken_threshold` has none in the
+Bracken table. Low-biomass blanks are the libraries most likely to be left out.
+Each table is judged against the controls it still holds, and the run warns,
+naming the ones it is missing. With none left in the Bracken table, its cells
+are not zeroed against a control, and the taxa that fail in every library come
+from the Kraken2 report's verdicts; `--bracken_threshold 0` (above) keeps such a
+blank in the Bracken table. A name in `--negative_controls` that is not a sample
+of the run stops the run.
+
 **`--control_floor_reads` is what makes the ratio mean anything.** Absence from
 the blanks is a _bound_, not a measurement: it says a taxon is under one read in
 each of them, not that it is at zero. Without a floor the test collapses to "any

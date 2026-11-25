@@ -165,6 +165,12 @@ def main():
     parser.add_argument("--controls",
                         help="negative-control sample IDs: comma-separated, or a file of one "
                              "per line. Without this only --prevalence can run.")
+    parser.add_argument("--absent-controls",
+                        help="comma-separated negative controls that have no column here because "
+                             "an earlier step left them out of this table (no classified reads, "
+                             "or no taxon reaching Bracken's threshold). They are reported and "
+                             "not scored. If no control in --controls is left, the table "
+                             "passes through with no cell zeroed.")
     parser.add_argument("--ratio", type=float, default=10.0,
                         help="a taxon is kept in a sample only where it reaches this multiple "
                              "of its control level (counts per million classified reads)")
@@ -193,7 +199,8 @@ def main():
                         help="reads in a library for --prevalence to count it as present")
     args = parser.parse_args()
 
-    if not args.controls and args.prevalence <= 0:
+    absent = [entry.strip() for entry in (args.absent_controls or "").split(",") if entry.strip()]
+    if not args.controls and not absent and args.prevalence <= 0:
         raise SystemExit(
             "control_filter: nothing to do - neither --controls nor --prevalence was given."
         )
@@ -374,6 +381,12 @@ def main():
     summary = ", ".join(f"{count} {call}" for call, count in sorted(counts.items()))
     print(
         f"[control_filter] {len(rows)} taxa: {summary}. "
+        + (
+            f"{len(absent)} control(s) not in this table, left out upstream: {', '.join(absent)}"
+            + ("; no control left to judge against, no cell zeroed. " if not controls else ". ")
+            if absent
+            else ""
+        )
         + (
             f"{len(controls)} control(s) vs {len(real)} sample(s); zeroed {zeroed_cells} cell(s) "
             f"holding {zeroed_reads:.0f} of {total_reads:.0f} reads "
